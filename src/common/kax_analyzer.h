@@ -11,11 +11,11 @@
    Written by Moritz Bunkus <moritz@bunkus.org>.
 */
 
-#ifndef MTX_COMMON_KAX_ANALYZER_H
-#define MTX_COMMON_KAX_ANALYZER_H
+#pragma once
 
 #include "common/common_pch.h"
 
+#include <ebml/EbmlHead.h>
 #include <matroska/KaxSegment.h>
 
 #include "common/ebml.h"
@@ -24,8 +24,10 @@
 using namespace libebml;
 using namespace libmatroska;
 
-class bitvalue_c;
-using bitvalue_cptr = std::shared_ptr<bitvalue_c>;
+namespace mtx { namespace bits {
+class value_c;
+using value_cptr = std::shared_ptr<value_c>;
+}}
 
 class kax_analyzer_data_c;
 using kax_analyzer_data_cptr = std::shared_ptr<kax_analyzer_data_c>;
@@ -101,6 +103,7 @@ private:
   mm_io_c *m_file{};
   bool m_close_file{true};
   std::shared_ptr<KaxSegment> m_segment;
+  std::shared_ptr<EbmlHead> m_ebml_head;
   uint64_t m_segment_end{};
   std::map<int64_t, bool> m_meta_seeks_by_position;
   EbmlStream *m_stream{};
@@ -109,6 +112,7 @@ private:
   open_mode m_open_mode{MODE_WRITE};
   bool m_throw_on_error{};
   boost::optional<uint64_t> m_parser_start_position;
+  bool m_is_webm{};
 
 public:                         // Static functions
   static bool probe(std::string file_name);
@@ -118,8 +122,8 @@ public:
   kax_analyzer_c(mm_io_c *file);
   virtual ~kax_analyzer_c();
 
-  virtual update_element_result_e update_element(EbmlElement *e, bool write_defaults = false);
-  virtual update_element_result_e update_element(ebml_element_cptr const &e, bool write_defaults = false);
+  virtual update_element_result_e update_element(EbmlElement *e, bool write_defaults = false, bool add_mandatory_elements_if_missing = true);
+  virtual update_element_result_e update_element(ebml_element_cptr const &e, bool write_defaults = false, bool add_mandatory_elements_if_missing = true);
 
   virtual update_element_result_e remove_elements(EbmlId const &id);
 
@@ -130,6 +134,9 @@ public:
 
   virtual void with_elements(const EbmlId &id, std::function<void(kax_analyzer_data_c const &)> worker) const;
   virtual int find(EbmlId const &id);
+
+  virtual EbmlHead &get_ebml_head();
+  virtual bool is_webm() const;
 
   virtual uint64_t get_segment_pos() const;
   virtual uint64_t get_segment_data_start_pos() const;
@@ -171,7 +178,7 @@ public:
     return get_placement_strategy_for(e.get());
   }
 
-  static bitvalue_cptr read_segment_uid_from(std::string const &file_name);
+  static mtx::bits::value_cptr read_segment_uid_from(std::string const &file_name);
 
 protected:
   virtual void _log_debug_message(const std::string &message);
@@ -201,6 +208,8 @@ protected:
   virtual void fix_element_sizes(uint64_t file_size);
   virtual void fix_unknown_size_for_last_level1_element();
 
+  virtual void determine_webm();
+
 protected:
   virtual bool process_internal();
 };
@@ -224,5 +233,3 @@ public:
   virtual void debug_abort_process();
 };
 using console_kax_analyzer_cptr = std::shared_ptr<console_kax_analyzer_c>;
-
-#endif  // MTX_COMMON_KAX_ANALYZER_H

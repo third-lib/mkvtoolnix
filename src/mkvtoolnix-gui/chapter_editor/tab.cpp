@@ -1,5 +1,6 @@
 #include "common/common_pch.h"
 
+#include <QDebug>
 #include <QDir>
 #include <QFileInfo>
 #include <QMenu>
@@ -12,11 +13,12 @@
 #include "common/chapters/chapters.h"
 #include "common/construct.h"
 #include "common/ebml.h"
+#include "common/kax_file.h"
+#include "common/math.h"
 #include "common/mm_io_x.h"
 #include "common/mpls.h"
 #include "common/qt.h"
 #include "common/segmentinfo.h"
-#include "common/segment_tracks.h"
 #include "common/strings/formatting.h"
 #include "common/strings/parsing.h"
 #include "common/translation.h"
@@ -27,6 +29,7 @@
 #include "mkvtoolnix-gui/chapter_editor/name_model.h"
 #include "mkvtoolnix-gui/chapter_editor/mass_modification_dialog.h"
 #include "mkvtoolnix-gui/chapter_editor/tab.h"
+#include "mkvtoolnix-gui/chapter_editor/tab_p.h"
 #include "mkvtoolnix-gui/chapter_editor/tool.h"
 #include "mkvtoolnix-gui/main_window/main_window.h"
 #include "mkvtoolnix-gui/main_window/select_character_set_dialog.h"
@@ -42,99 +45,122 @@ namespace mtx { namespace gui { namespace ChapterEditor {
 
 using namespace mtx::gui;
 
+TabPrivate::TabPrivate(Tab &tab,
+                       QString const &pFileName)
+  : ui{new Ui::Tab}
+  , fileName{pFileName}
+  , chapterModel{new ChapterModel{&tab}}
+  , nameModel{new NameModel{&tab}}
+  , expandAllAction{new QAction{&tab}}
+  , collapseAllAction{new QAction{&tab}}
+  , addEditionBeforeAction{new QAction{&tab}}
+  , addEditionAfterAction{new QAction{&tab}}
+  , addChapterBeforeAction{new QAction{&tab}}
+  , addChapterAfterAction{new QAction{&tab}}
+  , addSubChapterAction{new QAction{&tab}}
+  , removeElementAction{new QAction{&tab}}
+  , duplicateAction{new QAction{&tab}}
+  , massModificationAction{new QAction{&tab}}
+  , generateSubChaptersAction{new QAction{&tab}}
+  , renumberSubChaptersAction{new QAction{&tab}}
+{
+}
+
 Tab::Tab(QWidget *parent,
          QString const &fileName)
   : QWidget{parent}
-  , ui{new Ui::Tab}
-  , m_fileName{fileName}
-  , m_chapterModel{new ChapterModel{this}}
-  , m_nameModel{new NameModel{this}}
-  , m_expandAllAction{new QAction{this}}
-  , m_collapseAllAction{new QAction{this}}
-  , m_addEditionBeforeAction{new QAction{this}}
-  , m_addEditionAfterAction{new QAction{this}}
-  , m_addChapterBeforeAction{new QAction{this}}
-  , m_addChapterAfterAction{new QAction{this}}
-  , m_addSubChapterAction{new QAction{this}}
-  , m_removeElementAction{new QAction{this}}
-  , m_duplicateAction{new QAction{this}}
-  , m_massModificationAction{new QAction{this}}
-  , m_generateSubChaptersAction{new QAction{this}}
-  , m_renumberSubChaptersAction{new QAction{this}}
+  , d_ptr{new TabPrivate{*this, fileName}}
 {
-  // Setup UI controls.
-  ui->setupUi(this);
+  setup();
+}
 
-  setupUi();
-
-  retranslateUi();
+Tab::Tab(QWidget *parent,
+         TabPrivate &d)
+  : QWidget{parent}
+  , d_ptr{&d}
+{
+  setup();
 }
 
 Tab::~Tab() {
 }
 
 void
+Tab::setup() {
+  Q_D(Tab);
+
+  // Setup UI controls.
+  d->ui->setupUi(this);
+
+  setupUi();
+
+  retranslateUi();
+}
+
+void
 Tab::setupUi() {
-  Util::Settings::get().handleSplitterSizes(ui->chapterEditorSplitter);
+  Q_D(Tab);
 
-  ui->elements->setModel(m_chapterModel);
-  ui->tvChNames->setModel(m_nameModel);
+  Util::Settings::get().handleSplitterSizes(d->ui->chapterEditorSplitter);
 
-  ui->cbChNameCountry ->view()->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+  d->ui->elements->setModel(d->chapterModel);
+  d->ui->tvChNames->setModel(d->nameModel);
 
-  ui->cbChNameLanguage->setup();
-  ui->cbChNameCountry->setup(true);
+  d->ui->cbChNameCountry->view()->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
 
-  m_nameWidgets << ui->pbChRemoveName
-                << ui->lChName         << ui->leChName
-                << ui->lChNameLanguage << ui->cbChNameLanguage
-                << ui->lChNameCountry  << ui->cbChNameCountry;
+  d->ui->cbChNameLanguage->setup();
+  d->ui->cbChNameCountry->setup(true);
 
-  Util::fixScrollAreaBackground(ui->scrollArea);
-  Util::fixComboBoxViewWidth(*ui->cbChNameLanguage);
-  Util::fixComboBoxViewWidth(*ui->cbChNameCountry);
-  Util::HeaderViewManager::create(*ui->elements,  "ChapterEditor::Elements");
-  Util::HeaderViewManager::create(*ui->tvChNames, "ChapterEditor::ChapterNames");
+  d->nameWidgets << d->ui->pbChRemoveName
+                 << d->ui->lChName         << d->ui->leChName
+                 << d->ui->lChNameLanguage << d->ui->cbChNameLanguage
+                 << d->ui->lChNameCountry  << d->ui->cbChNameCountry;
 
-  m_addEditionBeforeAction->setIcon(QIcon{Q(":/icons/16x16/edit-table-insert-row-above.png")});
-  m_addEditionAfterAction->setIcon(QIcon{Q(":/icons/16x16/edit-table-insert-row-below.png")});
-  m_addChapterBeforeAction->setIcon(QIcon{Q(":/icons/16x16/edit-table-insert-row-above.png")});
-  m_addChapterAfterAction->setIcon(QIcon{Q(":/icons/16x16/edit-table-insert-row-below.png")});
-  m_addSubChapterAction->setIcon(QIcon{Q(":/icons/16x16/edit-table-insert-row-under.png")});
-  m_generateSubChaptersAction->setIcon(QIcon{Q(":/icons/16x16/.png")});
-  m_duplicateAction->setIcon(QIcon{Q(":/icons/16x16/tab-duplicate.png")});
-  m_removeElementAction->setIcon(QIcon{Q(":/icons/16x16/list-remove.png")});
-  m_renumberSubChaptersAction->setIcon(QIcon{Q(":/icons/16x16/format-list-ordered.png")});
-  m_massModificationAction->setIcon(QIcon{Q(":/icons/16x16/tools-wizard.png")});
+  Util::fixScrollAreaBackground(d->ui->scrollArea);
+  Util::fixComboBoxViewWidth(*d->ui->cbChNameLanguage);
+  Util::fixComboBoxViewWidth(*d->ui->cbChNameCountry);
+  Util::HeaderViewManager::create(*d->ui->elements,  "ChapterEditor::Elements");
+  Util::HeaderViewManager::create(*d->ui->tvChNames, "ChapterEditor::ChapterNames");
+
+  d->addEditionBeforeAction->setIcon(QIcon{Q(":/icons/16x16/edit-table-insert-row-above.png")});
+  d->addEditionAfterAction->setIcon(QIcon{Q(":/icons/16x16/edit-table-insert-row-below.png")});
+  d->addChapterBeforeAction->setIcon(QIcon{Q(":/icons/16x16/edit-table-insert-row-above.png")});
+  d->addChapterAfterAction->setIcon(QIcon{Q(":/icons/16x16/edit-table-insert-row-below.png")});
+  d->addSubChapterAction->setIcon(QIcon{Q(":/icons/16x16/edit-table-insert-row-under.png")});
+  d->generateSubChaptersAction->setIcon(QIcon{Q(":/icons/16x16/.png")});
+  d->duplicateAction->setIcon(QIcon{Q(":/icons/16x16/tab-duplicate.png")});
+  d->removeElementAction->setIcon(QIcon{Q(":/icons/16x16/list-remove.png")});
+  d->renumberSubChaptersAction->setIcon(QIcon{Q(":/icons/16x16/format-list-ordered.png")});
+  d->massModificationAction->setIcon(QIcon{Q(":/icons/16x16/tools-wizard.png")});
 
   auto mw = MainWindow::get();
-  connect(ui->elements,                    &Util::BasicTreeView::customContextMenuRequested,                       this,                 &Tab::showChapterContextMenu);
-  connect(ui->elements,                    &Util::BasicTreeView::deletePressed,                                    this,                 &Tab::removeElement);
-  connect(ui->elements,                    &Util::BasicTreeView::insertPressed,                                    this,                 &Tab::addEditionOrChapterAfter);
-  connect(ui->elements->selectionModel(),  &QItemSelectionModel::selectionChanged,                                 this,                 &Tab::chapterSelectionChanged);
-  connect(ui->tvChNames->selectionModel(), &QItemSelectionModel::selectionChanged,                                 this,                 &Tab::nameSelectionChanged);
-  connect(ui->leChName,                    &QLineEdit::textEdited,                                                 this,                 &Tab::chapterNameEdited);
-  connect(ui->cbChNameLanguage,            static_cast<void (QComboBox::*)(int)>(&QComboBox::currentIndexChanged), this,                 &Tab::chapterNameLanguageChanged);
-  connect(ui->cbChNameCountry,             static_cast<void (QComboBox::*)(int)>(&QComboBox::currentIndexChanged), this,                 &Tab::chapterNameCountryChanged);
-  connect(ui->pbChAddName,                 &QPushButton::clicked,                                                  this,                 &Tab::addChapterName);
-  connect(ui->pbChRemoveName,              &QPushButton::clicked,                                                  this,                 &Tab::removeChapterName);
-  connect(ui->pbBrowseSegmentUID,          &QPushButton::clicked,                                                  this,                 &Tab::addSegmentUIDFromFile);
+  connect(d->ui->elements,                    &Util::BasicTreeView::customContextMenuRequested,                       this,                    &Tab::showChapterContextMenu);
+  connect(d->ui->elements,                    &Util::BasicTreeView::deletePressed,                                    this,                    &Tab::removeElement);
+  connect(d->ui->elements,                    &Util::BasicTreeView::insertPressed,                                    this,                    &Tab::addEditionOrChapterAfter);
+  connect(d->ui->elements->selectionModel(),  &QItemSelectionModel::selectionChanged,                                 this,                    &Tab::chapterSelectionChanged);
+  connect(d->ui->tvChNames->selectionModel(), &QItemSelectionModel::selectionChanged,                                 this,                    &Tab::nameSelectionChanged);
+  connect(d->ui->leChName,                    &QLineEdit::textEdited,                                                 this,                    &Tab::chapterNameEdited);
+  connect(d->ui->cbChNameLanguage,            static_cast<void (QComboBox::*)(int)>(&QComboBox::currentIndexChanged), this,                    &Tab::chapterNameLanguageChanged);
+  connect(d->ui->cbChNameCountry,             static_cast<void (QComboBox::*)(int)>(&QComboBox::currentIndexChanged), this,                    &Tab::chapterNameCountryChanged);
+  connect(d->ui->pbChAddName,                 &QPushButton::clicked,                                                  this,                    &Tab::addChapterName);
+  connect(d->ui->pbChRemoveName,              &QPushButton::clicked,                                                  this,                    &Tab::removeChapterName);
+  connect(d->ui->pbBrowseSegmentUID,          &QPushButton::clicked,                                                  this,                    &Tab::addSegmentUIDFromFile);
 
-  connect(m_expandAllAction,               &QAction::triggered,                                                    this,                 &Tab::expandAll);
-  connect(m_collapseAllAction,             &QAction::triggered,                                                    this,                 &Tab::collapseAll);
-  connect(m_addEditionBeforeAction,        &QAction::triggered,                                                    this,                 &Tab::addEditionBefore);
-  connect(m_addEditionAfterAction,         &QAction::triggered,                                                    this,                 &Tab::addEditionAfter);
-  connect(m_addChapterBeforeAction,        &QAction::triggered,                                                    this,                 &Tab::addChapterBefore);
-  connect(m_addChapterAfterAction,         &QAction::triggered,                                                    this,                 &Tab::addChapterAfter);
-  connect(m_addSubChapterAction,           &QAction::triggered,                                                    this,                 &Tab::addSubChapter);
-  connect(m_removeElementAction,           &QAction::triggered,                                                    this,                 &Tab::removeElement);
-  connect(m_duplicateAction,               &QAction::triggered,                                                    this,                 &Tab::duplicateElement);
-  connect(m_massModificationAction,        &QAction::triggered,                                                    this,                 &Tab::massModify);
-  connect(m_generateSubChaptersAction,     &QAction::triggered,                                                    this,                 &Tab::generateSubChapters);
-  connect(m_renumberSubChaptersAction,     &QAction::triggered,                                                    this,                 &Tab::renumberSubChapters);
+  connect(d->expandAllAction,                 &QAction::triggered,                                                    this,                    &Tab::expandAll);
+  connect(d->collapseAllAction,               &QAction::triggered,                                                    this,                    &Tab::collapseAll);
+  connect(d->addEditionBeforeAction,          &QAction::triggered,                                                    this,                    &Tab::addEditionBefore);
+  connect(d->addEditionAfterAction,           &QAction::triggered,                                                    this,                    &Tab::addEditionAfter);
+  connect(d->addChapterBeforeAction,          &QAction::triggered,                                                    this,                    &Tab::addChapterBefore);
+  connect(d->addChapterAfterAction,           &QAction::triggered,                                                    this,                    &Tab::addChapterAfter);
+  connect(d->addSubChapterAction,             &QAction::triggered,                                                    this,                    &Tab::addSubChapter);
+  connect(d->removeElementAction,             &QAction::triggered,                                                    this,                    &Tab::removeElement);
+  connect(d->duplicateAction,                 &QAction::triggered,                                                    this,                    &Tab::duplicateElement);
+  connect(d->massModificationAction,          &QAction::triggered,                                                    this,                    &Tab::massModify);
+  connect(d->generateSubChaptersAction,       &QAction::triggered,                                                    this,                    &Tab::generateSubChapters);
+  connect(d->renumberSubChaptersAction,       &QAction::triggered,                                                    this,                    &Tab::renumberSubChapters);
 
-  connect(mw,                              &MainWindow::preferencesChanged,                                        ui->cbChNameLanguage, &Util::ComboBoxBase::reInitialize);
-  connect(mw,                              &MainWindow::preferencesChanged,                                        ui->cbChNameCountry,  &Util::ComboBoxBase::reInitialize);
+  connect(mw,                                 &MainWindow::preferencesChanged,                                        d->ui->cbChNameLanguage, &Util::ComboBoxBase::reInitialize);
+  connect(mw,                                 &MainWindow::preferencesChanged,                                        d->ui->cbChNameCountry,  &Util::ComboBoxBase::reInitialize);
 
   for (auto &lineEdit : findChildren<Util::BasicLineEdit *>()) {
     lineEdit->acceptDroppedFiles(false).setTextToDroppedFileName(false);
@@ -145,41 +171,45 @@ Tab::setupUi() {
 
 void
 Tab::updateFileNameDisplay() {
-  if (!m_fileName.isEmpty()) {
-    auto info = QFileInfo{m_fileName};
-    ui->fileName->setText(info.fileName());
-    ui->directory->setText(QDir::toNativeSeparators(info.path()));
+  Q_D(Tab);
+
+  if (!d->fileName.isEmpty()) {
+    auto info = QFileInfo{d->fileName};
+    d->ui->fileName->setText(info.fileName());
+    d->ui->directory->setText(QDir::toNativeSeparators(info.path()));
 
   } else {
-    ui->fileName->setText(QY("<unsaved file>"));
-    ui->directory->setText(Q(""));
+    d->ui->fileName->setText(QY("<Unsaved file>"));
+    d->ui->directory->setText(Q(""));
 
   }
 }
 
 void
 Tab::retranslateUi() {
-  ui->retranslateUi(this);
+  Q_D(Tab);
+
+  d->ui->retranslateUi(this);
 
   updateFileNameDisplay();
 
-  m_expandAllAction->setText(QY("&Expand all"));
-  m_collapseAllAction->setText(QY("&Collapse all"));
-  m_addEditionBeforeAction->setText(QY("Add new e&dition before"));
-  m_addEditionAfterAction->setText(QY("Add new ed&ition after"));
-  m_addChapterBeforeAction->setText(QY("Add new c&hapter before"));
-  m_addChapterAfterAction->setText(QY("Add new ch&apter after"));
-  m_addSubChapterAction->setText(QY("Add new &sub-chapter inside"));
-  m_removeElementAction->setText(QY("&Remove selected edition or chapter"));
-  m_duplicateAction->setText(QY("D&uplicate selected edition or chapter"));
-  m_massModificationAction->setText(QY("Additional &modifications"));
-  m_generateSubChaptersAction->setText(QY("&Generate sub-chapters"));
-  m_renumberSubChaptersAction->setText(QY("Re&number sub-chapters"));
+  d->expandAllAction->setText(QY("&Expand all"));
+  d->collapseAllAction->setText(QY("&Collapse all"));
+  d->addEditionBeforeAction->setText(QY("Add new e&dition before"));
+  d->addEditionAfterAction->setText(QY("Add new ed&ition after"));
+  d->addChapterBeforeAction->setText(QY("Add new c&hapter before"));
+  d->addChapterAfterAction->setText(QY("Add new ch&apter after"));
+  d->addSubChapterAction->setText(QY("Add new &sub-chapter inside"));
+  d->removeElementAction->setText(QY("&Remove selected edition or chapter"));
+  d->duplicateAction->setText(QY("D&uplicate selected edition or chapter"));
+  d->massModificationAction->setText(QY("Additional &modifications"));
+  d->generateSubChaptersAction->setText(QY("&Generate sub-chapters"));
+  d->renumberSubChaptersAction->setText(QY("Re&number sub-chapters"));
 
-  Util::setToolTip(ui->pbBrowseSegmentUID, QY("Select an existing Matroska or WebM file and the GUI will add its segment UID to the input field on the left."));
+  setupToolTips();
 
-  m_chapterModel->retranslateUi();
-  m_nameModel->retranslateUi();
+  d->chapterModel->retranslateUi();
+  d->nameModel->retranslateUi();
 
   resizeChapterColumnsToContents();
 
@@ -187,101 +217,211 @@ Tab::retranslateUi() {
 }
 
 void
+Tab::setupToolTips() {
+  Q_D(Tab);
+
+  Util::setToolTip(d->ui->elements, QY("Right-click for actions for editions and chapters"));
+  Util::setToolTip(d->ui->pbBrowseSegmentUID, QY("Select an existing Matroska or WebM file and the GUI will add its segment UID to the input field on the left."));
+}
+
+void
 Tab::resizeChapterColumnsToContents()
   const {
-  Util::resizeViewColumnsToContents(ui->elements);
+  Q_D(const Tab);
+
+  Util::resizeViewColumnsToContents(d->ui->elements);
 }
 
 void
 Tab::resizeNameColumnsToContents()
   const {
-  Util::resizeViewColumnsToContents(ui->tvChNames);
+  Q_D(const Tab);
+
+  Util::resizeViewColumnsToContents(d->ui->tvChNames);
 }
 
 QString
 Tab::title()
   const {
-  if (m_fileName.isEmpty())
-    return QY("<unsaved file>");
-  return QFileInfo{m_fileName}.fileName();
+  Q_D(const Tab);
+
+  if (d->fileName.isEmpty())
+    return QY("<Unsaved file>");
+  return QFileInfo{d->fileName}.fileName();
 }
 
 QString const &
 Tab::fileName()
   const {
-  return m_fileName;
+  Q_D(const Tab);
+
+  return d->fileName;
 }
 
 void
 Tab::newFile() {
+  Q_D(Tab);
+
   addEdition(false);
 
-  auto selectionModel = ui->elements->selectionModel();
-  auto selection      = QItemSelection{m_chapterModel->index(0, 0), m_chapterModel->index(0, m_chapterModel->columnCount() - 1)};
+  auto selectionModel = d->ui->elements->selectionModel();
+  auto selection      = QItemSelection{d->chapterModel->index(0, 0), d->chapterModel->index(0, d->chapterModel->columnCount() - 1)};
   selectionModel->select(selection, QItemSelectionModel::ClearAndSelect);
 
   addSubChapter();
 
-  auto parentIdx = m_chapterModel->index(0, 0);
-  selection      = QItemSelection{m_chapterModel->index(0, 0, parentIdx), m_chapterModel->index(0, m_chapterModel->columnCount() - 1, parentIdx)};
+  auto parentIdx = d->chapterModel->index(0, 0);
+  selection      = QItemSelection{d->chapterModel->index(0, 0, parentIdx), d->chapterModel->index(0, d->chapterModel->columnCount() - 1, parentIdx)};
   selectionModel->select(selection, QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Current);
 
   resizeChapterColumnsToContents();
 
-  ui->leChStart->selectAll();
-  ui->leChStart->setFocus();
+  d->ui->leChStart->selectAll();
+  d->ui->leChStart->setFocus();
 
-  m_savedState = currentState();
+  d->savedState = currentState();
 }
 
 void
 Tab::resetData() {
-  m_analyzer.reset();
-  m_nameModel->reset();
-  m_chapterModel->reset();
+  Q_D(Tab);
+
+  d->analyzer.reset();
+  d->nameModel->reset();
+  d->chapterModel->reset();
+}
+
+bool
+Tab::readFileEndTimestampForMatroska() {
+  Q_D(Tab);
+
+  d->fileEndTimestamp.reset();
+
+  auto idx = d->analyzer->find(KaxInfo::ClassInfos.GlobalId);
+  if (-1 == idx) {
+    Util::MessageBox::critical(this)->title(QY("File parsing failed")).text(QY("The file you tried to open (%1) could not be read successfully.").arg(d->fileName)).exec();
+    return false;
+  }
+
+  auto info = d->analyzer->read_element(idx);
+  if (!info) {
+    Util::MessageBox::critical(this)->title(QY("File parsing failed")).text(QY("The file you tried to open (%1) could not be read successfully.").arg(d->fileName)).exec();
+    return false;
+  }
+
+  auto durationKax = FindChild<KaxDuration>(*info);
+  if (!durationKax) {
+    qDebug() << "readFileEndTimestampForMatroska: no duration found";
+    return true;
+  }
+
+  auto timestampScale = FindChildValue<KaxTimecodeScale, uint64_t>(static_cast<KaxInfo &>(*info), TIMESTAMP_SCALE);
+  auto duration       = timestamp_c::ns(durationKax->GetValue() * timestampScale);
+
+  qDebug() << "readFileEndTimestampForMatroska: duration is" << Q(format_timestamp(duration));
+
+  auto &fileIo = d->analyzer->get_file();
+  fileIo.setFilePointer(d->analyzer->get_segment_data_start_pos());
+
+  kax_file_c fileKax{fileIo};
+  fileKax.enable_reporting(false);
+
+  auto cluster = std::shared_ptr<KaxCluster>(fileKax.read_next_cluster());
+  if (!cluster) {
+    qDebug() << "readFileEndTimestampForMatroska: no cluster found";
+    return true;
+  }
+
+  cluster->InitTimecode(FindChildValue<KaxClusterTimecode>(*cluster), timestampScale);
+
+  auto minBlockTimestamp = timestamp_c::ns(0);
+
+  for (auto const &child : *cluster) {
+    timestamp_c blockTimestamp;
+
+    if (Is<KaxBlockGroup>(child)) {
+      auto &group = static_cast<KaxBlockGroup &>(*child);
+      auto block  = FindChild<KaxBlock>(group);
+
+      if (block) {
+        block->SetParent(*cluster);
+        blockTimestamp = timestamp_c::ns(mtx::math::to_signed(block->GlobalTimecode()));
+      }
+
+    } else if (Is<KaxSimpleBlock>(child)) {
+      auto &block = static_cast<KaxSimpleBlock &>(*child);
+      block.SetParent(*cluster);
+      blockTimestamp = timestamp_c::ns(mtx::math::to_signed(block.GlobalTimecode()));
+
+    }
+
+    if (   blockTimestamp.valid()
+        && (   !minBlockTimestamp.valid()
+            || (blockTimestamp < minBlockTimestamp)))
+      minBlockTimestamp = blockTimestamp;
+  }
+
+  d->fileEndTimestamp = minBlockTimestamp + duration;
+
+  qDebug() << "readFileEndTimestampForMatroska: minBlockTimestamp" << Q(format_timestamp(minBlockTimestamp)) << "result" << Q(format_timestamp(d->fileEndTimestamp));
+
+  return true;
 }
 
 Tab::LoadResult
 Tab::loadFromMatroskaFile() {
-  m_analyzer = std::make_unique<QtKaxAnalyzer>(this, m_fileName);
+  Q_D(Tab);
 
-  if (!m_analyzer->set_parse_mode(kax_analyzer_c::parse_mode_fast).set_open_mode(MODE_READ).process()) {
+  d->analyzer = std::make_unique<QtKaxAnalyzer>(this, d->fileName);
+
+  if (!d->analyzer->set_parse_mode(kax_analyzer_c::parse_mode_fast).set_open_mode(MODE_READ).process()) {
     auto text = Q("%1 %2")
-      .arg(QY("The file you tried to open (%1) could not be read successfully.").arg(m_fileName))
+      .arg(QY("The file you tried to open (%1) could not be read successfully.").arg(d->fileName))
       .arg(QY("Possible reasons are: the file is not a Matroska file; the file is write-protected; the file is locked by another process; you do not have permission to access the file."));
     Util::MessageBox::critical(this)->title(QY("File parsing failed")).text(text).exec();
     emit removeThisTab();
     return {};
   }
 
-  auto idx = m_analyzer->find(KaxChapters::ClassInfos.GlobalId);
+  auto idx = d->analyzer->find(KaxChapters::ClassInfos.GlobalId);
   if (-1 == idx) {
-    Util::MessageBox::critical(this)->title(QY("File parsing failed")).text(QY("The file you tried to open (%1) does not contain any chapters.").arg(m_fileName)).exec();
+    Util::MessageBox::critical(this)->title(QY("File parsing failed")).text(QY("The file you tried to open (%1) does not contain any chapters.").arg(d->fileName)).exec();
     emit removeThisTab();
     return {};
   }
 
-  auto chapters = m_analyzer->read_element(idx);
+  auto chapters = d->analyzer->read_element(idx);
   if (!chapters) {
-    Util::MessageBox::critical(this)->title(QY("File parsing failed")).text(QY("The file you tried to open (%1) could not be read successfully.").arg(m_fileName)).exec();
+    Util::MessageBox::critical(this)->title(QY("File parsing failed")).text(QY("The file you tried to open (%1) could not be read successfully.").arg(d->fileName)).exec();
     emit removeThisTab();
+    return {};
   }
 
-  m_analyzer->close_file();
+  if (!readFileEndTimestampForMatroska()) {
+    emit removeThisTab();
+    return {};
+  }
+
+  d->analyzer->close_file();
 
   return { std::static_pointer_cast<KaxChapters>(chapters), true };
 }
 
 Tab::LoadResult
 Tab::checkSimpleFormatForBomAndNonAscii(ChaptersPtr const &chapters) {
-  auto result = Util::checkForBomAndNonAscii(m_fileName);
-  if ((BO_NONE != result.byteOrder) || !result.containsNonAscii)
+  Q_D(Tab);
+
+  auto result = Util::checkForBomAndNonAscii(d->fileName);
+
+  if (   (BO_NONE != result.byteOrder)
+      || !result.containsNonAscii
+      || !Util::Settings::get().m_ceTextFileCharacterSet.isEmpty())
     return { chapters, false };
 
   Util::enableChildren(this, false);
 
-  m_originalFileName = m_fileName;
-  auto dlg           = new SelectCharacterSetDialog{this, m_originalFileName};
+  d->originalFileName = d->fileName;
+  auto dlg            = new SelectCharacterSetDialog{this, d->originalFileName};
 
   connect(dlg, &SelectCharacterSetDialog::characterSetSelected, this, &Tab::reloadSimpleChaptersWithCharacterSet);
   connect(dlg, &SelectCharacterSetDialog::rejected,             this, &Tab::closeTab);
@@ -293,46 +433,50 @@ Tab::checkSimpleFormatForBomAndNonAscii(ChaptersPtr const &chapters) {
 
 Tab::LoadResult
 Tab::loadFromChapterFile() {
-  auto isSimpleFormat = false;
-  auto chapters       = ChaptersPtr{};
-  auto error          = QString{};
+  Q_D(Tab);
+
+  auto format   = mtx::chapters::format_e::xml;
+  auto chapters = ChaptersPtr{};
+  auto error    = QString{};
 
   try {
-    chapters = parse_chapters(to_utf8(m_fileName), 0, -1, 0, "", "", true, &isSimpleFormat);
+    chapters = mtx::chapters::parse(to_utf8(d->fileName), 0, -1, 0, "", to_utf8(Util::Settings::get().m_ceTextFileCharacterSet), true, &format);
 
   } catch (mtx::mm_io::exception &ex) {
     error = Q(ex.what());
 
-  } catch (mtx::chapter_parser_x &ex) {
+  } catch (mtx::chapters::parser_x &ex) {
     error = Q(ex.what());
   }
 
   if (!chapters) {
-    auto message = QY("The file you tried to open (%1) is recognized as neither a valid Matroska nor a valid chapter file.").arg(m_fileName);
+    auto message = QY("The file you tried to open (%1) is recognized as neither a valid Matroska nor a valid chapter file.").arg(d->fileName);
     if (!error.isEmpty())
       message = Q("%1 %2").arg(message).arg(QY("Error message from the parser: %1").arg(error));
 
     Util::MessageBox::critical(this)->title(QY("File parsing failed")).text(message).exec();
     emit removeThisTab();
 
-  } else if (isSimpleFormat) {
+  } else if (format != mtx::chapters::format_e::xml) {
     auto result = checkSimpleFormatForBomAndNonAscii(chapters);
 
-    m_fileName.clear();
+    d->fileName.clear();
     emit titleChanged();
 
     return result;
   }
 
-  return { chapters, !isSimpleFormat };
+  return { chapters, format == mtx::chapters::format_e::xml };
 }
 
 void
 Tab::reloadSimpleChaptersWithCharacterSet(QString const &characterSet) {
+  Q_D(Tab);
+
   auto error = QString{};
 
   try {
-    auto chapters = parse_chapters(to_utf8(m_originalFileName), 0, -1, 0, "", to_utf8(characterSet), true);
+    auto chapters = mtx::chapters::parse(to_utf8(d->originalFileName), 0, -1, 0, "", to_utf8(characterSet), true);
     chaptersLoaded(chapters, false);
 
     Util::enableChildren(this, true);
@@ -343,7 +487,7 @@ Tab::reloadSimpleChaptersWithCharacterSet(QString const &characterSet) {
 
   } catch (mtx::mm_io::exception &ex) {
     error = Q(ex.what());
-  } catch (mtx::chapter_parser_x &ex) {
+  } catch (mtx::chapters::parser_x &ex) {
     error = Q(ex.what());
   }
 
@@ -355,21 +499,23 @@ Tab::reloadSimpleChaptersWithCharacterSet(QString const &characterSet) {
 bool
 Tab::areWidgetsEnabled()
   const {
-  return ui->elements->isEnabled();
+  Q_D(const Tab);
+
+  return d->ui->elements->isEnabled();
 }
 
 ChaptersPtr
-Tab::timecodesToChapters(std::vector<timestamp_c> const &timecodes)
+Tab::timestampsToChapters(std::vector<timestamp_c> const &timestamps)
   const {
   auto &cfg     = Util::Settings::get();
   auto chapters = ChaptersPtr{ static_cast<KaxChapters *>(mtx::construct::cons<KaxChapters>(mtx::construct::cons<KaxEditionEntry>())) };
   auto &edition = GetChild<KaxEditionEntry>(*chapters);
   auto idx      = 0;
 
-  for (auto const &timecode : timecodes) {
+  for (auto const &timestamp : timestamps) {
     auto nameTemplate = QString{ cfg.m_chapterNameTemplate };
-    auto name         = formatChapterName(nameTemplate, ++idx, timecode);
-    auto atom         = mtx::construct::cons<KaxChapterAtom>(new KaxChapterTimeStart, timecode.to_ns(),
+    auto name         = formatChapterName(nameTemplate, ++idx, timestamp);
+    auto atom         = mtx::construct::cons<KaxChapterAtom>(new KaxChapterTimeStart, timestamp.to_ns(),
                                                              mtx::construct::cons<KaxChapterDisplay>(new KaxChapterString,   name,
                                                                                                      new KaxChapterLanguage, to_utf8(cfg.m_defaultChapterLanguage)));
     if (!cfg.m_defaultChapterCountry.isEmpty())
@@ -383,28 +529,30 @@ Tab::timecodesToChapters(std::vector<timestamp_c> const &timecodes)
 
 Tab::LoadResult
 Tab::loadFromMplsFile() {
+  Q_D(Tab);
+
   auto chapters = ChaptersPtr{};
   auto error    = QString{};
 
   try {
-    auto in     = mm_file_io_c{to_utf8(m_fileName)};
-    auto parser = mpls::parser_c{};
+    auto in     = mm_file_io_c{to_utf8(d->fileName)};
+    auto parser = ::mtx::bluray::mpls::parser_c{};
 
     parser.enable_dropping_last_entry_if_at_end(Util::Settings::get().m_dropLastChapterFromBlurayPlaylist);
 
     if (parser.parse(&in))
-      chapters = timecodesToChapters(parser.get_chapters());
+      chapters = timestampsToChapters(parser.get_chapters());
 
   } catch (mtx::mm_io::exception &ex) {
     error = Q(ex.what());
 
-  } catch (mtx::mpls::exception &ex) {
+  } catch (mtx::bluray::mpls::exception &ex) {
     error = Q(ex.what());
 
   }
 
   if (!chapters) {
-    auto message = QY("The file you tried to open (%1) is recognized as neither a valid Matroska nor a valid chapter file.").arg(m_fileName);
+    auto message = QY("The file you tried to open (%1) is recognized as neither a valid Matroska nor a valid chapter file.").arg(d->fileName);
     if (!error.isEmpty())
       message = Q("%1 %2").arg(message).arg(QY("Error message from the parser: %1").arg(error));
 
@@ -412,7 +560,7 @@ Tab::loadFromMplsFile() {
     emit removeThisTab();
 
   } else {
-    m_fileName.clear();
+    d->fileName.clear();
     emit titleChanged();
   }
 
@@ -421,12 +569,14 @@ Tab::loadFromMplsFile() {
 
 void
 Tab::load() {
+  Q_D(Tab);
+
   resetData();
 
-  m_savedState = currentState();
-  auto result  = kax_analyzer_c::probe(to_utf8(m_fileName)) ? loadFromMatroskaFile()
-               : m_fileName.toLower().endsWith(Q(".mpls"))  ? loadFromMplsFile()
-               :                                              loadFromChapterFile();
+  d->savedState = currentState();
+  auto result   = kax_analyzer_c::probe(to_utf8(d->fileName)) ? loadFromMatroskaFile()
+                : d->fileName.toLower().endsWith(Q(".mpls"))  ? loadFromMplsFile()
+                :                                               loadFromChapterFile();
 
   if (result.first)
     chaptersLoaded(result.first, result.second);
@@ -435,30 +585,34 @@ Tab::load() {
 void
 Tab::chaptersLoaded(ChaptersPtr const &chapters,
                     bool canBeWritten) {
-  fix_chapter_country_codes(*chapters);
+  Q_D(Tab);
 
-  if (!m_fileName.isEmpty())
-    m_fileModificationTime = QFileInfo{m_fileName}.lastModified();
+  mtx::chapters::fix_country_codes(*chapters);
 
-  disconnect(m_chapterModel, &QStandardItemModel::rowsInserted, this, &Tab::expandInsertedElements);
+  if (!d->fileName.isEmpty())
+    d->fileModificationTime = QFileInfo{d->fileName}.lastModified();
 
-  m_chapterModel->reset();
-  m_chapterModel->populate(*chapters);
+  disconnect(d->chapterModel, &QStandardItemModel::rowsInserted, this, &Tab::expandInsertedElements);
+
+  d->chapterModel->reset();
+  d->chapterModel->populate(*chapters);
 
   if (canBeWritten)
-    m_savedState = currentState();
+    d->savedState = currentState();
 
   expandAll();
   resizeChapterColumnsToContents();
 
-  connect(m_chapterModel, &QStandardItemModel::rowsInserted, this, &Tab::expandInsertedElements);
+  connect(d->chapterModel, &QStandardItemModel::rowsInserted, this, &Tab::expandInsertedElements);
 
   MainWindow::chapterEditorTool()->enableMenuActions();
 }
 
 void
 Tab::save() {
-  if (!m_analyzer)
+  Q_D(Tab);
+
+  if (!d->analyzer)
     saveAsXmlImpl(false);
 
   else
@@ -468,23 +622,25 @@ Tab::save() {
 void
 Tab::saveAsImpl(bool requireNewFileName,
                 std::function<bool(bool, QString &)> const &worker) {
+  Q_D(Tab);
+
   if (!copyControlsToStorage())
     return;
 
-  m_chapterModel->fixMandatoryElements();
+  d->chapterModel->fixMandatoryElements();
   setControlsFromStorage();
 
-  auto newFileName = m_fileName;
-  if (m_fileName.isEmpty())
+  auto newFileName = d->fileName;
+  if (d->fileName.isEmpty())
     requireNewFileName = true;
 
   if (!worker(requireNewFileName, newFileName))
     return;
 
-  m_savedState = currentState();
+  d->savedState = currentState();
 
-  if (newFileName != m_fileName) {
-    m_fileName             = newFileName;
+  if (newFileName != d->fileName) {
+    d->fileName            = newFileName;
 
     auto &settings         = Util::Settings::get();
     settings.m_lastOpenDir = QFileInfo{newFileName}.path();
@@ -504,9 +660,11 @@ Tab::saveAsXml() {
 
 void
 Tab::saveAsXmlImpl(bool requireNewFileName) {
-  saveAsImpl(requireNewFileName, [this](bool doRequireNewFileName, QString &newFileName) -> bool {
+  Q_D(Tab);
+
+  saveAsImpl(requireNewFileName, [this, d](bool doRequireNewFileName, QString &newFileName) -> bool {
     if (doRequireNewFileName) {
-      auto defaultFilePath = !m_fileName.isEmpty() ? Util::dirPath(QFileInfo{m_fileName}.path()) : Util::Settings::get().lastOpenDirPath();
+      auto defaultFilePath = !d->fileName.isEmpty() ? Util::dirPath(QFileInfo{d->fileName}.path()) : Util::Settings::get().lastOpenDirPath();
       newFileName          = Util::getSaveFileName(this, QY("Save chapters as XML"), defaultFilePath, QY("XML chapter files") + Q(" (*.xml);;") + QY("All files") + Q(" (*)"));
 
       if (newFileName.isEmpty())
@@ -514,7 +672,7 @@ Tab::saveAsXmlImpl(bool requireNewFileName) {
     }
 
     try {
-      auto chapters = m_chapterModel->allChapters();
+      auto chapters = d->chapterModel->allChapters();
       auto out      = mm_file_io_c{to_utf8(newFileName), MODE_CREATE};
       mtx::xml::ebml_chapters_converter_c::write_xml(*chapters, out);
 
@@ -538,21 +696,27 @@ Tab::saveToMatroska() {
 
 void
 Tab::saveToMatroskaImpl(bool requireNewFileName) {
-  saveAsImpl(requireNewFileName, [this](bool doRequireNewFileName, QString &newFileName) -> bool {
-    if (!m_analyzer)
+  Q_D(Tab);
+
+  saveAsImpl(requireNewFileName, [this, d](bool doRequireNewFileName, QString &newFileName) -> bool {
+    if (!d->analyzer)
       doRequireNewFileName = true;
 
     if (doRequireNewFileName) {
-      auto defaultFilePath = !m_fileName.isEmpty() ? QFileInfo{m_fileName}.path() : Util::Settings::get().lastOpenDirPath();
-      newFileName          = Util::getOpenFileName(this, QY("Save chapters to Matroska file"), defaultFilePath, QY("Matroska files") + Q(" (*.mkv *.mka *.mks *.mk3d);;") + QY("All files") + Q(" (*)"));
+      auto defaultFilePath = !d->fileName.isEmpty() ? QFileInfo{d->fileName}.path() : Util::Settings::get().lastOpenDirPath();
+      newFileName          = Util::getOpenFileName(this, QY("Save chapters to Matroska or WebM file"), defaultFilePath,
+                                                   QY("Supported file types") + Q(" (*.mkv *.mka *.mks *.mk3d *.webm);;") +
+                                                   QY("Matroska files")       + Q(" (*.mkv *.mka *.mks *.mk3d);;") +
+                                                   QY("WebM files")           + Q(" (*.webm);;") +
+                                                   QY("All files")            + Q(" (*)"));
 
       if (newFileName.isEmpty())
         return false;
     }
 
-    if (doRequireNewFileName || (QFileInfo{newFileName}.lastModified() != m_fileModificationTime)) {
-      m_analyzer = std::make_unique<QtKaxAnalyzer>(this, newFileName);
-      if (!m_analyzer->set_parse_mode(kax_analyzer_c::parse_mode_fast).process()) {
+    if (doRequireNewFileName || (QFileInfo{newFileName}.lastModified() != d->fileModificationTime)) {
+      d->analyzer = std::make_unique<QtKaxAnalyzer>(this, newFileName);
+      if (!d->analyzer->set_parse_mode(kax_analyzer_c::parse_mode_fast).process()) {
         auto text = Q("%1 %2")
           .arg(QY("The file you tried to open (%1) could not be read successfully.").arg(newFileName))
           .arg(QY("Possible reasons are: the file is not a Matroska file; the file is write-protected; the file is locked by another process; you do not have permission to access the file."));
@@ -560,25 +724,30 @@ Tab::saveToMatroskaImpl(bool requireNewFileName) {
         return false;
       }
 
-      m_fileName = newFileName;
+      d->fileName = newFileName;
     }
 
-    auto chapters = m_chapterModel->allChapters();
+    auto chapters = d->chapterModel->allChapters();
     auto result   = kax_analyzer_c::uer_success;
 
-    if (chapters && (0 != chapters->ListSize()))
-      result = m_analyzer->update_element(chapters, true);
-    else
-      result = m_analyzer->remove_elements(EBML_ID(KaxChapters));
+    if (chapters && (0 != chapters->ListSize())) {
+      fix_mandatory_elements(chapters.get());
+      if (d->analyzer->is_webm())
+        mtx::chapters::remove_elements_unsupported_by_webm(*chapters);
 
-    m_analyzer->close_file();
+      result = d->analyzer->update_element(chapters, !d->analyzer->is_webm(), false);
+
+    } else
+      result = d->analyzer->remove_elements(EBML_ID(KaxChapters));
+
+    d->analyzer->close_file();
 
     if (kax_analyzer_c::uer_success != result) {
       QtKaxAnalyzer::displayUpdateElementResult(this, result, QY("Saving the chapters failed."));
       return false;
     }
 
-    m_fileModificationTime = QFileInfo{m_fileName}.lastModified();
+    d->fileModificationTime = QFileInfo{d->fileName}.lastModified();
 
     return true;
   });
@@ -587,25 +756,31 @@ Tab::saveToMatroskaImpl(bool requireNewFileName) {
 void
 Tab::selectChapterRow(QModelIndex const &idx,
                       bool ignoreSelectionChanges) {
-  auto selection = QItemSelection{idx.sibling(idx.row(), 0), idx.sibling(idx.row(), m_chapterModel->columnCount() - 1)};
+  Q_D(Tab);
 
-  m_ignoreChapterSelectionChanges = ignoreSelectionChanges;
-  ui->elements->selectionModel()->setCurrentIndex(idx.sibling(idx.row(), 0), QItemSelectionModel::ClearAndSelect);
-  ui->elements->selectionModel()->select(selection, QItemSelectionModel::ClearAndSelect);
-  m_ignoreChapterSelectionChanges = false;
+  auto selection = QItemSelection{idx.sibling(idx.row(), 0), idx.sibling(idx.row(), d->chapterModel->columnCount() - 1)};
+
+  d->ignoreChapterSelectionChanges = ignoreSelectionChanges;
+  d->ui->elements->selectionModel()->setCurrentIndex(idx.sibling(idx.row(), 0), QItemSelectionModel::ClearAndSelect);
+  d->ui->elements->selectionModel()->select(selection, QItemSelectionModel::ClearAndSelect);
+  d->ignoreChapterSelectionChanges = false;
 }
 
 bool
 Tab::copyControlsToStorage() {
-  auto idx = Util::selectedRowIdx(ui->elements);
+  Q_D(Tab);
+
+  auto idx = Util::selectedRowIdx(d->ui->elements);
   return idx.isValid() ? copyControlsToStorage(idx) : true;
 }
 
 bool
 Tab::copyControlsToStorage(QModelIndex const &idx) {
+  Q_D(Tab);
+
   auto result = copyControlsToStorageImpl(idx);
   if (result.first) {
-    m_chapterModel->updateRow(idx);
+    d->chapterModel->updateRow(idx);
     return true;
   }
 
@@ -618,25 +793,29 @@ Tab::copyControlsToStorage(QModelIndex const &idx) {
 
 Tab::ValidationResult
 Tab::copyControlsToStorageImpl(QModelIndex const &idx) {
-  auto stdItem = m_chapterModel->itemFromIndex(idx);
+  Q_D(Tab);
+
+  auto stdItem = d->chapterModel->itemFromIndex(idx);
   if (!stdItem)
     return { true, QString{} };
 
   if (!idx.parent().isValid())
-    return copyEditionControlsToStorage(m_chapterModel->editionFromItem(stdItem));
-  return copyChapterControlsToStorage(m_chapterModel->chapterFromItem(stdItem));
+    return copyEditionControlsToStorage(d->chapterModel->editionFromItem(stdItem));
+  return copyChapterControlsToStorage(d->chapterModel->chapterFromItem(stdItem));
 }
 
 Tab::ValidationResult
 Tab::copyChapterControlsToStorage(ChapterPtr const &chapter) {
+  Q_D(Tab);
+
   if (!chapter)
     return { true, QString{} };
 
   auto uid = uint64_t{};
 
-  if (!ui->leChUid->text().isEmpty()) {
+  if (!d->ui->leChUid->text().isEmpty()) {
     auto ok = false;
-    uid     = ui->leChUid->text().toULongLong(&ok);
+    uid  = d->ui->leChUid->text().toULongLong(&ok);
     if (!ok)
       return { false, QY("The chapter UID must be a number if given.") };
   }
@@ -646,49 +825,49 @@ Tab::copyChapterControlsToStorage(ChapterPtr const &chapter) {
   else
     DeleteChildren<KaxChapterUID>(*chapter);
 
-  if (!ui->cbChFlagEnabled->isChecked())
+  if (!d->ui->cbChFlagEnabled->isChecked())
     GetChild<KaxChapterFlagEnabled>(*chapter).SetValue(0);
   else
     DeleteChildren<KaxChapterFlagEnabled>(*chapter);
 
-  if (ui->cbChFlagHidden->isChecked())
+  if (d->ui->cbChFlagHidden->isChecked())
     GetChild<KaxChapterFlagHidden>(*chapter).SetValue(1);
   else
     DeleteChildren<KaxChapterFlagHidden>(*chapter);
 
-  auto startTimecode = int64_t{};
-  if (!parse_timecode(to_utf8(ui->leChStart->text()), startTimecode))
-    return { false, QY("The start time could not be parsed: %1").arg(Q(timecode_parser_error)) };
-  GetChild<KaxChapterTimeStart>(*chapter).SetValue(startTimecode);
+  auto startTimestamp = int64_t{};
+  if (!parse_timestamp(to_utf8(d->ui->leChStart->text()), startTimestamp))
+    return { false, QY("The start time could not be parsed: %1").arg(Q(timestamp_parser_error)) };
+  GetChild<KaxChapterTimeStart>(*chapter).SetValue(startTimestamp);
 
-  if (!ui->leChEnd->text().isEmpty()) {
-    auto endTimecode = int64_t{};
-    if (!parse_timecode(to_utf8(ui->leChEnd->text()), endTimecode))
-      return { false, QY("The end time could not be parsed: %1").arg(Q(timecode_parser_error)) };
+  if (!d->ui->leChEnd->text().isEmpty()) {
+    auto endTimestamp = int64_t{};
+    if (!parse_timestamp(to_utf8(d->ui->leChEnd->text()), endTimestamp))
+      return { false, QY("The end time could not be parsed: %1").arg(Q(timestamp_parser_error)) };
 
-    if (endTimecode <= startTimecode)
-      return { false, QY("The end time must be greater than the start timecode.") };
+    if (endTimestamp <= startTimestamp)
+      return { false, QY("The end time must be greater than the start time.") };
 
-    GetChild<KaxChapterTimeEnd>(*chapter).SetValue(endTimecode);
+    GetChild<KaxChapterTimeEnd>(*chapter).SetValue(endTimestamp);
 
   } else
     DeleteChildren<KaxChapterTimeEnd>(*chapter);
 
-  if (!ui->leChSegmentUid->text().isEmpty()) {
+  if (!d->ui->leChSegmentUid->text().isEmpty()) {
     try {
-      auto value = bitvalue_c{to_utf8(ui->leChSegmentUid->text())};
+      auto value = mtx::bits::value_c{to_utf8(d->ui->leChSegmentUid->text())};
       GetChild<KaxChapterSegmentUID>(*chapter).CopyBuffer(value.data(), value.byte_size());
 
-    } catch (mtx::bitvalue_parser_x const &ex) {
+    } catch (mtx::bits::value_parser_x const &ex) {
       return { false, QY("The segment UID could not be parsed: %1").arg(ex.what()) };
     }
 
   } else
     DeleteChildren<KaxChapterSegmentUID>(*chapter);
 
-  if (!ui->leChSegmentEditionUid->text().isEmpty()) {
+  if (!d->ui->leChSegmentEditionUid->text().isEmpty()) {
     auto ok = false;
-    uid     = ui->leChSegmentEditionUid->text().toULongLong(&ok);
+    uid     = d->ui->leChSegmentEditionUid->text().toULongLong(&ok);
     if (!ok || !uid)
       return { false, QY("The segment edition UID must be a positive number if given.") };
 
@@ -696,22 +875,24 @@ Tab::copyChapterControlsToStorage(ChapterPtr const &chapter) {
   }
 
   RemoveChildren<KaxChapterDisplay>(*chapter);
-  for (auto row = 0, numRows = m_nameModel->rowCount(); row < numRows; ++row)
-    chapter->PushElement(*m_nameModel->displayFromIndex(m_nameModel->index(row, 0)));
+  for (auto row = 0, numRows = d->nameModel->rowCount(); row < numRows; ++row)
+    chapter->PushElement(*d->nameModel->displayFromIndex(d->nameModel->index(row, 0)));
 
   return { true, QString{} };
 }
 
 Tab::ValidationResult
 Tab::copyEditionControlsToStorage(EditionPtr const &edition) {
+  Q_D(Tab);
+
   if (!edition)
     return { true, QString{} };
 
   auto uid = uint64_t{};
 
-  if (!ui->leEdUid->text().isEmpty()) {
+  if (!d->ui->leEdUid->text().isEmpty()) {
     auto ok = false;
-    uid     = ui->leEdUid->text().toULongLong(&ok);
+    uid     = d->ui->leEdUid->text().toULongLong(&ok);
     if (!ok)
       return { false, QY("The edition UID must be a number if given.") };
   }
@@ -721,17 +902,17 @@ Tab::copyEditionControlsToStorage(EditionPtr const &edition) {
   else
     DeleteChildren<KaxEditionUID>(*edition);
 
-  if (ui->cbEdFlagDefault->isChecked())
+  if (d->ui->cbEdFlagDefault->isChecked())
     GetChild<KaxEditionFlagDefault>(*edition).SetValue(1);
   else
     DeleteChildren<KaxEditionFlagDefault>(*edition);
 
-  if (ui->cbEdFlagHidden->isChecked())
+  if (d->ui->cbEdFlagHidden->isChecked())
     GetChild<KaxEditionFlagHidden>(*edition).SetValue(1);
   else
     DeleteChildren<KaxEditionFlagHidden>(*edition);
 
-  if (ui->cbEdFlagOrdered->isChecked())
+  if (d->ui->cbEdFlagOrdered->isChecked())
     GetChild<KaxEditionFlagOrdered>(*edition).SetValue(1);
   else
     DeleteChildren<KaxEditionFlagOrdered>(*edition);
@@ -741,23 +922,29 @@ Tab::copyEditionControlsToStorage(EditionPtr const &edition) {
 
 bool
 Tab::setControlsFromStorage() {
-  auto idx = Util::selectedRowIdx(ui->elements);
+  Q_D(Tab);
+
+  auto idx = Util::selectedRowIdx(d->ui->elements);
   return idx.isValid() ? setControlsFromStorage(idx) : true;
 }
 
 bool
 Tab::setControlsFromStorage(QModelIndex const &idx) {
-  auto stdItem = m_chapterModel->itemFromIndex(idx);
+  Q_D(Tab);
+
+  auto stdItem = d->chapterModel->itemFromIndex(idx);
   if (!stdItem)
     return false;
 
   if (!idx.parent().isValid())
-    return setEditionControlsFromStorage(m_chapterModel->editionFromItem(stdItem));
-  return setChapterControlsFromStorage(m_chapterModel->chapterFromItem(stdItem));
+    return setEditionControlsFromStorage(d->chapterModel->editionFromItem(stdItem));
+  return setChapterControlsFromStorage(d->chapterModel->chapterFromItem(stdItem));
 }
 
 bool
 Tab::setChapterControlsFromStorage(ChapterPtr const &chapter) {
+  Q_D(Tab);
+
   if (!chapter)
     return true;
 
@@ -765,51 +952,53 @@ Tab::setChapterControlsFromStorage(ChapterPtr const &chapter) {
   auto end               = FindChild<KaxChapterTimeEnd>(*chapter);
   auto segmentEditionUid = FindChild<KaxChapterSegmentEditionUID>(*chapter);
 
-  ui->lChapter->setText(m_chapterModel->chapterDisplayName(*chapter));
-  ui->leChStart->setText(Q(format_timestamp(FindChildValue<KaxChapterTimeStart>(*chapter))));
-  ui->leChEnd->setText(end ? Q(format_timestamp(end->GetValue())) : Q(""));
-  ui->cbChFlagEnabled->setChecked(!!FindChildValue<KaxChapterFlagEnabled>(*chapter, 1));
-  ui->cbChFlagHidden->setChecked(!!FindChildValue<KaxChapterFlagHidden>(*chapter));
-  ui->leChUid->setText(uid ? QString::number(uid) : Q(""));
-  ui->leChSegmentUid->setText(formatEbmlBinary(FindChild<KaxChapterSegmentUID>(*chapter)));
-  ui->leChSegmentEditionUid->setText(segmentEditionUid ? QString::number(segmentEditionUid->GetValue()) : Q(""));
+  d->ui->lChapter->setText(d->chapterModel->chapterDisplayName(*chapter));
+  d->ui->leChStart->setText(Q(format_timestamp(FindChildValue<KaxChapterTimeStart>(*chapter))));
+  d->ui->leChEnd->setText(end ? Q(format_timestamp(end->GetValue())) : Q(""));
+  d->ui->cbChFlagEnabled->setChecked(!!FindChildValue<KaxChapterFlagEnabled>(*chapter, 1));
+  d->ui->cbChFlagHidden->setChecked(!!FindChildValue<KaxChapterFlagHidden>(*chapter));
+  d->ui->leChUid->setText(uid ? QString::number(uid) : Q(""));
+  d->ui->leChSegmentUid->setText(formatEbmlBinary(FindChild<KaxChapterSegmentUID>(*chapter)));
+  d->ui->leChSegmentEditionUid->setText(segmentEditionUid ? QString::number(segmentEditionUid->GetValue()) : Q(""));
 
-  auto nameSelectionModel        = ui->tvChNames->selectionModel();
+  auto nameSelectionModel        = d->ui->tvChNames->selectionModel();
   auto previouslySelectedNameIdx = nameSelectionModel->currentIndex();
-  m_nameModel->populate(*chapter);
+  d->nameModel->populate(*chapter);
   enableNameWidgets(false);
 
-  if (m_nameModel->rowCount()) {
+  if (d->nameModel->rowCount()) {
     auto oldBlocked  = nameSelectionModel->blockSignals(true);
-    auto rowToSelect = std::min(previouslySelectedNameIdx.isValid() ? previouslySelectedNameIdx.row() : 0, m_nameModel->rowCount());
-    auto selection   = QItemSelection{ m_nameModel->index(rowToSelect, 0), m_nameModel->index(rowToSelect, m_nameModel->columnCount() - 1) };
+    auto rowToSelect = std::min(previouslySelectedNameIdx.isValid() ? previouslySelectedNameIdx.row() : 0, d->nameModel->rowCount());
+    auto selection   = QItemSelection{ d->nameModel->index(rowToSelect, 0), d->nameModel->index(rowToSelect, d->nameModel->columnCount() - 1) };
 
     nameSelectionModel->select(selection, QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Current);
 
-    setNameControlsFromStorage(m_nameModel->index(rowToSelect, 0));
+    setNameControlsFromStorage(d->nameModel->index(rowToSelect, 0));
     enableNameWidgets(true);
 
     nameSelectionModel->blockSignals(oldBlocked);
   }
 
-  ui->pageContainer->setCurrentWidget(ui->chapterPage);
+  d->ui->pageContainer->setCurrentWidget(d->ui->chapterPage);
 
   return true;
 }
 
 bool
 Tab::setEditionControlsFromStorage(EditionPtr const &edition) {
+  Q_D(Tab);
+
   if (!edition)
     return true;
 
   auto uid = FindChildValue<KaxEditionUID>(*edition);
 
-  ui->leEdUid->setText(uid ? QString::number(uid) : Q(""));
-  ui->cbEdFlagDefault->setChecked(!!FindChildValue<KaxEditionFlagDefault>(*edition));
-  ui->cbEdFlagHidden->setChecked(!!FindChildValue<KaxEditionFlagHidden>(*edition));
-  ui->cbEdFlagOrdered->setChecked(!!FindChildValue<KaxEditionFlagOrdered>(*edition));
+  d->ui->leEdUid->setText(uid ? QString::number(uid) : Q(""));
+  d->ui->cbEdFlagDefault->setChecked(!!FindChildValue<KaxEditionFlagDefault>(*edition));
+  d->ui->cbEdFlagHidden->setChecked(!!FindChildValue<KaxEditionFlagHidden>(*edition));
+  d->ui->cbEdFlagOrdered->setChecked(!!FindChildValue<KaxEditionFlagOrdered>(*edition));
 
-  ui->pageContainer->setCurrentWidget(ui->editionPage);
+  d->ui->pageContainer->setCurrentWidget(d->ui->editionPage);
 
   return true;
 }
@@ -826,6 +1015,8 @@ Tab::handleChapterDeselection(QItemSelection const &deselected) {
 void
 Tab::chapterSelectionChanged(QItemSelection const &selected,
                              QItemSelection const &deselected) {
+  Q_D(Tab);
+
   auto selectedIdx = QModelIndex{};
   if (!selected.isEmpty()) {
     auto indexes = selected.at(0).indexes();
@@ -833,9 +1024,9 @@ Tab::chapterSelectionChanged(QItemSelection const &selected,
       selectedIdx = indexes.at(0);
   }
 
-  m_chapterModel->setSelectedIdx(selectedIdx);
+  d->chapterModel->setSelectedIdx(selectedIdx);
 
-  if (m_ignoreChapterSelectionChanges)
+  if (d->ignoreChapterSelectionChanges)
     return;
 
   if (!handleChapterDeselection(deselected))
@@ -844,22 +1035,24 @@ Tab::chapterSelectionChanged(QItemSelection const &selected,
   if (selectedIdx.isValid() && setControlsFromStorage(selectedIdx.sibling(selectedIdx.row(), 0)))
     return;
 
-  ui->pageContainer->setCurrentWidget(ui->emptyPage);
+  d->ui->pageContainer->setCurrentWidget(d->ui->emptyPage);
 }
 
 bool
 Tab::setNameControlsFromStorage(QModelIndex const &idx) {
-  auto display = m_nameModel->displayFromIndex(idx);
+  Q_D(Tab);
+
+  auto display = d->nameModel->displayFromIndex(idx);
   if (!display)
     return false;
 
   auto language = Q(FindChildValue<KaxChapterLanguage>(display, std::string{"eng"}));
 
-  ui->leChName->setText(Q(GetChildValue<KaxChapterString>(display)));
-  ui->cbChNameLanguage->setAdditionalItems(usedNameLanguages())
+  d->ui->leChName->setText(Q(GetChildValue<KaxChapterString>(display)));
+  d->ui->cbChNameLanguage->setAdditionalItems(usedNameLanguages())
     .reInitializeIfNecessary()
     .setCurrentByData(language);
-  ui->cbChNameCountry->setAdditionalItems(usedNameCountryCodes())
+  d->ui->cbChNameCountry->setAdditionalItems(usedNameCountryCodes())
     .reInitializeIfNecessary()
     .setCurrentByData(Q(FindChildValue<KaxChapterCountry>(display)));
 
@@ -871,13 +1064,15 @@ Tab::setNameControlsFromStorage(QModelIndex const &idx) {
 void
 Tab::nameSelectionChanged(QItemSelection const &selected,
                           QItemSelection const &) {
+  Q_D(Tab);
+
   if (!selected.isEmpty()) {
     auto indexes = selected.at(0).indexes();
     if (!indexes.isEmpty() && setNameControlsFromStorage(indexes.at(0))) {
       enableNameWidgets(true);
 
-      ui->leChName->selectAll();
-      QTimer::singleShot(0, ui->leChName, SLOT(setFocus()));
+      d->ui->leChName->selectAll();
+      QTimer::singleShot(0, d->ui->leChName, SLOT(setFocus()));
 
       return;
     }
@@ -888,66 +1083,78 @@ Tab::nameSelectionChanged(QItemSelection const &selected,
 
 void
 Tab::withSelectedName(std::function<void(QModelIndex const &, KaxChapterDisplay &)> const &worker) {
-  auto selectedRows = ui->tvChNames->selectionModel()->selectedRows();
+  Q_D(Tab);
+
+  auto selectedRows = d->ui->tvChNames->selectionModel()->selectedRows();
   if (selectedRows.isEmpty())
     return;
 
   auto idx     = selectedRows.at(0);
-  auto display = m_nameModel->displayFromIndex(idx);
+  auto display = d->nameModel->displayFromIndex(idx);
   if (display)
     worker(idx, *display);
 }
 
 void
 Tab::chapterNameEdited(QString const &text) {
-  withSelectedName([this, &text](QModelIndex const &idx, KaxChapterDisplay &display) {
+  Q_D(Tab);
+
+  withSelectedName([d, &text](QModelIndex const &idx, KaxChapterDisplay &display) {
     GetChild<KaxChapterString>(display).SetValueUTF8(to_utf8(text));
-    m_nameModel->updateRow(idx.row());
+    d->nameModel->updateRow(idx.row());
   });
 }
 
 void
 Tab::chapterNameLanguageChanged(int index) {
+  Q_D(Tab);
+
   if (0 > index)
     return;
 
-  withSelectedName([this, index](QModelIndex const &idx, KaxChapterDisplay &display) {
-    GetChild<KaxChapterLanguage>(display).SetValue(to_utf8(ui->cbChNameLanguage->itemData(index).toString()));
-    m_nameModel->updateRow(idx.row());
+  withSelectedName([d, index](QModelIndex const &idx, KaxChapterDisplay &display) {
+    GetChild<KaxChapterLanguage>(display).SetValue(to_utf8(d->ui->cbChNameLanguage->itemData(index).toString()));
+    d->nameModel->updateRow(idx.row());
   });
 }
 
 void
 Tab::chapterNameCountryChanged(int index) {
+  Q_D(Tab);
+
   if (0 > index)
     return;
 
-  withSelectedName([this, index](QModelIndex const &idx, KaxChapterDisplay &display) {
+  withSelectedName([d, index](QModelIndex const &idx, KaxChapterDisplay &display) {
     if (0 == index)
       DeleteChildren<KaxChapterCountry>(display);
     else
-      GetChild<KaxChapterCountry>(display).SetValue(to_utf8(ui->cbChNameCountry->currentData().toString()));
-    m_nameModel->updateRow(idx.row());
+      GetChild<KaxChapterCountry>(display).SetValue(to_utf8(d->ui->cbChNameCountry->currentData().toString()));
+    d->nameModel->updateRow(idx.row());
   });
 }
 
 void
 Tab::addChapterName() {
-  m_nameModel->addNew();
+  Q_D(Tab);
+
+  d->nameModel->addNew();
 }
 
 void
 Tab::removeChapterName() {
-  auto idx = Util::selectedRowIdx(ui->tvChNames);
-  if (!idx.isValid())
-    return;
+  Q_D(Tab);
 
-  m_nameModel->remove(idx);
+  auto idx = Util::selectedRowIdx(d->ui->tvChNames);
+  if (idx.isValid())
+    d->nameModel->remove(idx);
 }
 
 void
 Tab::enableNameWidgets(bool enable) {
-  for (auto const &widget : m_nameWidgets)
+  Q_D(Tab);
+
+  for (auto const &widget : d->nameWidgets)
     widget->setEnabled(enable);
 }
 
@@ -973,8 +1180,10 @@ Tab::addEditionAfter() {
 
 QModelIndex
 Tab::addEdition(bool before) {
+  Q_D(Tab);
+
   auto edition     = std::make_shared<KaxEditionEntry>();
-  auto selectedIdx = Util::selectedRowIdx(ui->elements);
+  auto selectedIdx = Util::selectedRowIdx(d->ui->elements);
   auto row         = 0;
 
   if (selectedIdx.isValid()) {
@@ -986,16 +1195,18 @@ Tab::addEdition(bool before) {
 
   GetChild<KaxEditionUID>(*edition).SetValue(0);
 
-  m_chapterModel->insertEdition(row, edition);
+  d->chapterModel->insertEdition(row, edition);
 
   emit numberOfEntriesChanged();
 
-  return m_chapterModel->index(row, 0);
+  return d->chapterModel->index(row, 0);
 }
 
 void
 Tab::addEditionOrChapterAfter() {
-  auto selectedIdx     = Util::selectedRowIdx(ui->elements);
+  Q_D(Tab);
+
+  auto selectedIdx     = Util::selectedRowIdx(d->ui->elements);
   auto hasSelection    = selectedIdx.isValid();
   auto chapterSelected = hasSelection && selectedIdx.parent().isValid();
 
@@ -1039,7 +1250,9 @@ Tab::addChapterAfter() {
 
 QModelIndex
 Tab::addChapter(bool before) {
-  auto selectedIdx = Util::selectedRowIdx(ui->elements);
+  Q_D(Tab);
+
+  auto selectedIdx = Util::selectedRowIdx(d->ui->elements);
   if (!selectedIdx.isValid() || !selectedIdx.parent().isValid())
     return {};
 
@@ -1047,24 +1260,26 @@ Tab::addChapter(bool before) {
   auto row     = selectedIdx.row() + (before ? 0 : 1);
   auto chapter = createEmptyChapter(0, row + 1);
 
-  m_chapterModel->insertChapter(row, chapter, selectedIdx.parent());
+  d->chapterModel->insertChapter(row, chapter, selectedIdx.parent());
 
   emit numberOfEntriesChanged();
 
-  return m_chapterModel->index(row, 0, selectedIdx.parent());
+  return d->chapterModel->index(row, 0, selectedIdx.parent());
 }
 
 void
 Tab::addSubChapter() {
-  auto selectedIdx = Util::selectedRowIdx(ui->elements);
+  Q_D(Tab);
+
+  auto selectedIdx = Util::selectedRowIdx(d->ui->elements);
   if (!selectedIdx.isValid())
     return;
 
   // TODO: Tab::addSubChapter: start time
-  auto selectedItem = m_chapterModel->itemFromIndex(selectedIdx);
+  auto selectedItem = d->chapterModel->itemFromIndex(selectedIdx);
   auto chapter      = createEmptyChapter(0, (selectedItem ? selectedItem->rowCount() : 0) + 1);
 
-  m_chapterModel->appendChapter(chapter, selectedIdx);
+  d->chapterModel->appendChapter(chapter, selectedIdx);
   expandCollapseAll(true, selectedIdx);
 
   emit numberOfEntriesChanged();
@@ -1072,18 +1287,22 @@ Tab::addSubChapter() {
 
 void
 Tab::removeElement() {
-  m_chapterModel->removeTree(Util::selectedRowIdx(ui->elements));
+  Q_D(Tab);
+
+  d->chapterModel->removeTree(Util::selectedRowIdx(d->ui->elements));
   emit numberOfEntriesChanged();
 }
 
 void
-Tab::applyModificationToTimecodes(QStandardItem *item,
-                                  std::function<int64_t(int64_t)> const &unaryOp) {
+Tab::applyModificationToTimestamps(QStandardItem *item,
+                                   std::function<int64_t(int64_t)> const &unaryOp) {
+  Q_D(Tab);
+
   if (!item)
     return;
 
   if (item->parent()) {
-    auto chapter = m_chapterModel->chapterFromItem(item);
+    auto chapter = d->chapterModel->chapterFromItem(item);
     if (chapter) {
       auto kStart = FindChild<KaxChapterTimeStart>(*chapter);
       auto kEnd   = FindChild<KaxChapterTimeEnd>(*chapter);
@@ -1094,37 +1313,39 @@ Tab::applyModificationToTimecodes(QStandardItem *item,
         kEnd->SetValue(std::max<int64_t>(unaryOp(static_cast<int64_t>(kEnd->GetValue())), 0));
 
       if (kStart || kEnd)
-        m_chapterModel->updateRow(item->index());
+        d->chapterModel->updateRow(item->index());
     }
   }
 
   for (auto row = 0, numRows = item->rowCount(); row < numRows; ++row)
-    applyModificationToTimecodes(item->child(row), unaryOp);
+    applyModificationToTimestamps(item->child(row), unaryOp);
 }
 
 void
-Tab::multiplyTimecodes(QStandardItem *item,
-                       double factor) {
-  applyModificationToTimecodes(item, [=](int64_t timecode) { return static_cast<int64_t>((timecode * factor) * 10.0 + 5) / 10ll; });
+Tab::multiplyTimestamps(QStandardItem *item,
+                        double factor) {
+  applyModificationToTimestamps(item, [=](int64_t timestamp) { return static_cast<int64_t>((timestamp * factor) * 10.0 + 5) / 10ll; });
 }
 
 void
-Tab::shiftTimecodes(QStandardItem *item,
-                    int64_t delta) {
-  applyModificationToTimecodes(item, [=](int64_t timecode) { return timecode + delta; });
+Tab::shiftTimestamps(QStandardItem *item,
+                     int64_t delta) {
+  applyModificationToTimestamps(item, [=](int64_t timestamp) { return timestamp + delta; });
 }
 
 void
-Tab::constrictTimecodes(QStandardItem *item,
-                        boost::optional<uint64_t> const &constrictStart,
-                        boost::optional<uint64_t> const &constrictEnd) {
+Tab::constrictTimestamps(QStandardItem *item,
+                         boost::optional<uint64_t> const &constrictStart,
+                         boost::optional<uint64_t> const &constrictEnd) {
+  Q_D(Tab);
+
   if (!item)
     return;
 
-  auto chapter = item->parent() ? m_chapterModel->chapterFromItem(item) : ChapterPtr{};
+  auto chapter = item->parent() ? d->chapterModel->chapterFromItem(item) : ChapterPtr{};
   if (!chapter) {
     for (auto row = 0, numRows = item->rowCount(); row < numRows; ++row)
-      constrictTimecodes(item->child(row), {}, {});
+      constrictTimestamps(item->child(row), {}, {});
     return;
   }
 
@@ -1141,21 +1362,23 @@ Tab::constrictTimecodes(QStandardItem *item,
   if (newEnd)
     GetChild<KaxChapterTimeEnd>(*chapter).SetValue(*newEnd);
 
-  m_chapterModel->updateRow(item->index());
+  d->chapterModel->updateRow(item->index());
 
   for (auto row = 0, numRows = item->rowCount(); row < numRows; ++row)
-    constrictTimecodes(item->child(row), newStart, newEnd);
+    constrictTimestamps(item->child(row), newStart, newEnd);
 }
 
 std::pair<boost::optional<uint64_t>, boost::optional<uint64_t>>
-Tab::expandTimecodes(QStandardItem *item) {
+Tab::expandTimestamps(QStandardItem *item) {
+  Q_D(Tab);
+
   if (!item)
     return {};
 
-  auto chapter = item->parent() ? m_chapterModel->chapterFromItem(item) : ChapterPtr{};
+  auto chapter = item->parent() ? d->chapterModel->chapterFromItem(item) : ChapterPtr{};
   if (!chapter) {
     for (auto row = 0, numRows = item->rowCount(); row < numRows; ++row)
-      expandTimecodes(item->child(row));
+      expandTimestamps(item->child(row));
     return {};
   }
 
@@ -1166,7 +1389,7 @@ Tab::expandTimecodes(QStandardItem *item) {
   auto modified = false;
 
   for (auto row = 0, numRows = item->rowCount(); row < numRows; ++row) {
-    auto startAndEnd = expandTimecodes(item->child(row));
+    auto startAndEnd = expandTimestamps(item->child(row));
 
     if (!newStart || (startAndEnd.first && (*startAndEnd.first < *newStart)))
       newStart = startAndEnd.first;
@@ -1186,7 +1409,7 @@ Tab::expandTimecodes(QStandardItem *item) {
   }
 
   if (modified)
-    m_chapterModel->updateRow(item->index());
+    d->chapterModel->updateRow(item->index());
 
   return std::make_pair(newStart, newEnd);
 }
@@ -1194,10 +1417,12 @@ Tab::expandTimecodes(QStandardItem *item) {
 void
 Tab::setLanguages(QStandardItem *item,
                   QString const &language) {
+  Q_D(Tab);
+
   if (!item)
     return;
 
-  auto chapter = m_chapterModel->chapterFromItem(item);
+  auto chapter = d->chapterModel->chapterFromItem(item);
   if (chapter)
     for (auto const &element : *chapter) {
       auto kDisplay = dynamic_cast<KaxChapterDisplay *>(element);
@@ -1212,10 +1437,12 @@ Tab::setLanguages(QStandardItem *item,
 void
 Tab::setCountries(QStandardItem *item,
                   QString const &country) {
+  Q_D(Tab);
+
   if (!item)
     return;
 
-  auto chapter = m_chapterModel->chapterFromItem(item);
+  auto chapter = d->chapterModel->chapterFromItem(item);
   if (chapter)
     for (auto const &element : *chapter) {
       auto kDisplay = dynamic_cast<KaxChapterDisplay *>(element);
@@ -1233,12 +1460,44 @@ Tab::setCountries(QStandardItem *item,
 }
 
 void
+Tab::setEndTimestamps(QStandardItem *startItem) {
+  Q_D(Tab);
+
+  if (!startItem)
+    return;
+
+  auto allAtomData = collectChapterAtomDataForEdition(startItem);
+
+  std::function<void(QStandardItem *)> setter = [d, &allAtomData, &setter](QStandardItem *item) {
+    if (item->parent()) {
+      auto chapter = d->chapterModel->chapterFromItem(item);
+      if (chapter) {
+        auto data = allAtomData[chapter.get()];
+        if (data && data->calculatedEnd.valid()) {
+          GetChild<KaxChapterTimeEnd>(*chapter).SetValue(data->calculatedEnd.to_ns());
+          d->chapterModel->updateRow(item->index());
+        }
+      }
+    }
+
+    for (auto row = 0, numRows = item->rowCount(); row < numRows; ++row)
+      setter(item->child(row));
+  };
+
+  setter(startItem);
+
+  setControlsFromStorage();
+}
+
+void
 Tab::massModify() {
+  Q_D(Tab);
+
   if (!copyControlsToStorage())
     return;
 
-  auto selectedIdx = Util::selectedRowIdx(ui->elements);
-  auto item        = selectedIdx.isValid() ? m_chapterModel->itemFromIndex(selectedIdx) : m_chapterModel->invisibleRootItem();
+  auto selectedIdx = Util::selectedRowIdx(d->ui->elements);
+  auto item        = selectedIdx.isValid() ? d->chapterModel->itemFromIndex(selectedIdx) : d->chapterModel->invisibleRootItem();
 
   MassModificationDialog dlg{this, selectedIdx.isValid(), usedNameLanguages(), usedNameCountryCodes()};
   if (!dlg.exec())
@@ -1247,16 +1506,16 @@ Tab::massModify() {
   auto actions = dlg.actions();
 
   if (actions & MassModificationDialog::Shift)
-    shiftTimecodes(item, dlg.shiftBy());
+    shiftTimestamps(item, dlg.shiftBy());
 
   if (actions & MassModificationDialog::Multiply)
-    multiplyTimecodes(item, dlg.multiplyBy());
+    multiplyTimestamps(item, dlg.multiplyBy());
 
   if (actions & MassModificationDialog::Constrict)
-    constrictTimecodes(item, {}, {});
+    constrictTimestamps(item, {}, {});
 
   if (actions & MassModificationDialog::Expand)
-    expandTimecodes(item);
+    expandTimestamps(item);
 
   if (actions & MassModificationDialog::SetLanguage)
     setLanguages(item, dlg.language());
@@ -1267,13 +1526,18 @@ Tab::massModify() {
   if (actions & MassModificationDialog::Sort)
     item->sortChildren(1);
 
+  if (actions & MassModificationDialog::SetEndTimestamps)
+    setEndTimestamps(item);
+
   setControlsFromStorage();
 }
 
 void
 Tab::duplicateElement() {
-  auto selectedIdx   = Util::selectedRowIdx(ui->elements);
-  auto newElementIdx = m_chapterModel->duplicateTree(selectedIdx);
+  Q_D(Tab);
+
+  auto selectedIdx   = Util::selectedRowIdx(d->ui->elements);
+  auto newElementIdx = d->chapterModel->duplicateTree(selectedIdx);
 
   if (newElementIdx.isValid())
     expandCollapseAll(true, newElementIdx);
@@ -1284,51 +1548,53 @@ Tab::duplicateElement() {
 QString
 Tab::formatChapterName(QString const &nameTemplate,
                        int chapterNumber,
-                       timestamp_c const &startTimecode)
+                       timestamp_c const &startTimestamp)
   const {
-  return Q(format_chapter_name_template(to_utf8(nameTemplate), chapterNumber, startTimecode));
+  return Q(mtx::chapters::format_name_template(to_utf8(nameTemplate), chapterNumber, startTimestamp));
 }
 
 void
 Tab::generateSubChapters() {
-  auto selectedIdx = Util::selectedRowIdx(ui->elements);
+  Q_D(Tab);
+
+  auto selectedIdx = Util::selectedRowIdx(d->ui->elements);
   if (!selectedIdx.isValid())
     return;
 
   if (!copyControlsToStorage())
     return;
 
-  auto selectedItem    = m_chapterModel->itemFromIndex(selectedIdx);
-  auto selectedChapter = m_chapterModel->chapterFromItem(selectedItem);
-  auto maxEndTimecode  = selectedChapter ? FindChildValue<KaxChapterTimeStart>(*selectedChapter, 0ull) : 0ull;
+  auto selectedItem    = d->chapterModel->itemFromIndex(selectedIdx);
+  auto selectedChapter = d->chapterModel->chapterFromItem(selectedItem);
+  auto maxEndTimestamp = selectedChapter ? FindChildValue<KaxChapterTimeStart>(*selectedChapter, 0ull) : 0ull;
   auto numRows         = selectedItem->rowCount();
 
   for (auto row = 0; row < numRows; ++row) {
-    auto chapter = m_chapterModel->chapterFromItem(selectedItem->child(row));
+    auto chapter = d->chapterModel->chapterFromItem(selectedItem->child(row));
     if (chapter)
-      maxEndTimecode = std::max(maxEndTimecode, std::max(FindChildValue<KaxChapterTimeStart>(*chapter, 0ull), FindChildValue<KaxChapterTimeEnd>(*chapter, 0ull)));
+      maxEndTimestamp = std::max(maxEndTimestamp, std::max(FindChildValue<KaxChapterTimeStart>(*chapter, 0ull), FindChildValue<KaxChapterTimeEnd>(*chapter, 0ull)));
   }
 
-  GenerateSubChaptersParametersDialog dlg{this, numRows + 1, maxEndTimecode, usedNameLanguages(), usedNameCountryCodes()};
+  GenerateSubChaptersParametersDialog dlg{this, numRows + 1, maxEndTimestamp, usedNameLanguages(), usedNameCountryCodes()};
   if (!dlg.exec())
     return;
 
   auto toCreate      = dlg.numberOfEntries();
   auto chapterNumber = dlg.firstChapterNumber();
-  auto timecode      = dlg.startTimecode();
+  auto timestamp     = dlg.startTimestamp();
   auto duration      = dlg.durationInNs();
   auto nameTemplate  = dlg.nameTemplate();
   auto language      = dlg.language();
   auto country       = dlg.country();
 
   while (toCreate > 0) {
-    auto chapter = createEmptyChapter(timecode, chapterNumber, nameTemplate, language, country);
-    timecode    += duration;
+    auto chapter = createEmptyChapter(timestamp, chapterNumber, nameTemplate, language, country);
+    timestamp   += duration;
 
     ++chapterNumber;
     --toCreate;
 
-    m_chapterModel->appendChapter(chapter, selectedIdx);
+    d->chapterModel->appendChapter(chapter, selectedIdx);
   }
 
   expandCollapseAll(true, selectedIdx);
@@ -1345,9 +1611,11 @@ Tab::changeChapterName(QModelIndex const &parentIdx,
                        RenumberSubChaptersParametersDialog::NameMatch nameMatchingMode,
                        QString const &languageOfNamesToReplace,
                        bool skipHidden) {
-  auto idx     = m_chapterModel->index(row, 0, parentIdx);
-  auto item    = m_chapterModel->itemFromIndex(idx);
-  auto chapter = m_chapterModel->chapterFromItem(item);
+  Q_D(Tab);
+
+  auto idx     = d->chapterModel->index(row, 0, parentIdx);
+  auto item    = d->chapterModel->itemFromIndex(idx);
+  auto chapter = d->chapterModel->chapterFromItem(item);
 
   if (!chapter)
     return false;
@@ -1358,12 +1626,12 @@ Tab::changeChapterName(QModelIndex const &parentIdx,
       return false;
   }
 
-  auto startTimecode = FindChildValue<KaxChapterTimeStart>(*chapter);
-  auto name          = to_wide(formatChapterName(nameTemplate, chapterNumber, timestamp_c::ns(startTimecode)));
+  auto startTimestamp = FindChildValue<KaxChapterTimeStart>(*chapter);
+  auto name           = to_wide(formatChapterName(nameTemplate, chapterNumber, timestamp_c::ns(startTimestamp)));
 
   if (RenumberSubChaptersParametersDialog::NameMatch::First == nameMatchingMode) {
     GetChild<KaxChapterString>(GetChild<KaxChapterDisplay>(*chapter)).SetValue(name);
-    m_chapterModel->updateRow(idx);
+    d->chapterModel->updateRow(idx);
 
     return true;
   }
@@ -1379,28 +1647,30 @@ Tab::changeChapterName(QModelIndex const &parentIdx,
       GetChild<KaxChapterString>(*kDisplay).SetValue(name);
   }
 
-  m_chapterModel->updateRow(idx);
+  d->chapterModel->updateRow(idx);
 
   return true;
 }
 
 void
 Tab::renumberSubChapters() {
-  auto selectedIdx = Util::selectedRowIdx(ui->elements);
+  Q_D(Tab);
+
+  auto selectedIdx = Util::selectedRowIdx(d->ui->elements);
   if (!selectedIdx.isValid())
     return;
 
   if (!copyControlsToStorage())
     return;
 
-  auto selectedItem    = m_chapterModel->itemFromIndex(selectedIdx);
-  auto selectedChapter = m_chapterModel->chapterFromItem(selectedItem);
+  auto selectedItem    = d->chapterModel->itemFromIndex(selectedIdx);
+  auto selectedChapter = d->chapterModel->chapterFromItem(selectedItem);
   auto numRows         = selectedItem->rowCount();
   auto chapterTitles   = QStringList{};
   auto firstName       = QString{};
 
   for (auto row = 0; row < numRows; ++row) {
-    auto chapter = m_chapterModel->chapterFromItem(selectedItem->child(row));
+    auto chapter = d->chapterModel->chapterFromItem(selectedItem->child(row));
     if (!chapter)
       continue;
 
@@ -1447,11 +1717,13 @@ Tab::renumberSubChapters() {
 void
 Tab::expandCollapseAll(bool expand,
                        QModelIndex const &parentIdx) {
-  if (parentIdx.isValid())
-    ui->elements->setExpanded(parentIdx, expand);
+  Q_D(Tab);
 
-  for (auto row = 0, numRows = m_chapterModel->rowCount(parentIdx); row < numRows; ++row)
-    expandCollapseAll(expand, m_chapterModel->index(row, 0, parentIdx));
+  if (parentIdx.isValid())
+    d->ui->elements->setExpanded(parentIdx, expand);
+
+  for (auto row = 0, numRows = d->chapterModel->rowCount(parentIdx); row < numRows; ++row)
+    expandCollapseAll(expand, d->chapterModel->index(row, 0, parentIdx));
 }
 
 void
@@ -1475,56 +1747,62 @@ Tab::formatEbmlBinary(EbmlBinary *binary) {
 
 void
 Tab::showChapterContextMenu(QPoint const &pos) {
-  auto selectedIdx     = Util::selectedRowIdx(ui->elements);
+  Q_D(Tab);
+
+  auto selectedIdx     = Util::selectedRowIdx(d->ui->elements);
   auto hasSelection    = selectedIdx.isValid();
   auto chapterSelected = hasSelection && selectedIdx.parent().isValid();
-  auto hasEntries      = !!m_chapterModel->rowCount();
-  auto hasSubEntries   = selectedIdx.isValid() ? !!m_chapterModel->rowCount(selectedIdx) : false;
+  auto hasEntries      = !!d->chapterModel->rowCount();
+  auto hasSubEntries   = selectedIdx.isValid() ? !!d->chapterModel->rowCount(selectedIdx) : false;
 
-  m_addChapterBeforeAction->setEnabled(chapterSelected);
-  m_addChapterAfterAction->setEnabled(chapterSelected);
-  m_addSubChapterAction->setEnabled(hasSelection);
-  m_generateSubChaptersAction->setEnabled(hasSelection);
-  m_renumberSubChaptersAction->setEnabled(hasSelection && hasSubEntries);
-  m_removeElementAction->setEnabled(hasSelection);
-  m_duplicateAction->setEnabled(hasSelection);
-  m_expandAllAction->setEnabled(hasEntries);
-  m_collapseAllAction->setEnabled(hasEntries);
+  d->addChapterBeforeAction->setEnabled(chapterSelected);
+  d->addChapterAfterAction->setEnabled(chapterSelected);
+  d->addSubChapterAction->setEnabled(hasSelection);
+  d->generateSubChaptersAction->setEnabled(hasSelection);
+  d->renumberSubChaptersAction->setEnabled(hasSelection && hasSubEntries);
+  d->removeElementAction->setEnabled(hasSelection);
+  d->duplicateAction->setEnabled(hasSelection);
+  d->expandAllAction->setEnabled(hasEntries);
+  d->collapseAllAction->setEnabled(hasEntries);
 
   QMenu menu{this};
 
-  menu.addAction(m_addEditionBeforeAction);
-  menu.addAction(m_addEditionAfterAction);
+  menu.addAction(d->addEditionBeforeAction);
+  menu.addAction(d->addEditionAfterAction);
   menu.addSeparator();
-  menu.addAction(m_addChapterBeforeAction);
-  menu.addAction(m_addChapterAfterAction);
-  menu.addAction(m_addSubChapterAction);
-  menu.addAction(m_generateSubChaptersAction);
+  menu.addAction(d->addChapterBeforeAction);
+  menu.addAction(d->addChapterAfterAction);
+  menu.addAction(d->addSubChapterAction);
+  menu.addAction(d->generateSubChaptersAction);
   menu.addSeparator();
-  menu.addAction(m_duplicateAction);
+  menu.addAction(d->duplicateAction);
   menu.addSeparator();
-  menu.addAction(m_removeElementAction);
+  menu.addAction(d->removeElementAction);
   menu.addSeparator();
-  menu.addAction(m_renumberSubChaptersAction);
-  menu.addAction(m_massModificationAction);
+  menu.addAction(d->renumberSubChaptersAction);
+  menu.addAction(d->massModificationAction);
   menu.addSeparator();
-  menu.addAction(m_expandAllAction);
-  menu.addAction(m_collapseAllAction);
+  menu.addAction(d->expandAllAction);
+  menu.addAction(d->collapseAllAction);
 
-  menu.exec(ui->elements->viewport()->mapToGlobal(pos));
+  menu.exec(d->ui->elements->viewport()->mapToGlobal(pos));
 }
 
 bool
 Tab::isSourceMatroska()
   const {
-  return !!m_analyzer;
+  Q_D(const Tab);
+
+  return !!d->analyzer;
 }
 
 bool
 Tab::hasChapters()
   const {
-  for (auto idx = 0, numEditions = m_chapterModel->rowCount(); idx < numEditions; ++idx)
-    if (m_chapterModel->item(idx)->rowCount())
+  Q_D(const Tab);
+
+  for (auto idx = 0, numEditions = d->chapterModel->rowCount(); idx < numEditions; ++idx)
+    if (d->chapterModel->item(idx)->rowCount())
       return true;
   return false;
 }
@@ -1532,56 +1810,64 @@ Tab::hasChapters()
 QString
 Tab::currentState()
   const {
-  auto chapters = m_chapterModel->allChapters();
+  Q_D(const Tab);
+
+  auto chapters = d->chapterModel->allChapters();
   return chapters ? Q(ebml_dumper_c::dump_to_string(chapters.get(), static_cast<ebml_dumper_c::dump_style_e>(ebml_dumper_c::style_with_values | ebml_dumper_c::style_with_indexes))) : QString{};
 }
 
 bool
 Tab::hasBeenModified()
   const {
-  return currentState() != m_savedState;
+  Q_D(const Tab);
+
+  return currentState() != d->savedState;
 }
 
 bool
 Tab::focusNextChapterName() {
-  auto selectedRows = ui->tvChNames->selectionModel()->selectedRows();
+  Q_D(Tab);
+
+  auto selectedRows = d->ui->tvChNames->selectionModel()->selectedRows();
   if (selectedRows.isEmpty())
     return false;
 
   auto nextRow = selectedRows.at(0).row() + 1;
-  if (nextRow >= m_nameModel->rowCount())
+  if (nextRow >= d->nameModel->rowCount())
     return false;
 
-  Util::selectRow(ui->tvChNames, nextRow);
+  Util::selectRow(d->ui->tvChNames, nextRow);
 
   return true;
 }
 
 bool
 Tab::focusNextChapterAtom(FocusElementType toFocus) {
-  auto doSelect = [this, toFocus](QModelIndex const &idx) -> bool {
-    Util::selectRow(ui->elements, idx.row(), idx.parent());
+  Q_D(Tab);
 
-    auto lineEdit = FocusChapterStartTime == toFocus ? ui->leChStart : ui->leChName;
+  auto doSelect = [d, toFocus](QModelIndex const &idx) -> bool {
+    Util::selectRow(d->ui->elements, idx.row(), idx.parent());
+
+    auto lineEdit = FocusChapterStartTime == toFocus ? d->ui->leChStart : d->ui->leChName;
     lineEdit->selectAll();
     lineEdit->setFocus();
 
     return true;
   };
 
-  auto selectedRows = ui->elements->selectionModel()->selectedRows();
+  auto selectedRows = d->ui->elements->selectionModel()->selectedRows();
   if (selectedRows.isEmpty())
     return false;
 
   auto selectedIdx  = selectedRows.at(0);
   selectedIdx       = selectedIdx.sibling(selectedIdx.row(), 0);
-  auto selectedItem = m_chapterModel->itemFromIndex(selectedIdx);
+  auto selectedItem = d->chapterModel->itemFromIndex(selectedIdx);
 
   if (selectedItem->rowCount())
     return doSelect(selectedIdx.child(0, 0));
 
   auto parentIdx  = selectedIdx.parent();
-  auto parentItem = m_chapterModel->itemFromIndex(parentIdx);
+  auto parentItem = d->chapterModel->itemFromIndex(parentIdx);
   auto nextRow    = selectedIdx.row() + 1;
 
   if (nextRow < parentItem->rowCount())
@@ -1590,17 +1876,17 @@ Tab::focusNextChapterAtom(FocusElementType toFocus) {
   while (parentIdx.parent().isValid()) {
     nextRow    = parentIdx.row() + 1;
     parentIdx  = parentIdx.parent();
-    parentItem = m_chapterModel->itemFromIndex(parentIdx);
+    parentItem = d->chapterModel->itemFromIndex(parentIdx);
 
     if (nextRow < parentItem->rowCount())
       return doSelect(parentIdx.child(nextRow, 0));
   }
 
-  auto numEditions = m_chapterModel->rowCount();
+  auto numEditions = d->chapterModel->rowCount();
   auto editionIdx  = parentIdx.sibling((parentIdx.row() + 1) % numEditions, 0);
 
   while (numEditions) {
-    if (m_chapterModel->itemFromIndex(editionIdx)->rowCount())
+    if (d->chapterModel->itemFromIndex(editionIdx)->rowCount())
       return doSelect(editionIdx.child(0, 0));
 
     editionIdx = editionIdx.sibling((editionIdx.row() + 1) % numEditions, 0);
@@ -1611,10 +1897,12 @@ Tab::focusNextChapterAtom(FocusElementType toFocus) {
 
 void
 Tab::focusNextChapterElement(bool keepSameElement) {
+  Q_D(Tab);
+
   if (!copyControlsToStorage())
     return;
 
-  if (QObject::sender() == ui->leChName) {
+  if (QObject::sender() == d->ui->leChName) {
     if (focusNextChapterName())
       return;
 
@@ -1623,8 +1911,8 @@ Tab::focusNextChapterElement(bool keepSameElement) {
   }
 
   if (!keepSameElement) {
-    ui->leChName->selectAll();
-    ui->leChName->setFocus();
+    d->ui->leChName->selectAll();
+    d->ui->leChName->setFocus();
     return;
   }
 
@@ -1648,21 +1936,25 @@ Tab::closeTab() {
 
 void
 Tab::addSegmentUIDFromFile() {
-  Util::addSegmentUIDFromFileToLineEdit(*this, *ui->leChSegmentUid, false);
+  Q_D(Tab);
+
+  Util::addSegmentUIDFromFileToLineEdit(*this, *d->ui->leChSegmentUid, false);
 }
 
 QStringList
 Tab::usedNameLanguages(QStandardItem *rootItem) {
+  Q_D(Tab);
+
   if (!rootItem)
-    rootItem = m_chapterModel->invisibleRootItem();
+    rootItem = d->chapterModel->invisibleRootItem();
 
   auto names = QSet<QString>{};
 
-  std::function<void(QStandardItem *)> collector = [&](QStandardItem *currentItem) {
+  std::function<void(QStandardItem *)> collector = [d, &collector, &names](auto *currentItem) {
     if (!currentItem)
       return;
 
-    auto chapter = m_chapterModel->chapterFromItem(currentItem);
+    auto chapter = d->chapterModel->chapterFromItem(currentItem);
     if (chapter)
       for (auto const &element : *chapter) {
         auto kDisplay = dynamic_cast<KaxChapterDisplay *>(element);
@@ -1673,7 +1965,7 @@ Tab::usedNameLanguages(QStandardItem *rootItem) {
         names << (kLanguage ? Q(*kLanguage) : Q("eng"));
       }
 
-    for (auto row = 0, numRows = currentItem->rowCount(); row < numRows; ++row)
+    for (int row = 0, numRows = currentItem->rowCount(); row < numRows; ++row)
       collector(currentItem->child(row));
   };
 
@@ -1684,16 +1976,18 @@ Tab::usedNameLanguages(QStandardItem *rootItem) {
 
 QStringList
 Tab::usedNameCountryCodes(QStandardItem *rootItem) {
+  Q_D(Tab);
+
   if (!rootItem)
-    rootItem = m_chapterModel->invisibleRootItem();
+    rootItem = d->chapterModel->invisibleRootItem();
 
   auto countryCodes = QSet<QString>{};
 
-  std::function<void(QStandardItem *)> collector = [&](QStandardItem *currentItem) {
+  std::function<void(QStandardItem *)> collector = [d, &collector, &countryCodes](auto *currentItem) {
     if (!currentItem)
       return;
 
-    auto chapter = m_chapterModel->chapterFromItem(currentItem);
+    auto chapter = d->chapterModel->chapterFromItem(currentItem);
     if (chapter)
       for (auto const &element : *chapter) {
         auto kDisplay = dynamic_cast<KaxChapterDisplay *>(element);
@@ -1705,13 +1999,110 @@ Tab::usedNameCountryCodes(QStandardItem *rootItem) {
           countryCodes << Q(*kCountry);
       }
 
-    for (auto row = 0, numRows = currentItem->rowCount(); row < numRows; ++row)
+    for (int row = 0, numRows = currentItem->rowCount(); row < numRows; ++row)
       collector(currentItem->child(row));
   };
 
   collector(rootItem);
 
   return countryCodes.toList();
+}
+
+QHash<KaxChapterAtom *, ChapterAtomDataPtr>
+Tab::collectChapterAtomDataForEdition(QStandardItem *item) {
+  Q_D(Tab);
+
+  if (!item)
+    return {};
+
+  QHash<KaxChapterAtom *, ChapterAtomDataPtr> allAtoms;
+  QHash<KaxChapterAtom *, QVector<ChapterAtomDataPtr>> atomsByParent;
+  QVector<ChapterAtomDataPtr> atomList;
+
+  // Collect all existing start and end timestamps.
+  std::function<void(QStandardItem *, KaxChapterAtom *, int)> collector = [d, &collector, &allAtoms, &atomsByParent, &atomList](auto *currentItem, auto *parentAtom, int level) {
+    if (!currentItem)
+      return;
+
+    QVector<ChapterAtomDataPtr> currentAtoms;
+
+    auto chapter = d->chapterModel->chapterFromItem(currentItem);
+    if (chapter && currentItem->parent()) {
+      auto timeEndKax     = FindChild<KaxChapterTimeEnd>(*chapter);
+      auto displayKax     = FindChild<KaxChapterDisplay>(*chapter);
+
+      auto data           = std::make_shared<ChapterAtomData>();
+      data->atom          = chapter.get();
+      data->parentAtom    = parentAtom;
+      data->level         = level - 1;
+      data->start         = timestamp_c::ns(GetChildValue<KaxChapterTimeStart>(*chapter));
+
+      if (timeEndKax)
+        data->end         = timestamp_c::ns(timeEndKax->GetValue());
+
+      if (displayKax)
+        data->primaryName = Q(FindChildValue<KaxChapterString>(*displayKax));
+
+      allAtoms.insert(chapter.get(), data);
+      atomsByParent[parentAtom].append(data);
+      atomList.append(data);
+    }
+
+    for (int row = 0, numRows = currentItem->rowCount(); row < numRows; ++row)
+      collector(currentItem->child(row), chapter.get(), level + 1);
+  };
+
+  std::function<void(QStandardItem *)> calculator = [d, &calculator, &allAtoms, &atomsByParent](auto *parentItem) {
+    if (!parentItem || !parentItem->rowCount())
+      return;
+
+    auto parentAtom         = d->chapterModel->chapterFromItem(parentItem);
+    auto parentData         = allAtoms[parentAtom.get()];
+    auto &sortedData        = atomsByParent[parentAtom.get()];
+    auto parentEndTimestamp = parentData ? parentData->calculatedEnd : d->fileEndTimestamp;
+
+    for (int row = 0, numRows = parentItem->rowCount(); row < numRows; ++row) {
+      auto atom = d->chapterModel->chapterFromItem(parentItem->child(row));
+      auto data = allAtoms[atom.get()];
+
+      if (!data)
+        continue;
+
+      auto itr            = brng::lower_bound(sortedData, data, [](auto const &a, auto const &b) { return a->start <= b->start; });
+      data->calculatedEnd = itr == sortedData.end() ? parentEndTimestamp : (*itr)->start;
+    }
+
+    for (int row = 0, numRows = parentItem->rowCount(); row < numRows; ++row)
+      calculator(parentItem->child(row));
+  };
+
+  // Determine edition we're working in.
+  while (item->parent())
+    item = item->parent();
+
+  // Collect existing tree structure & basic data for each atom.
+  collector(item, nullptr, 0);
+
+  // Sort all levels by their start times.
+  for (auto const &key : atomsByParent.keys())
+    brng::sort(atomsByParent[key], [](ChapterAtomDataPtr const &a, ChapterAtomDataPtr const &b) { return a->start < b->start; });
+
+  // Calculate end timestamps.
+  calculator(item);
+
+  // Output debug info.
+  for (auto const &data : atomList)
+    qDebug() <<
+      Q((boost::format("collectChapterAtomData: data %1%%2% start %3% end %4% [%5%] atom %6% parent %7%")
+         % std::string(data->level * 2, ' ')
+         % to_utf8(data->primaryName)
+         % data->start
+         % data->end
+         % data->calculatedEnd
+         % data->atom
+         % data->parentAtom));
+
+  return allAtoms;
 }
 
 }}}

@@ -15,7 +15,7 @@
 
 #include <matroska/KaxTrackVideo.h>
 
-#include "common/bit_cursor.h"
+#include "common/bit_reader.h"
 #include "common/codec.h"
 #include "common/ebml.h"
 #include "common/endian.h"
@@ -273,14 +273,10 @@ real_reader_c::create_dnet_audio_packetizer(real_demuxer_cptr dmx) {
 
 void
 real_reader_c::create_aac_audio_packetizer(real_demuxer_cptr dmx) {
-  int channels, sample_rate;
-  int detected_profile;
+  auto audio_config     = mtx::aac::audio_config_t{};
+  bool profile_detected = false;
 
-  int64_t tid            = dmx->track->id;
-  int profile            = -1;
-  int output_sample_rate = 0;
-  bool sbr               = false;
-  bool extra_data_parsed = false;
+  int64_t tid           = dmx->track->id;
 
   if ((dmx->extra_data) && (4 < dmx->extra_data->get_size())) {
     const unsigned char *extra_data = dmx->extra_data->get_buffer();
@@ -288,64 +284,65 @@ real_reader_c::create_aac_audio_packetizer(real_demuxer_cptr dmx) {
     mxverb(2, boost::format("real_reader: extra_len: %1%\n") % extra_len);
 
     if ((4 + extra_len) <= dmx->extra_data->get_size()) {
-      extra_data_parsed = true;
-      if (!aac::parse_audio_specific_config(&extra_data[4 + 1], extra_len - 1, profile, channels, sample_rate, output_sample_rate, sbr))
+      auto parsed_audio_config = mtx::aac::parse_audio_specific_config(&extra_data[4 + 1], extra_len - 1);
+      if (!parsed_audio_config)
         mxerror_tid(m_ti.m_fname, tid, Y("This AAC track does not contain valid headers. Could not parse the AAC information.\n"));
+
+      audio_config = *parsed_audio_config;
+
       mxverb(2,
              boost::format("real_reader: 1. profile: %1%, channels: %2%, sample_rate: %3%, output_sample_rate: %4%, sbr: %5%\n")
-             % profile % channels % sample_rate % output_sample_rate % sbr);
-      if (sbr)
-        profile = AAC_PROFILE_SBR;
+             % audio_config.profile % audio_config.channels % audio_config.sample_rate % audio_config.output_sample_rate % audio_config.sbr);
+
+      if (audio_config.sbr)
+        audio_config.profile = AAC_PROFILE_SBR;
+
+      profile_detected = true;
     }
   }
 
-  if (-1 == profile) {
-    channels    = dmx->channels;
-    sample_rate = dmx->samples_per_second;
-    if (!strcasecmp(dmx->fourcc, "racp") || (44100 > sample_rate)) {
-      output_sample_rate = 2 * sample_rate;
-      sbr                = true;
+  if (!profile_detected) {
+    audio_config.channels    = dmx->channels;
+    audio_config.sample_rate = dmx->samples_per_second;
+    if (!strcasecmp(dmx->fourcc, "racp") || (44100 > audio_config.sample_rate)) {
+      audio_config.output_sample_rate = 2 * audio_config.sample_rate;
+      audio_config.sbr                = true;
     }
 
   } else {
-    dmx->channels           = channels;
-    dmx->samples_per_second = sample_rate;
+    dmx->channels           = audio_config.channels;
+    dmx->samples_per_second = audio_config.sample_rate;
   }
 
-  detected_profile = profile;
-  if (sbr)
-    profile = AAC_PROFILE_SBR;
+  auto detected_profile = audio_config.profile;
+  if (audio_config.sbr)
+    audio_config.profile = AAC_PROFILE_SBR;
 
   if (   (mtx::includes(m_ti.m_all_aac_is_sbr, tid) && m_ti.m_all_aac_is_sbr[tid])
       || (mtx::includes(m_ti.m_all_aac_is_sbr, -1)  && m_ti.m_all_aac_is_sbr[-1]))
-    profile = AAC_PROFILE_SBR;
+    audio_config.profile = AAC_PROFILE_SBR;
 
-  if ((-1 != detected_profile)
+  if (profile_detected
       &&
       (   (mtx::includes(m_ti.m_all_aac_is_sbr, tid) && !m_ti.m_all_aac_is_sbr[tid])
        || (mtx::includes(m_ti.m_all_aac_is_sbr, -1)  && !m_ti.m_all_aac_is_sbr[-1])))
-    profile = detected_profile;
+    audio_config.profile = detected_profile;
 
   mxverb(2,
          boost::format("real_reader: 2. profile: %1%, channels: %2%, sample_rate: %3%, output_sample_rate: %4%, sbr: %5%\n")
-         % profile % channels % sample_rate % output_sample_rate % sbr);
+         % audio_config.profile % audio_config.channels % audio_config.sample_rate % audio_config.output_sample_rate % audio_config.sbr);
 
   dmx->is_aac = true;
-  dmx->ptzr   = add_packetizer(new aac_packetizer_c(this, m_ti, profile, sample_rate, channels, true));
+  dmx->ptzr   = add_packetizer(new aac_packetizer_c(this, m_ti, audio_config, aac_packetizer_c::headerless));
 
   show_packetizer_info(tid, PTZR(dmx->ptzr));
 
-  if (AAC_PROFILE_SBR == profile)
-    PTZR(dmx->ptzr)->set_audio_output_sampling_freq(output_sample_rate);
+  if (AAC_PROFILE_SBR == audio_config.profile)
+    PTZR(dmx->ptzr)->set_audio_output_sampling_freq(audio_config.output_sample_rate);
 
-  else if (!extra_data_parsed)
-    mxwarn(boost::format(Y("RealMedia files may contain HE-AAC / AAC+ / SBR AAC audio. In some cases this can NOT be detected automatically. "
-                           "Therefore you have to specifiy '--aac-is-sbr %1%' manually for this input file if the file actually contains SBR AAC. "
-                           "The file will be muxed in the WRONG way otherwise. Also read mkvmerge's documentation.\n")) % tid);
-
-  // AAC packetizers might need the timecode of the first packet in order
-  // to fill in stuff. Let's misuse ref_timecode for that.
-  dmx->ref_timecode = -1;
+  // AAC packetizers might need the timestamp of the first packet in order
+  // to fill in stuff. Let's misuse ref_timestamp for that.
+  dmx->ref_timestamp = -1;
 }
 
 void
@@ -413,7 +410,7 @@ real_reader_c::finish() {
   for (i = 0; i < demuxers.size(); i++) {
     real_demuxer_cptr dmx = demuxers[i];
     if (dmx && dmx->track && (dmx->track->type == RMFF_TRACK_TYPE_AUDIO) && !dmx->segments.empty())
-      deliver_audio_frames(dmx, dmx->last_timecode / dmx->num_packets);
+      deliver_audio_frames(dmx, dmx->last_timestamp / dmx->num_packets);
   }
 
   done = true;
@@ -443,7 +440,7 @@ real_reader_c::read(generic_packetizer_c *,
     return finish();
   }
 
-  int64_t timecode      = (int64_t)frame->timecode * 1000000ll;
+  int64_t timestamp     = (int64_t)frame->timecode * 1000000ll;
   real_demuxer_cptr dmx = find_demuxer(frame->id);
 
   if (!dmx || (-1 == dmx->ptzr)) {
@@ -467,14 +464,14 @@ real_reader_c::read(generic_packetizer_c *,
     // If the first AAC packet does not start at 0 then let the AAC
     // packetizer adjust its data accordingly.
     if (dmx->first_frame) {
-      dmx->ref_timecode = timecode;
-      PTZR(dmx->ptzr)->set_displacement_maybe(timecode);
+      dmx->ref_timestamp = timestamp;
+      PTZR(dmx->ptzr)->set_displacement_maybe(timestamp);
     }
 
     deliver_aac_frames(dmx, mem);
 
   } else
-    queue_audio_frames(dmx, mem, timecode, frame->flags);
+    queue_audio_frames(dmx, mem, timestamp, frame->flags);
 
   rmff_release_frame(frame);
 
@@ -486,7 +483,7 @@ real_reader_c::read(generic_packetizer_c *,
 void
 real_reader_c::queue_one_audio_frame(real_demuxer_cptr dmx,
                                      memory_c &mem,
-                                     uint64_t timecode,
+                                     uint64_t timestamp,
                                      uint32_t flags) {
   rv_segment_cptr segment(new rv_segment_t);
 
@@ -494,28 +491,28 @@ real_reader_c::queue_one_audio_frame(real_demuxer_cptr dmx,
   segment->flags = flags;
   dmx->segments.push_back(segment);
 
-  dmx->last_timecode = timecode;
+  dmx->last_timestamp = timestamp;
 
-  mxverb_tid(2, m_ti.m_fname, dmx->track->id, boost::format("enqueueing one length %1% timecode %2% flags 0x%|3$08x|\n") % mem.get_size() % timecode % flags);
+  mxverb_tid(2, m_ti.m_fname, dmx->track->id, boost::format("enqueueing one length %1% timestamp %2% flags 0x%|3$08x|\n") % mem.get_size() % timestamp % flags);
 }
 
 void
 real_reader_c::queue_audio_frames(real_demuxer_cptr dmx,
                                   memory_c &mem,
-                                  uint64_t timecode,
+                                  uint64_t timestamp,
                                   uint32_t flags) {
   // Enqueue the packets if no packets are in the queue or if the current
-  // packet's timecode is the same as the timecode of those before.
-  if (dmx->segments.empty() || (dmx->last_timecode == timecode)) {
-    queue_one_audio_frame(dmx, mem, timecode, flags);
+  // packet's timestamp is the same as the timestamp of those before.
+  if (dmx->segments.empty() || (dmx->last_timestamp == timestamp)) {
+    queue_one_audio_frame(dmx, mem, timestamp, flags);
     return;
   }
 
-  // This timecode is different. So let's push the packets out.
-  deliver_audio_frames(dmx, (timecode - dmx->last_timecode) / dmx->segments.size());
+  // This timestamp is different. So let's push the packets out.
+  deliver_audio_frames(dmx, (timestamp - dmx->last_timestamp) / dmx->segments.size());
 
   // Enqueue this packet.
-  queue_one_audio_frame(dmx, mem, timecode, flags);
+  queue_one_audio_frame(dmx, mem, timestamp, flags);
 }
 
 void
@@ -529,13 +526,13 @@ real_reader_c::deliver_audio_frames(real_demuxer_cptr dmx,
   for (i = 0; i < dmx->segments.size(); i++) {
     rv_segment_cptr segment = dmx->segments[i];
     mxverb_tid(2, m_ti.m_fname, dmx->track->id,
-               boost::format("delivering audio length %1% timecode %2% flags 0x%|3$08x| duration %4%\n")
-               % segment->data->get_size() % dmx->last_timecode % segment->flags % duration);
+               boost::format("delivering audio length %1% timestamp %2% flags 0x%|3$08x| duration %4%\n")
+               % segment->data->get_size() % dmx->last_timestamp % segment->flags % duration);
 
-    PTZR(dmx->ptzr)->process(new packet_t(segment->data, dmx->last_timecode, duration,
-                                          (segment->flags & RMFF_FRAME_FLAG_KEYFRAME) == RMFF_FRAME_FLAG_KEYFRAME ? -1 : dmx->ref_timecode));
+    PTZR(dmx->ptzr)->process(new packet_t(segment->data, dmx->last_timestamp, duration,
+                                          (segment->flags & RMFF_FRAME_FLAG_KEYFRAME) == RMFF_FRAME_FLAG_KEYFRAME ? -1 : dmx->ref_timestamp));
     if ((segment->flags & 2) == 2)
-      dmx->ref_timecode = dmx->last_timecode;
+      dmx->ref_timestamp = dmx->last_timestamp;
   }
 
   dmx->num_packets += dmx->segments.size();
@@ -642,7 +639,7 @@ real_reader_c::get_rv_dimensions(unsigned char *buf,
   static const uint32_t cw[8]  = { 160, 176, 240, 320, 352, 640, 704, 0 };
   static const uint32_t ch1[8] = { 120, 132, 144, 240, 288, 480,   0, 0 };
   static const uint32_t ch2[4] = { 180, 360, 576,   0 };
-  bit_reader_c bc(buf, size);
+  mtx::bits::reader_c bc(buf, size);
 
   try {
     bc.skip_bits(13);

@@ -1,14 +1,14 @@
-#ifndef MTX_MKVTOOLNIX_GUI_MAIN_WINDOW_AVAILABLE_UPDATE_INFO_DIALOG_H
-#define MTX_MKVTOOLNIX_GUI_MAIN_WINDOW_AVAILABLE_UPDATE_INFO_DIALOG_H
+#pragma once
 
 #include "common/common_pch.h"
 
-#if defined(HAVE_CURL_EASY_H)
+#if defined(HAVE_UPDATE_CHECK)
 
-# include <QDialog>
+#include <QDialog>
 
-# include "common/xml/xml.h"
-# include "mkvtoolnix-gui/main_window/update_check_thread.h"
+#include "common/version.h"
+#include "common/xml/xml.h"
+#include "mkvtoolnix-gui/main_window/update_checker.h"
 
 namespace mtx { namespace gui {
 
@@ -25,6 +25,10 @@ protected:
   std::shared_ptr<pugi::xml_document> m_releasesInfo;
   QString m_downloadURL;
 
+  bool m_statusRetrieved;
+  UpdateCheckStatus m_status;
+  mtx_release_version_t m_releaseVersion;
+
 public:
   explicit AvailableUpdateInfoDialog(QWidget *parent);
   ~AvailableUpdateInfoDialog();
@@ -35,9 +39,15 @@ public slots:
   void setReleaseInformation(std::shared_ptr<pugi::xml_document> releasesInfo);
   void updateCheckFinished(mtx::gui::UpdateCheckStatus status, mtx_release_version_t releaseVersion);
   void visitDownloadLocation();
+
+protected:
+  void updateDisplay();
+  void updateStatusDisplay();
+  void updateReleasesInfoDisplay();
+
+  static QString formattedCodename(QString const &codename, QString const &artist);
 };
 
 }}
 
-#endif  // HAVE_CURL_EASY_H
-#endif  // MTX_MKVTOOLNIX_GUI_MAIN_WINDOW_AVAILABLE_UPDATE_INFO_DIALOG_H
+#endif  // HAVE_UPDATE_CHECK

@@ -35,6 +35,8 @@ Tool::Tool(QWidget *parent,
 {
   // Setup UI controls.
   ui->setupUi(this);
+
+  MainWindow::get()->registerSubWindowWidget(*this, *ui->editors);
 }
 
 Tool::~Tool() {
@@ -61,8 +63,10 @@ Tool::setupActions() {
   connect(mwUi->actionChapterEditorSave,               &QAction::triggered,             this, &Tool::save);
   connect(mwUi->actionChapterEditorSaveAsXml,          &QAction::triggered,             this, &Tool::saveAsXml);
   connect(mwUi->actionChapterEditorSaveToMatroska,     &QAction::triggered,             this, &Tool::saveToMatroska);
+  connect(mwUi->actionChapterEditorSaveAll,            &QAction::triggered,             this, &Tool::saveAllTabs);
   connect(mwUi->actionChapterEditorReload,             &QAction::triggered,             this, &Tool::reload);
   connect(mwUi->actionChapterEditorClose,              &QAction::triggered,             this, &Tool::closeCurrentTab);
+  connect(mwUi->actionChapterEditorCloseAll,           &QAction::triggered,             this, &Tool::closeAllTabs);
   connect(mwUi->actionChapterEditorRemoveFromMatroska, &QAction::triggered,             this, &Tool::removeChaptersFromExistingMatroskaFile);
 
   connect(ui->newFileButton,                           &QPushButton::clicked,           this, &Tool::newFile);
@@ -95,6 +99,9 @@ Tool::enableMenuActions() {
   mwUi->actionChapterEditorSaveToMatroska->setEnabled(tabEnabled);
   mwUi->actionChapterEditorReload->setEnabled(        tabEnabled                                 && hasFileName);
   mwUi->actionChapterEditorClose->setEnabled(         !!tab);
+  mwUi->menuChapterEditorAll->setEnabled(             !!tab);
+  mwUi->actionChapterEditorSaveAll->setEnabled(       !!tab);
+  mwUi->actionChapterEditorCloseAll->setEnabled(      !!tab);
 }
 
 void
@@ -171,11 +178,13 @@ Tool::openFilesFromCommandLine(QStringList const &fileNames) {
 void
 Tool::selectFileToOpen() {
   auto fileNames = Util::getOpenFileNames(this, QY("Open files in chapter editor"), Util::Settings::get().lastOpenDirPath(),
-                                          QY("Supported file types")           + Q(" (*.mpls *.mkv *.mka *.mks *.mk3d *.txt *.xml);;") +
+                                          QY("Supported file types")           + Q(" (*.cue *.mpls *.mkv *.mka *.mks *.mk3d *.txt *.webm *.xml);;") +
                                           QY("Matroska files")                 + Q(" (*.mkv *.mka *.mks *.mk3d);;") +
+                                          QY("WebM files")                     + Q(" (*.webm);;") +
                                           QY("Blu-ray playlist files")         + Q(" (*.mpls);;") +
                                           QY("XML chapter files")              + Q(" (*.xml);;") +
                                           QY("Simple OGM-style chapter files") + Q(" (*.txt);;") +
+                                          QY("Cue sheet files")                + Q(" (*.cue);;") +
                                           QY("All files")                      + Q(" (*)"));
   if (fileNames.isEmpty())
     return;
@@ -191,6 +200,11 @@ Tool::save() {
   auto tab = currentTab();
   if (tab)
     tab->save();
+}
+
+void
+Tool::saveAllTabs() {
+  forEachTab([](auto &tab) { tab.save(); });
 }
 
 void
@@ -355,6 +369,27 @@ Tool::removeChaptersFromExistingMatroskaFile() {
 
   } else
     Util::MessageBox::information(this)->title(QY("Removing chapters from existing Matroska file")).text(QY("All chapters have been removed from the file '%1'.").arg(fileName)).exec();
+}
+
+void
+Tool::forEachTab(std::function<void(Tab &)> const &worker) {
+  auto currentIndex = ui->editors->currentIndex();
+
+  for (auto index = 0, numTabs = ui->editors->count(); index < numTabs; ++index) {
+    ui->editors->setCurrentIndex(index);
+    worker(dynamic_cast<Tab &>(*ui->editors->widget(index)));
+  }
+
+  ui->editors->setCurrentIndex(currentIndex);
+}
+
+std::pair<QString, QString>
+Tool::nextPreviousWindowActionTexts()
+  const {
+  return {
+    QY("&Next chapter editor tab"),
+    QY("&Previous chapter editor tab"),
+  };
 }
 
 }}}

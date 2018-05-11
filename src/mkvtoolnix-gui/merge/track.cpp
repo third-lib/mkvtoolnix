@@ -1,5 +1,7 @@
 #include "common/common_pch.h"
 
+#include <QRegularExpression>
+
 #include "common/iso639.h"
 #include "common/list_utils.h"
 #include "common/strings/editing.h"
@@ -109,21 +111,27 @@ Track::isPropertySet(QString const &property)
 
 void
 Track::setDefaults() {
+  if (!isRegular())
+    return;
+
   auto &settings = Util::Settings::get();
 
   if (isAudio() && settings.m_setAudioDelayFromFileName)
     m_delay = extractAudioDelayFromFileName();
 
-  m_forcedTrackFlag        = m_properties.value("forced_track").toBool() ? 1 : 0;
-  m_forcedTrackFlagWasSet  = m_forcedTrackFlag == 1;
-  m_defaultTrackFlagWasSet = m_properties.value("default_track").toBool();
+  m_forcedTrackFlag            = m_properties.value("forced_track").toBool() ? 1 : 0;
+  m_forcedTrackFlagWasSet      = m_forcedTrackFlag == 1;
+  m_defaultTrackFlagWasSet     = m_properties.value("default_track").toBool();
   m_defaultTrackFlagWasPresent = m_properties.contains("default_track");
-  m_name                   = m_properties.value("track_name").toString();
-  m_nameWasPresent         = !m_name.isEmpty();
-  m_cropping               = m_properties.value("cropping").toString();
-  m_aacSbrWasDetected      = m_properties.value("aac_is_sbr").toString().contains(QRegExp{"1|true"});
-  m_stereoscopy            = m_properties.contains("stereo_mode") ? m_properties.value("stereo_mode").toUInt() + 1 : 0;
-  m_characterSet           = m_properties.value("text_subtitles").toBool() && m_file && (m_file->m_type != FILE_TYPE_MATROSKA) ? settings.m_defaultSubtitleCharset : Q("");
+  m_name                       = m_properties.value("track_name").toString();
+  m_nameWasPresent             = !m_name.isEmpty();
+  m_cropping                   = m_properties.value("cropping").toString();
+  m_aacSbrWasDetected          = m_properties.value("aac_is_sbr").toString().contains(QRegExp{"1|true"});
+  m_stereoscopy                = m_properties.contains("stereo_mode") ? m_properties.value("stereo_mode").toUInt() + 1 : 0;
+  auto encoding                = m_properties.value(Q("encoding")).toString();
+  m_characterSet               = !encoding.isEmpty()   ? encoding
+                               : canChangeSubCharset() ? settings.m_defaultSubtitleCharset
+                               :                         Q("");
 
   auto language = m_properties.value("language").toString();
   if (   language.isEmpty()
@@ -195,7 +203,7 @@ Track::saveSettings(Util::ConfigFile &settings)
   settings.setValue("delay",                      m_delay);
   settings.setValue("stretchBy",                  m_stretchBy);
   settings.setValue("defaultDuration",            m_defaultDuration);
-  settings.setValue("timecodes",                  m_timecodes);
+  settings.setValue("timestamps",                 m_timestamps);
   settings.setValue("aspectRatio",                m_aspectRatio);
   settings.setValue("displayWidth",               m_displayWidth);
   settings.setValue("displayHeight",              m_displayHeight);
@@ -240,7 +248,7 @@ Track::loadSettings(MuxConfig::Loader &l) {
   m_delay                      = l.settings.value("delay").toString();
   m_stretchBy                  = l.settings.value("stretchBy").toString();
   m_defaultDuration            = l.settings.value("defaultDuration").toString();
-  m_timecodes                  = l.settings.value("timecodes").toString();
+  m_timestamps                 = l.settings.value("timestamps", l.settings.value("timecodes").toString()).toString();
   m_aspectRatio                = l.settings.value("aspectRatio").toString();
   m_displayWidth               = l.settings.value("displayWidth").toString();
   m_displayHeight              = l.settings.value("displayHeight").toString();
@@ -309,7 +317,7 @@ Track::buildMkvmergeOptions(MkvmergeOptionBuilder &opt)
       opt.options << Q("--cropping") << Q("%1:%2").arg(sid).arg(m_cropping);
 
   } else if (isSubtitles()) {
-    if (!m_characterSet.isEmpty())
+    if (canChangeSubCharset() && !m_characterSet.isEmpty())
       opt.options << Q("--sub-charset") << Q("%1:%2").arg(sid).arg(m_characterSet);
 
   } else if (isChapters()) {
@@ -375,12 +383,12 @@ Track::buildMkvmergeOptions(MkvmergeOptionBuilder &opt)
   }
 
   if (!m_defaultDuration.isEmpty()) {
-    auto unit = m_defaultDuration.contains(QRegExp{"[ip]$"}) ? Q("") : Q("fps");
+    auto unit = m_defaultDuration.contains(QRegExp{"\\d$"}) ? Q("fps") : Q("");
     opt.options << Q("--default-duration") << Q("%1:%2%3").arg(sid).arg(m_defaultDuration).arg(unit);
   }
 
-  if (!m_timecodes.isEmpty())
-    opt.options << Q("--timecodes") << Q("%1:%2").arg(sid).arg(m_timecodes);
+  if (!m_timestamps.isEmpty())
+    opt.options << Q("--timestamps") << Q("%1:%2").arg(sid).arg(m_timestamps);
 
   if (m_fixBitstreamTimingInfo)
     opt.options << Q("--fix-bitstream-timing-information") << Q("%1:1").arg(sid);
@@ -393,15 +401,45 @@ Track::buildMkvmergeOptions(MkvmergeOptionBuilder &opt)
 QString
 Track::nameForType()
   const {
-  return isAudio()      ? QY("audio")
-       : isVideo()      ? QY("video")
-       : isSubtitles()  ? QY("subtitles")
-       : isButtons()    ? QY("buttons")
-       : isAttachment() ? QY("attachment")
-       : isChapters()   ? QY("chapters")
-       : isTags()       ? QY("tags")
-       : isGlobalTags() ? QY("global tags")
+  return isAudio()      ? QY("Audio")
+       : isVideo()      ? QY("Video")
+       : isSubtitles()  ? QY("Subtitles")
+       : isButtons()    ? QY("Buttons")
+       : isAttachment() ? QY("Attachment")
+       : isChapters()   ? QY("Chapters")
+       : isTags()       ? QY("Tags")
+       : isGlobalTags() ? QY("Global tags")
        :                   Q("INTERNAL ERROR");
+}
+
+bool
+Track::canChangeSubCharset()
+  const {
+  if (   isSubtitles()
+      && m_properties.value(Q("text_subtitles")).toBool()
+      && m_properties.value(Q("encoding")).toString().isEmpty())
+    return true;
+
+  if (   isChapters()
+       && mtx::included_in(m_file->m_type, mtx::file_type_e::qtmp4, mtx::file_type_e::mpeg_ts, mtx::file_type_e::ogm))
+    return true;
+
+  return false;
+}
+
+bool
+Track::canReduceToAudioCore()
+  const {
+  return isAudio()
+      && m_codec.contains(QRegularExpression{Q("dts"), QRegularExpression::CaseInsensitiveOption});
+}
+
+bool
+Track::canSetAacToSbr()
+  const {
+  return isAudio()
+      && m_codec.contains(QRegularExpression{Q("aac"), QRegularExpression::CaseInsensitiveOption})
+      && mtx::included_in(m_file->m_type, mtx::file_type_e::aac, mtx::file_type_e::matroska, mtx::file_type_e::real);
 }
 
 }}}

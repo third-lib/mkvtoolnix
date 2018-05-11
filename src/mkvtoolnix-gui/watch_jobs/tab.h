@@ -1,5 +1,4 @@
-#ifndef MTX_MKVTOOLNIX_GUI_WATCH_JOBS_TAB_H
-#define MTX_MKVTOOLNIX_GUI_WATCH_JOBS_TAB_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -60,10 +59,14 @@ public slots:
   void openFolder();
 
   void acknowledgeWarningsAndErrors();
+  void disableButtonIfAllWarningsAndErrorsButtonAcknowledged(int numWarnings, int numErrors);
 
   void updateRemainingTime();
 
   void enableMoreActionsActions();
+  void setupWhenFinishedActions();
+
+  void toggleActionToExecute();
 
 protected:
   void setupUi();
@@ -73,5 +76,3 @@ protected:
 };
 
 }}}
-
-#endif // MTX_MKVTOOLNIX_GUI_WATCH_JOBS_TAB_H

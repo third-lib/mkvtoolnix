@@ -12,8 +12,7 @@
    Written by Moritz Bunkus <moritz@bunkus.org>.
 */
 
-#ifndef MTX_MERGE_PRIVATE_CLUSTER_HELPER_H
-#define MTX_MERGE_PRIVATE_CLUSTER_HELPER_H
+#pragma once
 
 #include "common/track_statistics.h"
 
@@ -22,12 +21,13 @@ public:
   std::vector<kax_block_blob_cptr> m_groups;
   std::vector<int64_t> m_durations;
   generic_packetizer_c *m_source;
-  bool m_more_data, m_duration_mandatory;
+  bool m_more_data, m_duration_mandatory, m_has_discard_padding;
 
   render_groups_c(generic_packetizer_c *source)
     : m_source(source)
     , m_more_data(false)
     , m_duration_mandatory(false)
+    , m_has_discard_padding{}
   {
   }
 };
@@ -38,11 +38,11 @@ public:
   std::shared_ptr<kax_cluster_c> cluster;
   std::vector<packet_cptr> packets;
   int cluster_content_size{};
-  int64_t max_timecode_and_duration{}, max_video_timecode_rendered{};
-  int64_t previous_cluster_tc{-1}, num_cue_elements{}, header_overhead{-1}, timecode_offset{};
-  int64_t bytes_in_file{}, first_timecode_in_file{-1}, first_timecode_in_part{-1}, first_discarded_timecode{-1}, last_discarded_timecode_and_duration{}, discarded_duration{}, previous_discarded_duration{};
-  timestamp_c min_timecode_in_file;
-  int64_t max_timecode_in_file{-1}, min_timecode_in_cluster{-1}, max_timecode_in_cluster{-1}, frame_field_number{1};
+  int64_t max_timestamp_and_duration{}, max_video_timestamp_rendered{};
+  int64_t previous_cluster_ts{-1}, num_cue_elements{}, header_overhead{-1}, timestamp_offset{};
+  int64_t bytes_in_file{}, first_timestamp_in_file{-1}, first_timestamp_in_part{-1}, first_discarded_timestamp{-1}, last_discarded_timestamp_and_duration{}, discarded_duration{}, previous_discarded_duration{};
+  timestamp_c min_timestamp_in_file;
+  int64_t max_timestamp_in_file{-1}, min_timestamp_in_cluster{-1}, max_timestamp_in_cluster{-1}, frame_field_number{1};
   bool first_video_keyframe_seen{};
   mm_io_c *out{};
 
@@ -66,5 +66,3 @@ public:
 public:
   ~impl_t();
 };
-
-#endif // MTX_MERGE_PRIVATE_CLUSTER_HELPER_H

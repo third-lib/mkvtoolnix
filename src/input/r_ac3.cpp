@@ -19,6 +19,7 @@
 #include "common/error.h"
 #include "common/id3.h"
 #include "common/id_info.h"
+#include "common/mm_io_x.h"
 #include "input/r_ac3.h"
 #include "merge/input_x.h"
 #include "output/p_ac3.h"
@@ -33,7 +34,7 @@ ac3_reader_c::probe_file(mm_io_c *in,
                          bool require_zero_offset) {
   try {
     in->setFilePointer(0, seek_beginning);
-    skip_id3v2_tag(*in);
+    mtx::id3::skip_v2_tag(*in);
     int offset = find_valid_headers(*in, probe_size, num_headers);
 
     return (require_zero_offset && (0 == offset)) || (!require_zero_offset && (0 <= offset));
@@ -53,8 +54,8 @@ ac3_reader_c::ac3_reader_c(const track_info_c &ti,
 void
 ac3_reader_c::read_headers() {
   try {
-    int tag_size_start = skip_id3v2_tag(*m_in);
-    int tag_size_end   = id3_tag_present_at_end(*m_in);
+    int tag_size_start = mtx::id3::skip_v2_tag(*m_in);
+    int tag_size_end   = mtx::id3::tag_present_at_end(*m_in);
 
     if (0 > tag_size_start)
       tag_size_start = 0;
@@ -68,7 +69,7 @@ ac3_reader_c::read_headers() {
 
     m_in->setFilePointer(tag_size_start, seek_beginning);
 
-    ac3::parser_c parser;
+    mtx::ac3::parser_c parser;
     parser.add_bytes(m_chunk->get_buffer(), init_read_len);
     if (!parser.frame_available())
       throw mtx::input::header_parsing_x();
@@ -115,7 +116,7 @@ ac3_reader_c::identify() {
   info.add(mtx::id::audio_sampling_frequency, m_ac3header.m_sample_rate);
 
   id_result_container();
-  id_result_track(0, ID_RESULT_TRACK_AUDIO, codec_c::get_name(codec_c::type_e::A_AC3, "AC-3"), info.get());
+  id_result_track(0, ID_RESULT_TRACK_AUDIO, m_ac3header.get_codec().get_name("AC-3"), info.get());
 }
 
 int
@@ -126,9 +127,9 @@ ac3_reader_c::find_valid_headers(mm_io_c &in,
     memory_cptr buf(memory_c::alloc(probe_range));
 
     in.setFilePointer(0, seek_beginning);
-    skip_id3v2_tag(in);
+    mtx::id3::skip_v2_tag(in);
 
-    ac3::parser_c parser;
+    mtx::ac3::parser_c parser;
     int num_read = in.read(buf->get_buffer(), probe_range);
     int pos      = parser.find_consecutive_frames(buf->get_buffer(), num_read, num_headers);
 

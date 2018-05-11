@@ -1,5 +1,4 @@
-#ifndef MTX_MKVTOOLNIX_GUI_MAIN_WINDOW_PREFERENCES_DIALOG_H
-#define MTX_MKVTOOLNIX_GUI_MAIN_WINDOW_PREFERENCES_DIALOG_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -19,18 +18,39 @@ class PreferencesDialog;
 class PreferencesDialog : public QDialog {
   Q_OBJECT;
 
+public:
+  enum class Page {
+    Gui,
+    OftenUsedSelections,
+    Merge,
+    DefaultValues,
+    Output,
+    EnablingTracks,
+    Playlists,
+    HeaderEditor,
+    ChapterEditor,
+    Jobs,
+    RunPrograms,
+
+    Default = Gui,
+  };
+
 protected:
   // UI stuff:
   std::unique_ptr<Ui::PreferencesDialog> ui;
   Util::Settings &m_cfg;
   QString const m_previousUiLocale;
+  double m_previousProbeRangePercentage;
+  QMap<Page, int> m_pageIndexes;
+  bool m_ignoreNextCurrentChange;
 
 public:
-  explicit PreferencesDialog(QWidget *parent);
+  explicit PreferencesDialog(QWidget *parent, Page pageToShow);
   ~PreferencesDialog();
 
   void save();
   bool uiLocaleChanged() const;
+  bool probeRangePercentageChanged() const;
 
 public slots:
   void editDefaultAdditionalCommandLineOptions();
@@ -39,7 +59,7 @@ public slots:
   void pageSelectionChanged(QModelIndex const &current);
   void addProgramToExecute();
   void removeProgramToExecute(int index);
-  void setSendersTabTitleForRunProgramExecutable(QString const &executable);
+  void setSendersTabTitleForRunProgramWidget();
   void adjustPlaylistControls();
   void adjustRemoveOldJobsControls();
 
@@ -47,15 +67,16 @@ public slots:
   void enableOftendUsedCountriesOnly();
   void enableOftendUsedCharacterSetsOnly();
 
+  virtual void accept() override;
+
 protected:
-  void setupPageSelector();
+  void setupPageSelector(Page pageToShow);
   void setupToolTips();
   void setupConnections();
 
   void setupInterfaceLanguage();
   void setupTabPositions();
   void setupWhenToSetDefaultLanguage();
-  void setupOnlineCheck();
   void setupJobRemovalPolicy();
   void setupCommonLanguages();
   void setupCommonCountries();
@@ -70,9 +91,11 @@ protected:
   void setupJobsRunPrograms();
   void setupFont();
 
-  void setTabTitleForRunProgramExecutable(int tabIdx, QString const &executable);
+  void showPage(Page page);
+
+  void setTabTitleForRunProgramWidget(int tabIdx, QString const &title);
+
+  QModelIndex modelIndexForPage(int pageIndex);
 };
 
 }}
-
-#endif // MTX_MKVTOOLNIX_GUI_MAIN_WINDOW_PREFERENCES_DIALOG_H

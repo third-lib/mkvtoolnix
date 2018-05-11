@@ -1,3 +1,4 @@
+*.1
 *.autosave
 *.deps
 *.exe
@@ -37,6 +38,7 @@
 /debian-upstream/mkvtoolnix.debhelper.log
 /debian-upstream/mkvtoolnix.substvars
 /debian-upstream/tmp
+/doc/development.html
 /doc/man/*.html
 /doc/man/*/*.html
 /doc/man/*/*.xml
@@ -49,9 +51,11 @@
 /rake.d/dependency.d
 /share/icons/*/*.h
 /src/*/qt_resources.cpp
+/src/benchmark/
 /src/common/common.h.gch
 /src/common/common_pch.h.[gp]ch
 /src/common/common_pch.h.pch-????????
+/src/info/static_plugins.cpp
 /src/info/ui/*.h
 /src/mkvextract
 /src/mkvinfo
@@ -61,12 +65,14 @@
 /src/mkvtoolnix-gui/forms/**/*.h
 /src/mkvtoolnix-gui/mkvtoolnix-gui
 /src/mkvtoolnix-gui/mkvtoolnix-gui.pro.user*
+/src/mkvtoolnix-gui/static_plugins.cpp
 /src/tools/ac3parser
 /src/tools/base64tool
 /src/tools/checksum
 /src/tools/diracparser
 /src/tools/ebml_validator
 /src/tools/hevc_dump
+/src/tools/hevcc_dump
 /src/tools/mpls_dump
 /src/tools/vc1parser
 /tests/data
@@ -77,3 +83,5 @@ BROWSE
 Makefile
 TAGS
 lib*.a
+.rsync-filter
+/tools/macos/unlock_keychain.sh

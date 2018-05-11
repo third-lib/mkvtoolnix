@@ -11,8 +11,7 @@
    Written by Moritz Bunkus <moritz@bunkus.org>.
 */
 
-#ifndef MTX_R_AVI_H
-#define MTX_R_AVI_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -21,11 +20,12 @@
 #include "merge/generic_reader.h"
 #include "common/error.h"
 #include "input/subtitles.h"
-#include "output/p_avc.h"
 
 namespace mtx { namespace id {
 class info_c;
 }}
+
+class avc_es_video_packetizer_c;
 
 struct avi_demuxer_t {
   int m_ptzr{-1};
@@ -48,6 +48,7 @@ struct avi_subs_demuxer_t {
 
   mm_text_io_cptr m_text_io;
   subtitles_cptr m_subs;
+  boost::optional<std::string> m_encoding;
 };
 
 class avi_reader_c: public generic_reader_c {
@@ -75,8 +76,8 @@ public:
   avi_reader_c(const track_info_c &ti, const mm_io_cptr &in);
   virtual ~avi_reader_c();
 
-  virtual file_type_e get_format_type() const {
-    return FILE_TYPE_AVI;
+  virtual mtx::file_type_e get_format_type() const {
+    return mtx::file_type_e::avi;
   }
 
   virtual void read_headers();
@@ -108,7 +109,7 @@ protected:
   virtual void create_vp8_packetizer();
   virtual void create_video_packetizer();
 
-  virtual void set_avc_nal_size_size(mpeg4_p10_es_video_packetizer_c *ptzr);
+  virtual void set_avc_nal_size_size(avc_es_video_packetizer_c *ptzr);
 
   void extended_identify_mpeg4_l2(mtx::id::info_c &info);
 
@@ -122,5 +123,3 @@ protected:
 
   virtual void debug_dump_video_index();
 };
-
-#endif  // MTX_R_AVI_H

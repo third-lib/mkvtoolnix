@@ -11,8 +11,7 @@
    Written by Moritz Bunkus <moritz@bunkus.org>.
 */
 
-#ifndef MTX_COMMON_EBML_H
-#define MTX_COMMON_EBML_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -168,10 +167,11 @@ GetNextEmptyChild(EbmlMaster &master,
   return *(static_cast<type *>(e));
 }
 
-template <typename type>type &
+template <typename T>
+T &
 AddEmptyChild(EbmlMaster &master) {
   EbmlMaster *m;
-  EbmlElement *e = new type;
+  EbmlElement *e = new T;
   if ((m = dynamic_cast<EbmlMaster *>(e))) {
     while (m->ListSize() > 0) {
       delete (*m)[0];
@@ -180,7 +180,13 @@ AddEmptyChild(EbmlMaster &master) {
   }
   master.PushElement(*e);
 
-  return *(static_cast<type *>(e));
+  return *(static_cast<T *>(e));
+}
+
+template <typename T>
+T &
+AddEmptyChild(EbmlMaster *master) {
+  return AddEmptyChild<T>(*master);
 }
 
 template <typename T>
@@ -208,23 +214,28 @@ FindChild(EbmlElement const *e) {
   return static_cast<A *>(m->FindFirstElt(EBML_INFO(A)));
 }
 
+#if !defined(HAVE_EBML_FINDNEXTCHILD)
 template <typename A> A*
-FindNextChild(EbmlMaster const *m,
-              EbmlElement const *p) {
-  return static_cast<A *>(m->FindNextElt(*p));
+FindNextChild(EbmlMaster &Master,
+              A const  &PastElt) {
+  return static_cast<A *>(Master.FindNextElt(PastElt, false));
 }
-
-template <typename A> A*
-FindNextChild(EbmlElement const *e,
-              EbmlElement const *p) {
-  auto m = dynamic_cast<EbmlMaster const *>(e);
-  assert(m);
-  return static_cast<A *>(m->FindNextElt(*p));
-}
+#endif  // !HAVE_EBML_FINDNEXTCHILD
 
 template<typename A> A &
 GetChild(EbmlMaster *m) {
   return GetChild<A>(*m);
+}
+
+template<typename A> A &
+GetChildEmptyIfNew(EbmlMaster &m) {
+  auto *child = FindChild<A>(m);
+  return child ? *child : GetEmptyChild<A>(m);
+}
+
+template<typename A> A &
+GetChildEmptyIfNew(EbmlMaster *m) {
+  return GetChildEmptyIfNew<A>(*m);
 }
 
 template <typename A>A &
@@ -361,6 +372,23 @@ FindChildValue(EbmlMaster const *master,
   return FindChildValue<T>(*master, clone);
 }
 
+template<typename Telement,
+         typename Tvalue = decltype(Telement().GetValue())>
+boost::optional<Tvalue>
+FindOptionalChildValue(EbmlMaster const &master) {
+  auto child = FindChild<Telement>(master);
+  if (child)
+    return static_cast<Tvalue>(child->GetValue());
+  return boost::none;
+}
+
+template<typename Telement,
+         typename Tvalue = decltype(Telement().GetValue())>
+boost::optional<Tvalue>
+FindOptionalChildValue(EbmlMaster const *master) {
+  return FindOptionalChildValue<Telement>(*master);
+}
+
 template<typename Telement>
 decltype(Telement().GetValue())
 GetChildValue(EbmlMaster &master) {
@@ -378,6 +406,7 @@ EbmlElement *create_ebml_element(const EbmlCallbacks &callbacks, const EbmlId &i
 EbmlMaster *sort_ebml_master(EbmlMaster *e);
 void remove_voids_from_master(EbmlElement *element);
 void move_children(EbmlMaster &source, EbmlMaster &destination);
+bool remove_master_from_parent_if_empty_or_only_defaults(EbmlMaster *parent, EbmlMaster *child, std::unordered_map<EbmlMaster *, bool> &handled);
 
 const EbmlCallbacks *find_ebml_callbacks(const EbmlCallbacks &base, const EbmlId &id);
 const EbmlCallbacks *find_ebml_callbacks(const EbmlCallbacks &base, const char *debug_name);
@@ -388,6 +417,8 @@ EbmlElement *find_ebml_element_by_id(EbmlMaster *master, const EbmlId &id);
 std::pair<EbmlMaster *, size_t> find_element_in_master(EbmlMaster *master, EbmlElement *element_to_find);
 
 void fix_mandatory_elements(EbmlElement *master);
+bool must_be_present_in_master(EbmlCallbacks const &callbacks);
+bool must_be_present_in_master(EbmlElement const &element);
 
 using ebml_element_cptr = std::shared_ptr<EbmlElement>;
 using ebml_master_cptr  = std::shared_ptr<EbmlMaster>;
@@ -415,5 +446,3 @@ std::shared_ptr<T>
 clone(std::unique_ptr<T> const &e) {
   return clone(*e);
 }
-
-#endif // MTX_COMMON_EBML_H

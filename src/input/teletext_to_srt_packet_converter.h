@@ -11,8 +11,7 @@
    Written by Moritz Bunkus <moritz@bunkus.org>.
 */
 
-#ifndef MTX_INPUT_TELETEXT_TO_SRT_PACKET_CONVERTER_H
-#define MTX_INPUT_TELETEXT_TO_SRT_PACKET_CONVERTER_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -46,9 +45,11 @@ protected:
     boost::optional<int> m_forced_char_map_idx;
     bool m_page_changed{};
     generic_packetizer_c *m_ptzr{};
+    int m_magazine;
 
     track_data_t(generic_packetizer_c *ptzr)
       : m_ptzr{ptzr}
+      , m_magazine{-1}
     {
     }
   };
@@ -94,5 +95,3 @@ protected:
   static void remove_parity(unsigned char *buffer, size_t length);
   static void setup_character_maps();
 };
-
-#endif  // MTX_INPUT_TELETEXT_TO_SRT_PACKET_CONVERTER_H

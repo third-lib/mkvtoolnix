@@ -8,8 +8,7 @@
    Written by Moritz Bunkus <moritz@bunkus.org>.
 */
 
-#ifndef MTX_PROPEDIT_TAG_TARGET_H
-#define MTX_PROPEDIT_TAG_TARGET_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -43,7 +42,7 @@ public:
 
   std::unordered_map<uint64_t, uint64_t> m_default_durations_by_number;
   std::unordered_map<uint64_t, track_statistics_c> m_track_statistics_by_number;
-  uint64_t m_timecode_scale{};
+  uint64_t m_timestamp_scale{};
 
 public:
   tag_target_c();
@@ -60,6 +59,8 @@ public:
   virtual bool has_content_been_modified() const override;
 
   virtual void execute() override;
+  virtual bool write_elements_set_to_default_value() const override;
+  virtual bool add_mandatory_elements_if_missing() const override;
 
 protected:
   virtual void add_or_replace_global_tags(KaxTags *tags);
@@ -78,5 +79,3 @@ protected:
   virtual void account_all_clusters();
   virtual void create_track_statistics_tags();
 };
-
-#endif // MTX_PROPEDIT_TAG_TARGET_H

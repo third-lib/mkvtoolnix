@@ -1,5 +1,4 @@
-#ifndef MTX_MKVTOOLNIX_GUI_UTIL_FILE_IDENTIFIER_H
-#define MTX_MKVTOOLNIX_GUI_UTIL_FILE_IDENTIFIER_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -40,6 +39,7 @@ public:
 
 public:
   static void addProbeRangePercentageArg(QStringList &args, double probeRangePercentage);
+  static void cleanAllCacheFiles();
 
 protected:
   virtual bool parseOutput();
@@ -50,9 +50,17 @@ protected:
   virtual void parseTrackTags(QVariantMap const &obj);
   virtual void parseTrack(QVariantMap const &obj);
 
+  virtual void setDefaults();
+
   virtual void setError(QString const &errorTitle, QString const &errorText);
+
+  virtual QString cacheKey() const;
+  virtual QHash<QString, QVariant> cacheProperties() const;
+  virtual void storeResultInCache() const;
+  virtual bool retrieveResultFromCache();
+
+protected:
+  static QString cacheCategory();
 };
 
 }}}
-
-#endif // MTX_MKVTOOLNIX_GUI_UTIL_FILE_IDENTIFIER_H

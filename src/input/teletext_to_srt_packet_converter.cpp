@@ -207,7 +207,7 @@ teletext_to_srt_packet_converter_c::setup_character_maps() {
 void
 teletext_to_srt_packet_converter_c::bit_reverse(unsigned char *buffer,
                                                 size_t length) {
-  for (size_t idx = 0; idx < length; ++idx)
+  for (int idx = 0; idx < static_cast<int>(length); ++idx)
     buffer[idx] = invtab[buffer[idx]];
 }
 
@@ -215,7 +215,7 @@ void
 teletext_to_srt_packet_converter_c::unham(unsigned char const *in,
                                           unsigned char *out,
                                           size_t hambytes) {
-  for (size_t idx = 0; idx < (hambytes / 2); ++idx, ++out, in += 2)
+  for (int idx = 0; idx < static_cast<int>(hambytes / 2); ++idx, ++out, in += 2)
     *out = (unhamtab[*in] & 0x0f) | ((unhamtab[*(in + 1)] & 0x0f) << 4);
 }
 
@@ -224,7 +224,7 @@ int
 teletext_to_srt_packet_converter_c::ttx_to_page(int ttx) {
   int retval = 0;
 
-  for (size_t idx = 0; idx < 4; ++idx) {
+  for (int idx = 0; idx < 4; ++idx) {
     retval *= 10;
     retval += (ttx & 0xf000) >> 12;
     ttx   <<= 4;
@@ -236,7 +236,7 @@ teletext_to_srt_packet_converter_c::ttx_to_page(int ttx) {
 void
 teletext_to_srt_packet_converter_c::remove_parity(unsigned char *buffer,
                                                   size_t length) {
-  for (size_t idx = 0; idx < length; ++idx)
+  for (int idx = 0; idx < static_cast<int>(length); ++idx)
     buffer[idx] &= 0x7f;
 }
 
@@ -300,6 +300,7 @@ teletext_to_srt_packet_converter_c::decode_page_data(unsigned char ttx_header_ma
 
   m_current_track                   = data_itr->second.get();
   m_current_track->m_page_timestamp = m_current_packet_timestamp;
+  m_current_track->m_magazine       = ttx_header_magazine;
 
   auto &page_data                   = m_current_track->m_page_data;
 
@@ -318,8 +319,8 @@ teletext_to_srt_packet_converter_c::decode_page_data(unsigned char ttx_header_ma
   auto not_subtitle                 = (page_data.flags >> 15) & 0x03;
 
   mxdebug_if(m_debug,
-             boost::format("  ttx page %1% at %6% subpage %2% erase? %3% national set %4% not subtitle? %5%\n")
-             % page_data.page % page_data.subpage % page_data.erase_flag % page_data.national_set % not_subtitle % format_timestamp(m_current_packet_timestamp));
+             boost::format("  ttx page %1% at %6% subpage %2% erase? %3% national set %4% not subtitle? %5% flags %|7$02x|\n")
+             % page_data.page % page_data.subpage % page_data.erase_flag % page_data.national_set % not_subtitle % format_timestamp(m_current_packet_timestamp) % static_cast<unsigned int>(page_data.flags));
 
   deliver_queued_content();
 
@@ -359,12 +360,12 @@ teletext_to_srt_packet_converter_c::queue_packet(packet_cptr const &new_packet) 
   auto new_content = std::string{reinterpret_cast<char const *>(new_packet->data->get_buffer()), new_packet->data->get_size()};
 
   if (m_current_track->m_queued_packet) {
-    auto prev_timestamp = timestamp_c::ns(m_current_track->m_queued_packet->timecode);
+    auto prev_timestamp = timestamp_c::ns(m_current_track->m_queued_packet->timestamp);
     auto prev_end       = prev_timestamp + timestamp_c::ns(m_current_track->m_queued_packet->duration);
-    auto diff           = timestamp_c::ns(new_packet->timecode) - prev_end;
+    auto diff           = timestamp_c::ns(new_packet->timestamp) - prev_end;
 
     if ((diff.abs().to_ms() <= 40) && (old_content == new_content)) {
-      m_current_track->m_queued_packet->duration = (timestamp_c::ns(new_packet->timecode + new_packet->duration) - prev_timestamp).abs().to_ns();
+      m_current_track->m_queued_packet->duration = (timestamp_c::ns(new_packet->timestamp + new_packet->duration) - prev_timestamp).abs().to_ns();
       mxdebug_if(m_debug,
                  boost::format("  queue: merging packet with previous, now %1% duration %2% content %3%\n")
                  % format_timestamp(prev_timestamp) % format_timestamp(m_current_track->m_queued_packet->duration) % new_content);
@@ -380,7 +381,7 @@ teletext_to_srt_packet_converter_c::queue_packet(packet_cptr const &new_packet) 
 
   mxdebug_if(m_debug,
              boost::format("  queue: queueing packet %1% duration %2% content %3%\n")
-             % format_timestamp(new_packet->timecode) % format_timestamp(new_packet->duration) % new_content);
+             % format_timestamp(new_packet->timestamp) % format_timestamp(new_packet->duration) % new_content);
   m_current_track->m_queued_packet = new_packet;
 }
 
@@ -393,7 +394,7 @@ teletext_to_srt_packet_converter_c::flush() {
 
     auto old_content = std::string{reinterpret_cast<char const *>(data->m_queued_packet->data->get_buffer()), data->m_queued_packet->data->get_size()};
 
-    mxdebug_if(m_debug, boost::format("  queue: flushing packet %1% duration %2% content %3%\n") % format_timestamp(data->m_queued_packet->timecode) % format_timestamp(data->m_queued_packet->duration) % old_content);
+    mxdebug_if(m_debug, boost::format("  queue: flushing packet %1% duration %2% content %3%\n") % format_timestamp(data->m_queued_packet->timestamp) % format_timestamp(data->m_queued_packet->duration) % old_content);
 
     data->m_ptzr->process(data->m_queued_packet);
     data->m_queued_packet.reset();
@@ -405,8 +406,8 @@ teletext_to_srt_packet_converter_c::process_ttx_packet() {
   auto data_unit_id = m_buf[m_pos]; // 0x02 = teletext, 0x03 = subtitling, 0xff = stuffing
   auto start_byte   = m_buf[m_pos + 3];
 
-  if ((0x03 != data_unit_id) || (0xe4 != start_byte)) {
-    if ((0xff != data_unit_id) && (0x02 != data_unit_id))
+  if (!mtx::included_in(data_unit_id, 0x02, 0x03) || (0xe4 != start_byte)) {
+    if (0xff != data_unit_id)
       mxdebug_if(m_debug, boost::format("unsupported data_unit_id/start_byte; m_pos %1% data_unit_id 0x%|2$02x| start_byte 0x%|3$02x|\n") % m_pos % static_cast<unsigned int>(data_unit_id) % static_cast<unsigned int>(start_byte));
 
     return;
@@ -425,12 +426,15 @@ teletext_to_srt_packet_converter_c::process_ttx_packet() {
 
   mxdebug_if(m_debug, boost::format(" m_pos %1% packet_id/row_number %2% magazine %3%\n") % m_pos % static_cast<unsigned int>(row_number) % ttx_header_magazine);
 
-  if (row_number == 0)
+  if (row_number == 0) {
     decode_page_data(ttx_header_magazine);
+    return;
+  }
 
   if (   !m_current_track
-      || (row_number <= 0)
-      || (row_number >= TTX_PAGE_ROW_SIZE))
+      || (ttx_header_magazine != m_current_track->m_magazine)
+      || (row_number          <  0)
+      || (row_number          >= TTX_PAGE_ROW_SIZE))
     return;
 
   process_single_row(row_number);
@@ -452,9 +456,9 @@ teletext_to_srt_packet_converter_c::convert(packet_cptr const &packet) {
   m_in_size                  = packet->data->get_size();
   m_buf                      = packet->data->get_buffer();
   m_pos                      = 1;                // skip sub ID
-  m_current_packet_timestamp = timestamp_c::ns(packet->timecode);
+  m_current_packet_timestamp = timestamp_c::ns(packet->timestamp);
 
-  mxdebug_if(m_debug, boost::format("Starting conversion on packet with length %1% timestamp %2%\n") % m_in_size % format_timestamp(packet->timecode));
+  mxdebug_if(m_debug, boost::format("Starting conversion on packet with length %1% timestamp %2%\n") % m_in_size % format_timestamp(packet->timestamp));
 
   //
   // PES teletext payload (payload_index) packet length = 44 + 2 = 46

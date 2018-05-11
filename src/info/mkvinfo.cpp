@@ -54,6 +54,8 @@
 #endif
 
 #include "avilib.h"
+#include "common/avc.h"
+#include "common/avcc.h"
 #include "common/chapters/chapters.h"
 #include "common/checksums/base.h"
 #include "common/codec.h"
@@ -63,10 +65,11 @@
 #include "common/endian.h"
 #include "common/fourcc.h"
 #include "common/hevc.h"
+#include "common/hevcc.h"
 #include "common/kax_file.h"
+#include "common/math.h"
 #include "common/mm_io.h"
 #include "common/mm_io_x.h"
-#include "common/mpeg4_p10.h"
 #include "common/stereo_mode.h"
 #include "common/strings/editing.h"
 #include "common/strings/formatting.h"
@@ -89,11 +92,11 @@ struct kax_track_t {
 };
 
 struct track_info_t {
-  int64_t m_size, m_min_timecode, m_max_timecode, m_blocks, m_blocks_by_ref_num[3], m_add_duration_for_n_packets;
+  int64_t m_size, m_min_timestamp, m_max_timestamp, m_blocks, m_blocks_by_ref_num[3], m_add_duration_for_n_packets;
 
   track_info_t();
-  bool min_timecode_unset();
-  bool max_timecode_unset();
+  bool min_timestamp_unset();
+  bool max_timestamp_unset();
 };
 
 kax_track_t::kax_track_t()
@@ -108,8 +111,8 @@ using kax_track_cptr = std::shared_ptr<kax_track_t>;
 
 track_info_t::track_info_t()
   : m_size(0)
-  , m_min_timecode(LLONG_MAX)
-  , m_max_timecode(LLONG_MIN)
+  , m_min_timestamp(LLONG_MAX)
+  , m_max_timestamp(LLONG_MIN)
   , m_blocks(0)
   , m_add_duration_for_n_packets(0)
 {
@@ -117,20 +120,20 @@ track_info_t::track_info_t()
 }
 
 bool
-track_info_t::min_timecode_unset() {
-  return LLONG_MAX == m_min_timecode;
+track_info_t::min_timestamp_unset() {
+  return LLONG_MAX == m_min_timestamp;
 }
 
 bool
-track_info_t::max_timecode_unset() {
-  return LLONG_MIN == m_max_timecode;
+track_info_t::max_timestamp_unset() {
+  return LLONG_MIN == m_max_timestamp;
 }
 
 std::vector<kax_track_cptr> s_tracks;
 std::map<unsigned int, kax_track_cptr> s_tracks_by_number;
 std::map<unsigned int, track_info_t> s_track_info;
 options_c g_options;
-static uint64_t s_tc_scale = TIMECODE_SCALE;
+static uint64_t s_ts_scale = TIMESTAMP_SCALE;
 std::vector<boost::format> g_common_boost_formats;
 size_t s_mkvmerge_track_id = 0;
 
@@ -166,51 +169,53 @@ size_t s_mkvmerge_track_id = 0;
 #define BF_SIMPLE_BLOCK_POSITION             BF_DO(19) // Intentional -- same format.
 #define BF_SIMPLE_BLOCK_SUMMARY              BF_DO(25)
 #define BF_SIMPLE_BLOCK_SUMMARY_V2           BF_DO(26)
-#define BF_CLUSTER_TIMECODE                  BF_DO(27)
+#define BF_CLUSTER_TIMESTAMP                 BF_DO(27)
 #define BF_CLUSTER_POSITION                  BF_DO(28)
 #define BF_CLUSTER_PREVIOUS_SIZE             BF_DO(29)
 #define BF_CODEC_STATE                       BF_DO(30)
 #define BF_AT                                BF_DO(31)
 #define BF_SIZE                              BF_DO(32)
 #define BF_BLOCK_GROUP_DISCARD_PADDING       BF_DO(33)
+#define BF_AT_HEX                            BF_DO(34)
 
 void
 init_common_boost_formats() {
   g_common_boost_formats.clear();
-  BF_ADD(Y("(Unknown element: %1%; ID: 0x%2% size: %3%)"));                                                     //  0 -- BF_SHOW_UNKNOWN_ELEMENT
-  BF_ADD(Y("EbmlVoid (size: %1%)"));                                                                            //  1 -- BF_EBMLVOID
-  BF_ADD(Y("length %1%, data: %2%"));                                                                           //  2 -- BF_FORMAT_BINARY_1
-  BF_ADD(Y(" (adler: 0x%|1$08x|)"));                                                                            //  3 -- BF_FORMAT_BINARY_2
-  BF_ADD(Y("Block (track number %1%, %2% frame(s), timecode %|3$.3f|s = %4%)"));                                //  4 -- BF_BLOCK_GROUP_BLOCK_SUMMARY
-  BF_ADD(Y("Frame with size %1%%2%%3%"));                                                                       //  5 -- BF_BLOCK_GROUP_BLOCK_FRAME
-  BF_ADD(Y("Block duration: %1%.%|2$06d|ms"));                                                                  //  6 -- BF_BLOCK_GROUP_DURATION
-  BF_ADD(Y("Reference block: -%1%.%|2$06d|ms"));                                                                //  7 -- BF_BLOCK_GROUP_REFERENCE_1
-  BF_ADD(Y("Reference block: %1%.%|2$06d|ms"));                                                                 //  8 -- BF_BLOCK_GROUP_REFERENCE_2
-  BF_ADD(Y("Reference priority: %1%"));                                                                         //  9 -- BF_BLOCK_GROUP_REFERENCE_PRIORITY
-  BF_ADD(Y("Block virtual: %1%"));                                                                              // 10 -- BF_BLOCK_GROUP_VIRTUAL
-  BF_ADD(Y("Reference virtual: %1%"));                                                                          // 11 -- BF_BLOCK_GROUP_REFERENCE_VIRTUAL
-  BF_ADD(Y("AdditionalID: %1%"));                                                                               // 12 -- BF_BLOCK_GROUP_ADD_ID
-  BF_ADD(Y("Block additional: %1%"));                                                                           // 13 -- BF_BLOCK_GROUP_ADDITIONAL
-  BF_ADD(Y("Lace number: %1%"));                                                                                // 14 -- BF_BLOCK_GROUP_SLICE_LACE
-  BF_ADD(Y("Frame number: %1%"));                                                                               // 15 -- BF_BLOCK_GROUP_SLICE_FRAME
-  BF_ADD(Y("Delay: %|1$.3f|ms"));                                                                               // 16 -- BF_BLOCK_GROUP_SLICE_DELAY
-  BF_ADD(Y("Duration: %|1$.3f|ms"));                                                                            // 17 -- BF_BLOCK_GROUP_SLICE_DURATION
-  BF_ADD(Y("Block additional ID: %1%"));                                                                        // 18 -- BF_BLOCK_GROUP_SLICE_ADD_ID
-  BF_ADD(Y(", position %1%"));                                                                                  // 19 -- BF_BLOCK_GROUP_SUMMARY_POSITION
-  BF_ADD(Y("%1% frame, track %2%, timecode %3% (%4%), duration %|5$.3f|, size %6%, adler 0x%|7$08x|%8%%9%\n")); // 20 -- BF_BLOCK_GROUP_SUMMARY_WITH_DURATION
-  BF_ADD(Y("%1% frame, track %2%, timecode %3% (%4%), size %5%, adler 0x%|6$08x|%7%%8%\n"));                    // 21 -- BF_BLOCK_GROUP_SUMMARY_NO_DURATION
-  BF_ADD(Y("[%1% frame for track %2%, timecode %3%]"));                                                         // 22 -- BF_BLOCK_GROUP_SUMMARY_V2
-  BF_ADD(Y("SimpleBlock (%1%track number %2%, %3% frame(s), timecode %|4$.3f|s = %5%)"));                       // 23 -- BF_SIMPLE_BLOCK_BASICS
-  BF_ADD(Y("Frame with size %1%%2%%3%"));                                                                       // 24 -- BF_SIMPLE_BLOCK_FRAME
-  BF_ADD(Y("%1% frame, track %2%, timecode %3% (%4%), size %5%, adler 0x%|6$08x|%7%\n"));                       // 25 -- BF_SIMPLE_BLOCK_SUMMARY
-  BF_ADD(Y("[%1% frame for track %2%, timecode %3%]"));                                                         // 26 -- BF_SIMPLE_BLOCK_SUMMARY_V2
-  BF_ADD(Y("Cluster timecode: %|1$.3f|s"));                                                                     // 27 -- BF_CLUSTER_TIMECODE
-  BF_ADD(Y("Cluster position: %1%"));                                                                           // 28 -- BF_CLUSTER_POSITION
-  BF_ADD(Y("Cluster previous size: %1%"));                                                                      // 29 -- BF_CLUSTER_PREVIOUS_SIZE
-  BF_ADD(Y("Codec state: %1%"));                                                                                // 30 -- BF_CODEC_STATE
-  BF_ADD(Y(" at %1%"));                                                                                         // 31 -- BF_AT
-  BF_ADD(Y(" size %1%"));                                                                                       // 32 -- BF_SIZE
-  BF_ADD(Y("Discard padding: %|1$.3f|ms (%2%ns)"));                                                             // 33 -- BF_BLOCK_GROUP_DISCARD_PADDING
+  BF_ADD(Y("(Unknown element: %1%; ID: 0x%2% size: %3%)"));                                                      //  0 -- BF_SHOW_UNKNOWN_ELEMENT
+  BF_ADD(Y("EbmlVoid (size: %1%)"));                                                                             //  1 -- BF_EBMLVOID
+  BF_ADD(Y("length %1%, data: %2%"));                                                                            //  2 -- BF_FORMAT_BINARY_1
+  BF_ADD(Y(" (adler: 0x%|1$08x|)"));                                                                             //  3 -- BF_FORMAT_BINARY_2
+  BF_ADD(Y("Block (track number %1%, %2% frame(s), timestamp %|3$.3f|s = %4%)"));                                //  4 -- BF_BLOCK_GROUP_BLOCK_SUMMARY
+  BF_ADD(Y("Frame with size %1%%2%%3%"));                                                                        //  5 -- BF_BLOCK_GROUP_BLOCK_FRAME
+  BF_ADD(Y("Block duration: %1%.%|2$06d|ms"));                                                                   //  6 -- BF_BLOCK_GROUP_DURATION
+  BF_ADD(Y("Reference block: -%1%.%|2$06d|ms"));                                                                 //  7 -- BF_BLOCK_GROUP_REFERENCE_1
+  BF_ADD(Y("Reference block: %1%.%|2$06d|ms"));                                                                  //  8 -- BF_BLOCK_GROUP_REFERENCE_2
+  BF_ADD(Y("Reference priority: %1%"));                                                                          //  9 -- BF_BLOCK_GROUP_REFERENCE_PRIORITY
+  BF_ADD(Y("Block virtual: %1%"));                                                                               // 10 -- BF_BLOCK_GROUP_VIRTUAL
+  BF_ADD(Y("Reference virtual: %1%"));                                                                           // 11 -- BF_BLOCK_GROUP_REFERENCE_VIRTUAL
+  BF_ADD(Y("AdditionalID: %1%"));                                                                                // 12 -- BF_BLOCK_GROUP_ADD_ID
+  BF_ADD(Y("Block additional: %1%"));                                                                            // 13 -- BF_BLOCK_GROUP_ADDITIONAL
+  BF_ADD(Y("Lace number: %1%"));                                                                                 // 14 -- BF_BLOCK_GROUP_SLICE_LACE
+  BF_ADD(Y("Frame number: %1%"));                                                                                // 15 -- BF_BLOCK_GROUP_SLICE_FRAME
+  BF_ADD(Y("Delay: %|1$.3f|ms"));                                                                                // 16 -- BF_BLOCK_GROUP_SLICE_DELAY
+  BF_ADD(Y("Duration: %|1$.3f|ms"));                                                                             // 17 -- BF_BLOCK_GROUP_SLICE_DURATION
+  BF_ADD(Y("Block additional ID: %1%"));                                                                         // 18 -- BF_BLOCK_GROUP_SLICE_ADD_ID
+  BF_ADD(Y(", position %1%"));                                                                                   // 19 -- BF_BLOCK_GROUP_SUMMARY_POSITION
+  BF_ADD(Y("%1% frame, track %2%, timestamp %3% (%4%), duration %|5$.3f|, size %6%, adler 0x%|7$08x|%8%%9%\n")); // 20 -- BF_BLOCK_GROUP_SUMMARY_WITH_DURATION
+  BF_ADD(Y("%1% frame, track %2%, timestamp %3% (%4%), size %5%, adler 0x%|6$08x|%7%%8%\n"));                    // 21 -- BF_BLOCK_GROUP_SUMMARY_NO_DURATION
+  BF_ADD(Y("[%1% frame for track %2%, timestamp %3%]"));                                                         // 22 -- BF_BLOCK_GROUP_SUMMARY_V2
+  BF_ADD(Y("SimpleBlock (%1%track number %2%, %3% frame(s), timestamp %|4$.3f|s = %5%)"));                       // 23 -- BF_SIMPLE_BLOCK_BASICS
+  BF_ADD(Y("Frame with size %1%%2%%3%"));                                                                        // 24 -- BF_SIMPLE_BLOCK_FRAME
+  BF_ADD(Y("%1% frame, track %2%, timestamp %3% (%4%), size %5%, adler 0x%|6$08x|%7%\n"));                       // 25 -- BF_SIMPLE_BLOCK_SUMMARY
+  BF_ADD(Y("[%1% frame for track %2%, timestamp %3%]"));                                                         // 26 -- BF_SIMPLE_BLOCK_SUMMARY_V2
+  BF_ADD(Y("Cluster timestamp: %|1$.3f|s"));                                                                     // 27 -- BF_CLUSTER_TIMESTAMP
+  BF_ADD(Y("Cluster position: %1%"));                                                                            // 28 -- BF_CLUSTER_POSITION
+  BF_ADD(Y("Cluster previous size: %1%"));                                                                       // 29 -- BF_CLUSTER_PREVIOUS_SIZE
+  BF_ADD(Y("Codec state: %1%"));                                                                                 // 30 -- BF_CODEC_STATE
+  BF_ADD(Y(" at %1%"));                                                                                          // 31 -- BF_AT
+  BF_ADD(Y(" size %1%"));                                                                                        // 32 -- BF_SIZE
+  BF_ADD(Y("Discard padding: %|1$.3f|ms (%2%ns)"));                                                              // 33 -- BF_BLOCK_GROUP_DISCARD_PADDING
+  BF_ADD(Y(" at 0x%|1$x|"));                                                                                     // 34 -- BF_AT_HEX
 }
 
 std::string
@@ -220,7 +225,7 @@ create_element_text(const std::string &text,
   std::string additional_text;
 
   if ((1 < g_options.m_verbose) && (0 <= position))
-    additional_text += (BF_AT % position).str();
+    additional_text += ((g_options.m_hex_positions ? BF_AT_HEX : BF_AT) % position).str();
 
   if (g_options.m_show_size && (-1 != size)) {
     if (-2 != size)
@@ -330,7 +335,7 @@ create_codec_dependent_private_info(KaxCodecPrivate &c_priv,
     return (boost::format(Y(" (format tag: 0x%|1$04x|)")) % get_uint16_le(&wfe->w_format_tag)).str();
 
   } else if ((codec_id == MKV_V_MPEG4_AVC) && ('v' == track_type) && (c_priv.GetSize() >= 4)) {
-    auto avcc = mpeg4::p10::avcc_c::unpack(memory_cptr{new memory_c(c_priv.GetBuffer(), c_priv.GetSize(), false)});
+    auto avcc = mtx::avc::avcc_c::unpack(memory_cptr{new memory_c(c_priv.GetBuffer(), c_priv.GetSize(), false)});
 
     return (boost::format(Y(" (h.264 profile: %1% @L%2%.%3%)"))
             % (  avcc.m_profile_idc ==  44 ? "CAVLC 4:4:4 Intra"
@@ -452,22 +457,22 @@ handle_info(EbmlStream *&es,
   auto m1                    = static_cast<EbmlMaster *>(l1);
   read_master(m1, es, EBML_CONTEXT(l1), upper_lvl_el, element_found);
 
-  s_tc_scale = FindChildValue<KaxTimecodeScale, uint64_t>(m1, TIMECODE_SCALE);
+  s_ts_scale = FindChildValue<KaxTimecodeScale, uint64_t>(m1, TIMESTAMP_SCALE);
 
   for (auto l2 : *m1)
     if (Is<KaxTimecodeScale>(l2)) {
-      s_tc_scale = static_cast<KaxTimecodeScale *>(l2)->GetValue();
-      show_element(l2, 2, boost::format(Y("Timecode scale: %1%")) % s_tc_scale);
+      s_ts_scale = static_cast<KaxTimecodeScale *>(l2)->GetValue();
+      show_element(l2, 2, boost::format(Y("Timestamp scale: %1%")) % s_ts_scale);
 
     } else if (Is<KaxDuration>(l2)) {
       KaxDuration &duration = *static_cast<KaxDuration *>(l2);
       show_element(l2, 2,
                    boost::format(Y("Duration: %|1$.3f|s (%2%)"))
-                   % (duration.GetValue() * s_tc_scale / 1000000000.0)
-                   % format_timestamp(static_cast<uint64_t>(duration.GetValue()) * s_tc_scale, 3));
+                   % (duration.GetValue() * s_ts_scale / 1000000000.0)
+                   % format_timestamp(static_cast<uint64_t>(duration.GetValue()) * s_ts_scale, 3));
 
     } else if (Is<KaxMuxingApp>(l2))
-      show_element(l2, 2, boost::format(Y("Muxing application: %1%")) % static_cast<KaxMuxingApp *>(l2)->GetValueUTF8());
+      show_element(l2, 2, boost::format(Y("Multiplexing application: %1%")) % static_cast<KaxMuxingApp *>(l2)->GetValueUTF8());
 
     else if (Is<KaxWritingApp>(l2))
       show_element(l2, 2, boost::format(Y("Writing application: %1%")) % static_cast<KaxWritingApp *>(l2)->GetValueUTF8());
@@ -546,137 +551,128 @@ handle_audio_track(EbmlStream *&es,
 }
 
 void handle_video_colour_master_meta(EbmlStream *&es,
-                                     EbmlElement *&l5,
-                                     std::vector<std::string> &summary) {
+                                     EbmlElement *&l5) {
   show_element(l5, 5, Y("Video colour mastering metadata"));
+
   for (auto l6: *static_cast<EbmlMaster *>(l5)) {
-    if (Is<KaxVideoRChromaX>(l6)) {
-      auto &x = *static_cast<KaxVideoRChromaX *>(l6);
-      show_element(l6, 6, boost::format(Y("Red colour coordinate x: %1%")) % x.GetValue());
-      summary.push_back((boost::format(Y("Red colour coordinate x: %1%")) % x.GetValue()).str());
+    if (Is<KaxVideoRChromaX>(l6))
+      show_element(l6, 6, boost::format(Y("Red colour coordinate x: %1%")) % static_cast<KaxVideoRChromaX *>(l6)->GetValue());
 
-    } else if (Is<KaxVideoRChromaY>(l6)) {
-      auto &y = *static_cast<KaxVideoRChromaY *>(l6);
-      show_element(l6, 6, boost::format(Y("Red colour coordinate y: %1%")) % y.GetValue());
-      summary.push_back((boost::format(Y("Red colour coordinate y: %1%")) % y.GetValue()).str());
+    else if (Is<KaxVideoRChromaY>(l6))
+      show_element(l6, 6, boost::format(Y("Red colour coordinate y: %1%")) % static_cast<KaxVideoRChromaY *>(l6)->GetValue());
 
-    } else if (Is<KaxVideoGChromaX>(l6)) {
-      auto &x = *static_cast<KaxVideoGChromaX *>(l6);
-      show_element(l6, 6, boost::format(Y("Green colour coordinate x: %1%")) % x.GetValue());
-      summary.push_back((boost::format(Y("Green colour coordinate x: %1%")) % x.GetValue()).str());
+    else if (Is<KaxVideoGChromaX>(l6))
+      show_element(l6, 6, boost::format(Y("Green colour coordinate x: %1%")) % static_cast<KaxVideoGChromaX *>(l6)->GetValue());
 
-    } else if (Is<KaxVideoGChromaY>(l6)) {
-      auto &y = *static_cast<KaxVideoGChromaY *>(l6);
-      show_element(l6, 6, boost::format(Y("Green colour coordinate y: %1%")) % y.GetValue());
-      summary.push_back((boost::format(Y("Green colour coordinate y: %1%")) % y.GetValue()).str());
+    else if (Is<KaxVideoGChromaY>(l6))
+      show_element(l6, 6, boost::format(Y("Green colour coordinate y: %1%")) % static_cast<KaxVideoGChromaY *>(l6)->GetValue());
 
-    } else if (Is<KaxVideoBChromaX>(l6)) {
-      auto &x = *static_cast<KaxVideoBChromaX *>(l6);
-      show_element(l6, 6, boost::format(Y("Blue colour coordinate x: %1%")) % x.GetValue());
-      summary.push_back((boost::format(Y("Blue colour coordinate x: %1%")) % x.GetValue()).str());
+    else if (Is<KaxVideoBChromaX>(l6))
+      show_element(l6, 6, boost::format(Y("Blue colour coordinate x: %1%")) % static_cast<KaxVideoBChromaX *>(l6)->GetValue());
 
-    } else if (Is<KaxVideoBChromaY>(l6)) {
-      auto &y = *static_cast<KaxVideoBChromaY *>(l6);
-      show_element(l6, 6, boost::format(Y("Blue colour coordinate y: %1%")) % y.GetValue());
-      summary.push_back((boost::format(Y("Blue colour coordinate y: %1%")) % y.GetValue()).str());
+    else if (Is<KaxVideoBChromaY>(l6))
+      show_element(l6, 6, boost::format(Y("Blue colour coordinate y: %1%")) % static_cast<KaxVideoBChromaY *>(l6)->GetValue());
 
-    } else if (Is<KaxVideoWhitePointChromaX>(l6)) {
-      auto &x = *static_cast<KaxVideoWhitePointChromaX *>(l6);
-      show_element(l6, 6, boost::format(Y("White colour coordinate x: %1%")) % x.GetValue());
-      summary.push_back((boost::format(Y("White colour coordinate x: %1%")) % x.GetValue()).str());
+    else if (Is<KaxVideoWhitePointChromaX>(l6))
+      show_element(l6, 6, boost::format(Y("White colour coordinate x: %1%")) % static_cast<KaxVideoWhitePointChromaX *>(l6)->GetValue());
 
-    } else if (Is<KaxVideoWhitePointChromaY>(l6)) {
-      auto &y = *static_cast<KaxVideoWhitePointChromaY *>(l6);
-      show_element(l6, 6, boost::format(Y("White colour coordinate y: %1%")) % y.GetValue());
-      summary.push_back((boost::format(Y("White colour coordinate y: %1%")) % y.GetValue()).str());
+    else if (Is<KaxVideoWhitePointChromaY>(l6))
+      show_element(l6, 6, boost::format(Y("White colour coordinate y: %1%")) % static_cast<KaxVideoWhitePointChromaY *>(l6)->GetValue());
 
-    } else if (Is<KaxVideoLuminanceMax>(l6)) {
-      auto &luminance = *static_cast<KaxVideoLuminanceMax *>(l6);
-      show_element(l6, 6, boost::format(Y("Max luminance: %1%")) % luminance.GetValue());
-      summary.push_back((boost::format(Y("Max luminance: %1%")) % luminance.GetValue()).str());
+    else if (Is<KaxVideoLuminanceMax>(l6))
+      show_element(l6, 6, boost::format(Y("Max luminance: %1%")) % static_cast<KaxVideoLuminanceMax *>(l6)->GetValue());
 
-    } else if (Is<KaxVideoLuminanceMin>(l6)) {
-      auto &luminance = *static_cast<KaxVideoLuminanceMin *>(l6);
-      show_element(l6, 6, boost::format(Y("Min luminance: %1%")) % luminance.GetValue());
-      summary.push_back((boost::format(Y("Min luminance: %1%")) % luminance.GetValue()).str());
-    }
+    else if (Is<KaxVideoLuminanceMin>(l6))
+      show_element(l6, 6, boost::format(Y("Min luminance: %1%")) % static_cast<KaxVideoLuminanceMin *>(l6)->GetValue());
+
+    else if (!is_global(es, l6, 6))
+      show_unknown_element(l6, 6);
   }
 }
 
 void
 handle_video_colour(EbmlStream *&es,
-                    EbmlElement *&l4,
-                    std::vector<std::string> &summary) {
+                    EbmlElement *&l4) {
   show_element(l4, 4, Y("Video colour information"));
+
   for (auto l5 : *static_cast<EbmlMaster *>(l4)) {
-    if (Is<KaxVideoColourMatrix>(l5)) {
-      auto &colour_matrix = *static_cast<KaxVideoColourMatrix *>(l5);
-      show_element(l5, 5, boost::format(Y("Colour matrix: %1%")) % colour_matrix.GetValue());
-      summary.push_back((boost::format(Y("Colour matrix: %1%")) % colour_matrix.GetValue()).str());
+    if (Is<KaxVideoColourMatrix>(l5))
+      show_element(l5, 5, boost::format(Y("Colour matrix coefficients: %1%")) % static_cast<KaxVideoColourMatrix *>(l5)->GetValue());
 
-    } else if (Is<KaxVideoBitsPerChannel>(l5)) {
-      auto &bits_per_channel = *static_cast<KaxVideoBitsPerChannel *>(l5);
-      show_element(l5, 5, boost::format(Y("Bits per channel: %1%")) % bits_per_channel.GetValue());
-      summary.push_back((boost::format(Y("Bits per channel: %1%")) % bits_per_channel.GetValue()).str());
+    else if (Is<KaxVideoBitsPerChannel>(l5))
+      show_element(l5, 5, boost::format(Y("Bits per channel: %1%")) % static_cast<KaxVideoBitsPerChannel *>(l5)->GetValue());
 
-    } else if (Is<KaxVideoChromaSubsampHorz>(l5)) {
-      auto &subsample_hori = *static_cast<KaxVideoChromaSubsampHorz *>(l5);
-      show_element(l5, 5, boost::format(Y("Horizontal chroma subsample: %1%")) % subsample_hori.GetValue());
-      summary.push_back((boost::format(Y("Horizontal chroma subsample: %1%")) % subsample_hori.GetValue()).str());
+    else if (Is<KaxVideoChromaSubsampHorz>(l5))
+      show_element(l5, 5, boost::format(Y("Horizontal chroma subsample: %1%")) % static_cast<KaxVideoChromaSubsampHorz *>(l5)->GetValue());
 
-    } else if (Is<KaxVideoChromaSubsampVert>(l5)) {
-      auto &subsample_vert = *static_cast<KaxVideoChromaSubsampVert *>(l5);
-      show_element(l5, 5, boost::format(Y("Vertical chroma subsample: %1%")) % subsample_vert.GetValue());
-      summary.push_back((boost::format(Y("Vertical chroma subsample: %1%")) % subsample_vert.GetValue()).str());
+    else if (Is<KaxVideoChromaSubsampVert>(l5))
+      show_element(l5, 5, boost::format(Y("Vertical chroma subsample: %1%")) % static_cast<KaxVideoChromaSubsampVert *>(l5)->GetValue());
 
-    } else if (Is<KaxVideoCbSubsampHorz>(l5)) {
-      auto &subsample_hori = *static_cast<KaxVideoCbSubsampHorz *>(l5);
-      show_element(l5, 5, boost::format(Y("Horizontal Cb subsample: %1%")) % subsample_hori.GetValue());
-      summary.push_back((boost::format(Y("Horizontal Cb subsample: %1%")) % subsample_hori.GetValue()).str());
+    else if (Is<KaxVideoCbSubsampHorz>(l5))
+      show_element(l5, 5, boost::format(Y("Horizontal Cb subsample: %1%")) % static_cast<KaxVideoCbSubsampHorz *>(l5)->GetValue());
 
-    } else if (Is<KaxVideoCbSubsampVert>(l5)) {
-      auto &subsample_vert = *static_cast<KaxVideoCbSubsampVert *>(l5);
-      show_element(l5, 5, boost::format(Y("Vertical Cb subsample: %1%")) % subsample_vert.GetValue());
-      summary.push_back((boost::format(Y("Vertical Cb subsample: %1%")) % subsample_vert.GetValue()).str());
+    else if (Is<KaxVideoCbSubsampVert>(l5))
+      show_element(l5, 5, boost::format(Y("Vertical Cb subsample: %1%")) % static_cast<KaxVideoCbSubsampVert *>(l5)->GetValue());
 
-    } else if (Is<KaxVideoChromaSitHorz>(l5)) {
-      auto &sit_hori = *static_cast<KaxVideoChromaSitHorz *>(l5);
-      show_element(l5, 5, boost::format(Y("Horizontal chroma siting: %1%")) % sit_hori.GetValue());
-      summary.push_back((boost::format(Y("Horizontal chroma siting: %1%")) % sit_hori.GetValue()).str());
+    else if (Is<KaxVideoChromaSitHorz>(l5))
+      show_element(l5, 5, boost::format(Y("Horizontal chroma siting: %1%")) % static_cast<KaxVideoChromaSitHorz *>(l5)->GetValue());
 
-    } else if (Is<KaxVideoChromaSitVert>(l5)) {
-      auto &sit_vert = *static_cast<KaxVideoChromaSitVert *>(l5);
-      show_element(l5, 5, boost::format(Y("Vertical chroma siting: %1%")) % sit_vert.GetValue());
-      summary.push_back((boost::format(Y("Vertical chroma siting: %1%")) % sit_vert.GetValue()).str());
+    else if (Is<KaxVideoChromaSitVert>(l5))
+      show_element(l5, 5, boost::format(Y("Vertical chroma siting: %1%")) % static_cast<KaxVideoChromaSitVert *>(l5)->GetValue());
 
-    } else if (Is<KaxVideoColourRange>(l5)) {
-      auto &range = *static_cast<KaxVideoColourRange *>(l5);
-      show_element(l5, 5, boost::format(Y("Colour range: %1%")) % range.GetValue());
-      summary.push_back((boost::format(Y("Colour range: %1%")) % range.GetValue()).str());
+    else if (Is<KaxVideoColourRange>(l5))
+      show_element(l5, 5, boost::format(Y("Colour range: %1%")) % static_cast<KaxVideoColourRange *>(l5)->GetValue());
 
-    } else if (Is<KaxVideoColourTransferCharacter>(l5)) {
-      auto &transfer = *static_cast<KaxVideoColourTransferCharacter *>(l5);
-      show_element(l5, 5, boost::format(Y("Colour transfer: %1%")) % transfer.GetValue());
-      summary.push_back((boost::format(Y("Colour transfer: %1%")) % transfer.GetValue()).str());
+    else if (Is<KaxVideoColourTransferCharacter>(l5))
+      show_element(l5, 5, boost::format(Y("Colour transfer: %1%")) % static_cast<KaxVideoColourTransferCharacter *>(l5)->GetValue());
 
-    } else if (Is<KaxVideoColourPrimaries>(l5)) {
-      auto &primaries = *static_cast<KaxVideoColourPrimaries *>(l5);
-      show_element(l5, 5, boost::format(Y("Colour primaries: %1%")) % primaries.GetValue());
-      summary.push_back((boost::format(Y("Colour primaries: %1%")) % primaries.GetValue()).str());
+    else if (Is<KaxVideoColourPrimaries>(l5))
+      show_element(l5, 5, boost::format(Y("Colour primaries: %1%")) % static_cast<KaxVideoColourPrimaries *>(l5)->GetValue());
 
-    } else if (Is<KaxVideoColourMaxCLL>(l5)) {
-      auto &max = *static_cast<KaxVideoColourMaxCLL *>(l5);
-      show_element(l5, 5, boost::format(Y("Max content light: %1%")) % max.GetValue());
-      summary.push_back((boost::format(Y("Max content light: %1%")) % max.GetValue()).str());
+    else if (Is<KaxVideoColourMaxCLL>(l5))
+      show_element(l5, 5, boost::format(Y("Max content light: %1%")) % static_cast<KaxVideoColourMaxCLL *>(l5)->GetValue());
 
-    } else if (Is<KaxVideoColourMaxFALL>(l5)) {
-      auto &max = *static_cast<KaxVideoColourMaxFALL *>(l5);
-      show_element(l5, 5, boost::format(Y("Max frame light: %1%")) % max.GetValue());
-      summary.push_back((boost::format(Y("Max frame light: %1%")) % max.GetValue()).str());
+    else if (Is<KaxVideoColourMaxFALL>(l5))
+      show_element(l5, 5, boost::format(Y("Max frame light: %1%")) % static_cast<KaxVideoColourMaxFALL *>(l5)->GetValue());
 
-    } else if (Is<KaxVideoColourMasterMeta>(l5)) {
-      handle_video_colour_master_meta(es, l5, summary);
-    }
+    else if (Is<KaxVideoColourMasterMeta>(l5))
+      handle_video_colour_master_meta(es, l5);
+
+    else if (!is_global(es, l5, 5))
+      show_unknown_element(l5, 5);
+  }
+}
+
+void
+handle_video_projection(EbmlStream *&es,
+                        EbmlElement *&l4) {
+  show_element(l4, 4, Y("Video projection"));
+
+  for (auto l5 : *static_cast<EbmlMaster *>(l4)) {
+    if (Is<KaxVideoProjectionType>(l5)) {
+      auto value       = static_cast<KaxVideoProjectionType *>(l5)->GetValue();
+      auto description = 0 == value ? Y("rectangular")
+                       : 1 == value ? Y("equirectangular")
+                       : 2 == value ? Y("cubemap")
+                       : 3 == value ? Y("mesh")
+                       :              Y("unknown");
+
+      show_element(l5, 5, boost::format(Y("Projection type: %1% (%2%)")) % value % description);
+
+    } else if (Is<KaxVideoProjectionPrivate>(l5))
+      show_element(l5, 5, boost::format(Y("Projection's private data: %1%")) % to_hex(static_cast<KaxVideoProjectionPrivate *>(l5)));
+
+    else if (Is<KaxVideoProjectionPoseYaw>(l5))
+      show_element(l5, 5, boost::format(Y("Projection's yaw rotation: %1%")) % static_cast<KaxVideoProjectionPoseYaw *>(l5)->GetValue());
+
+    else if (Is<KaxVideoProjectionPosePitch>(l5))
+      show_element(l5, 5, boost::format(Y("Projection's pitch rotation: %1%")) % static_cast<KaxVideoProjectionPosePitch *>(l5)->GetValue());
+
+    else if (Is<KaxVideoProjectionPoseRoll>(l5))
+      show_element(l5, 5, boost::format(Y("Projection's roll rotation: %1%")) % static_cast<KaxVideoProjectionPoseRoll *>(l5)->GetValue());
+
+    else if (!is_global(es, l5, 5))
+      show_unknown_element(l5, 5);
   }
 }
 
@@ -782,7 +778,10 @@ handle_video_track(EbmlStream *&es,
       show_element(l4, 4, boost::format(Y("Frame rate: %1%")) % static_cast<KaxVideoFrameRate *>(l4)->GetValue());
 
     else if (Is<KaxVideoColour>(l4))
-      handle_video_colour(es, l4, summary);
+      handle_video_colour(es, l4);
+
+    else if (Is<KaxVideoProjection>(l4))
+      handle_video_projection(es, l4);
 
     else if (!is_global(es, l4, 4))
       show_unknown_element(l4, 4);
@@ -1041,7 +1040,7 @@ handle_tracks(EbmlStream *&es,
           summary.push_back((boost::format(Y("language: %1%"))              % language).str());
 
         } else if (Is<KaxTrackTimecodeScale>(l3))
-          show_element(l3, 3, boost::format(Y("Timecode scale: %1%"))       % static_cast<KaxTrackTimecodeScale *>(l3)->GetValue());
+          show_element(l3, 3, boost::format(Y("Timestamp scale: %1%"))      % static_cast<KaxTrackTimecodeScale *>(l3)->GetValue());
 
         else if (Is<KaxMaxBlockAdditionID>(l3))
           show_element(l3, 3, boost::format(Y("Max BlockAddition ID: %1%")) % static_cast<KaxMaxBlockAdditionID *>(l3)->GetValue());
@@ -1147,7 +1146,7 @@ handle_cues(EbmlStream *&es,
 
       for (auto l3 : *static_cast<EbmlMaster *>(l2))
         if (Is<KaxCueTime>(l3))
-          show_element(l3, 3, boost::format(Y("Cue time: %|1$.3f|s")) % (s_tc_scale * static_cast<double>(static_cast<KaxCueTime *>(l3)->GetValue()) / 1000000000.0));
+          show_element(l3, 3, boost::format(Y("Cue time: %|1$.3f|s")) % (s_ts_scale * static_cast<double>(static_cast<KaxCueTime *>(l3)->GetValue()) / 1000000000.0));
 
         else if (Is<KaxCueTrackPositions>(l3)) {
           show_element(l3, 3, Y("Cue track positions"));
@@ -1163,7 +1162,7 @@ handle_cues(EbmlStream *&es,
               show_element(l4, 4, boost::format(Y("Cue relative position: %1%")) % static_cast<KaxCueRelativePosition *>(l4)->GetValue());
 
             else if (Is<KaxCueDuration>(l4))
-              show_element(l4, 4, boost::format(Y("Cue duration: %1%"))         % format_timestamp(static_cast<KaxCueDuration *>(l4)->GetValue() * s_tc_scale));
+              show_element(l4, 4, boost::format(Y("Cue duration: %1%"))         % format_timestamp(static_cast<KaxCueDuration *>(l4)->GetValue() * s_ts_scale));
 
             else if (Is<KaxCueBlockNumber>(l4))
               show_element(l4, 4, boost::format(Y("Cue block number: %1%"))     % static_cast<KaxCueBlockNumber *>(l4)->GetValue());
@@ -1177,7 +1176,7 @@ handle_cues(EbmlStream *&es,
 
               for (auto l5 : *static_cast<EbmlMaster *>(l4))
                 if (Is<KaxCueRefTime>(l5))
-                  show_element(l5, 5, boost::format(Y("Cue ref time: %|1$.3f|s"))  % s_tc_scale % (static_cast<KaxCueRefTime *>(l5)->GetValue() / 1000000000.0));
+                  show_element(l5, 5, boost::format(Y("Cue ref time: %|1$.3f|s"))  % s_ts_scale % (static_cast<KaxCueRefTime *>(l5)->GetValue() / 1000000000.0));
 
                 else if (Is<KaxCueRefCluster>(l5))
                   show_element(l5, 5, boost::format(Y("Cue ref cluster: %1%"))     % static_cast<KaxCueRefCluster *>(l5)->GetValue());
@@ -1264,31 +1263,31 @@ handle_block_group(EbmlStream *&es,
   std::vector<uint32_t> frame_adlers;
   std::vector<std::string> frame_hexdumps;
 
-  auto num_references = 0u;
-  int64_t lf_timecode = 0;
-  int64_t lf_tnum     = 0;
-  int64_t frame_pos   = 0;
+  auto num_references  = 0u;
+  int64_t lf_timestamp = 0;
+  int64_t lf_tnum      = 0;
+  int64_t frame_pos    = 0;
 
-  float bduration     = -1.0;
+  float bduration      = -1.0;
 
   for (auto l3 : *static_cast<EbmlMaster *>(l2))
     if (Is<KaxBlock>(l3)) {
       KaxBlock &block = *static_cast<KaxBlock *>(l3);
       block.SetParent(*cluster);
 
-      lf_timecode = block.GlobalTimecode();
-      lf_tnum     = block.TrackNum();
-      bduration   = -1.0;
-      frame_pos   = block.GetElementPosition() + block.ElementSize();
+      lf_timestamp = block.GlobalTimecode();
+      lf_tnum      = block.TrackNum();
+      bduration    = -1.0;
+      frame_pos    = block.GetElementPosition() + block.ElementSize();
 
       show_element(l3, 3,
                    BF_BLOCK_GROUP_BLOCK_BASICS
                    % block.TrackNum()
                    % block.NumberFrames()
-                   % (static_cast<double>(lf_timecode) / 1000000000.0)
-                   % format_timestamp(lf_timecode, 3));
+                   % (static_cast<double>(lf_timestamp) / 1000000000.0)
+                   % format_timestamp(lf_timestamp, 3));
 
-      for (size_t i = 0; i < block.NumberFrames(); ++i) {
+      for (int i = 0, num_frames = block.NumberFrames(); i < num_frames; ++i) {
         auto &data = block.GetBuffer(i);
         auto adler = mtx::checksum::calculate_as_uint(mtx::checksum::algorithm_e::adler32, data.Buffer(), data.Size());
 
@@ -1310,13 +1309,13 @@ handle_block_group(EbmlStream *&es,
 
     } else if (Is<KaxBlockDuration>(l3)) {
       auto duration = static_cast<KaxBlockDuration *>(l3)->GetValue();
-      bduration     = static_cast<double>(duration) * s_tc_scale / 1000000.0;
-      show_element(l3, 3, BF_BLOCK_GROUP_DURATION % (duration * s_tc_scale / 1000000) % (duration * s_tc_scale % 1000000));
+      bduration     = static_cast<double>(duration) * s_ts_scale / 1000000.0;
+      show_element(l3, 3, BF_BLOCK_GROUP_DURATION % (duration * s_ts_scale / 1000000) % (duration * s_ts_scale % 1000000));
 
     } else if (Is<KaxReferenceBlock>(l3)) {
       ++num_references;
 
-      int64_t reference = static_cast<KaxReferenceBlock *>(l3)->GetValue() * s_tc_scale;
+      int64_t reference = static_cast<KaxReferenceBlock *>(l3)->GetValue() * s_ts_scale;
 
       if (0 >= reference)
         show_element(l3, 3, BF_BLOCK_GROUP_REFERENCE_1 % (std::abs(reference) / 1000000) % (std::abs(reference) % 1000000));
@@ -1378,10 +1377,10 @@ handle_block_group(EbmlStream *&es,
               show_element(l5, 5, BF_BLOCK_GROUP_SLICE_FRAME    % static_cast<KaxSliceFrameNumber *>(l5)->GetValue());
 
             else if (Is<KaxSliceDelay>(l5))
-              show_element(l5, 5, BF_BLOCK_GROUP_SLICE_DELAY    % (static_cast<double>(static_cast<KaxSliceDelay *>(l5)->GetValue()) * s_tc_scale / 1000000.0));
+              show_element(l5, 5, BF_BLOCK_GROUP_SLICE_DELAY    % (static_cast<double>(static_cast<KaxSliceDelay *>(l5)->GetValue()) * s_ts_scale / 1000000.0));
 
             else if (Is<KaxSliceDuration>(l5))
-              show_element(l5, 5, BF_BLOCK_GROUP_SLICE_DURATION % (static_cast<double>(static_cast<KaxSliceDuration *>(l5)->GetValue()) * s_tc_scale / 1000000.0));
+              show_element(l5, 5, BF_BLOCK_GROUP_SLICE_DURATION % (static_cast<double>(static_cast<KaxSliceDuration *>(l5)->GetValue()) * s_ts_scale / 1000000.0));
 
             else if (Is<KaxSliceBlockAddID>(l5))
               show_element(l5, 5, BF_BLOCK_GROUP_SLICE_ADD_ID   % static_cast<KaxSliceBlockAddID *>(l5)->GetValue());
@@ -1409,8 +1408,8 @@ handle_block_group(EbmlStream *&es,
         mxinfo(BF_BLOCK_GROUP_SUMMARY_WITH_DURATION
                % (num_references >= 2 ? 'B' : num_references == 1 ? 'P' : 'I')
                % lf_tnum
-               % std::llround(lf_timecode / 1000000.0)
-               % format_timestamp(lf_timecode, 3)
+               % std::llround(lf_timestamp / 1000000.0)
+               % format_timestamp(lf_timestamp, 3)
                % bduration
                % frame_sizes[fidx]
                % frame_adlers[fidx]
@@ -1420,8 +1419,8 @@ handle_block_group(EbmlStream *&es,
         mxinfo(BF_BLOCK_GROUP_SUMMARY_NO_DURATION
                % (num_references >= 2 ? 'B' : num_references == 1 ? 'P' : 'I')
                % lf_tnum
-               % std::llround(lf_timecode / 1000000.0)
-               % format_timestamp(lf_timecode, 3)
+               % std::llround(lf_timestamp / 1000000.0)
+               % format_timestamp(lf_timestamp, 3)
                % frame_sizes[fidx]
                % frame_adlers[fidx]
                % frame_hexdumps[fidx]
@@ -1433,24 +1432,24 @@ handle_block_group(EbmlStream *&es,
                  BF_BLOCK_GROUP_SUMMARY_V2
                  % (num_references >= 2 ? 'B' : num_references == 1 ? 'P' : 'I')
                  % lf_tnum
-                 % std::llround(lf_timecode / 1000000.0));
+                 % std::llround(lf_timestamp / 1000000.0));
 
   track_info_t &tinfo = s_track_info[lf_tnum];
 
   tinfo.m_blocks                                          += frame_sizes.size();
   tinfo.m_blocks_by_ref_num[std::min(num_references, 2u)] += frame_sizes.size();
-  tinfo.m_min_timecode                                     = std::min(tinfo.m_min_timecode, lf_timecode);
+  tinfo.m_min_timestamp                                    = std::min(tinfo.m_min_timestamp, lf_timestamp);
   tinfo.m_size                                            += boost::accumulate(frame_sizes, 0);
 
-  if (!tinfo.max_timecode_unset() && (tinfo.m_max_timecode >= lf_timecode))
+  if (!tinfo.max_timestamp_unset() && (tinfo.m_max_timestamp >= lf_timestamp))
     return;
 
-  tinfo.m_max_timecode = lf_timecode;
+  tinfo.m_max_timestamp = lf_timestamp;
 
   if (-1 == bduration)
     tinfo.m_add_duration_for_n_packets  = frame_sizes.size();
   else {
-    tinfo.m_max_timecode               += bduration * 1000000.0;
+    tinfo.m_max_timestamp              += bduration * 1000000.0;
     tinfo.m_add_duration_for_n_packets  = 0;
   }
 }
@@ -1466,8 +1465,8 @@ handle_simple_block(EbmlStream *&es,
   block.SetParent(*cluster);
 
   int64_t frame_pos   = block.GetElementPosition() + block.ElementSize();
-  auto timecode_ns    = block.GlobalTimecode();
-  auto timecode_ms    = std::llround(static_cast<double>(timecode_ns) / 1000000.0);
+  auto timestamp_ns   = mtx::math::to_signed(block.GlobalTimecode());
+  auto timestamp_ms   = std::llround(static_cast<double>(timestamp_ns) / 1000000.0);
   track_info_t &tinfo = s_track_info[block.TrackNum()];
 
   std::string info;
@@ -1481,8 +1480,8 @@ handle_simple_block(EbmlStream *&es,
                % info
                % block.TrackNum()
                % block.NumberFrames()
-               % (timecode_ns / 1000000000.0)
-               % format_timestamp(timecode_ns, 3));
+               % (timestamp_ns / 1000000000.0)
+               % format_timestamp(timestamp_ns, 3));
 
   int i;
   for (i = 0; i < (int)block.NumberFrames(); i++) {
@@ -1517,8 +1516,8 @@ handle_simple_block(EbmlStream *&es,
       mxinfo(BF_SIMPLE_BLOCK_SUMMARY
              % (block.IsKeyframe() ? 'I' : block.IsDiscardable() ? 'B' : 'P')
              % block.TrackNum()
-             % timecode_ms
-             % format_timestamp(timecode_ns, 3)
+             % timestamp_ms
+             % format_timestamp(timestamp_ns, 3)
              % frame_sizes[fidx]
              % frame_adlers[fidx]
              % position);
@@ -1529,12 +1528,12 @@ handle_simple_block(EbmlStream *&es,
                  BF_SIMPLE_BLOCK_SUMMARY_V2
                  % (block.IsKeyframe() ? 'I' : block.IsDiscardable() ? 'B' : 'P')
                  % block.TrackNum()
-                 % timecode_ms);
+                 % timestamp_ms);
 
   tinfo.m_blocks                                                                    += block.NumberFrames();
   tinfo.m_blocks_by_ref_num[block.IsKeyframe() ? 0 : block.IsDiscardable() ? 2 : 1] += block.NumberFrames();
-  tinfo.m_min_timecode                                                                = std::min(tinfo.m_min_timecode, static_cast<int64_t>(timecode_ns));
-  tinfo.m_max_timecode                                                                = std::max(tinfo.max_timecode_unset() ? 0 : tinfo.m_max_timecode, static_cast<int64_t>(timecode_ns));
+  tinfo.m_min_timestamp                                                               = std::min(tinfo.m_min_timestamp, static_cast<int64_t>(timestamp_ns));
+  tinfo.m_max_timestamp                                                               = std::max(tinfo.max_timestamp_unset() ? 0 : tinfo.m_max_timestamp, static_cast<int64_t>(timestamp_ns));
   tinfo.m_add_duration_for_n_packets                                                  = block.NumberFrames();
   tinfo.m_size                                                                       += boost::accumulate(frame_sizes, 0);
 }
@@ -1554,11 +1553,11 @@ handle_cluster(EbmlStream *&es,
   auto m1                    = static_cast<EbmlMaster *>(l1);
   read_master(m1, es, EBML_CONTEXT(l1), upper_lvl_el, element_found);
 
-  cluster->InitTimecode(FindChildValue<KaxClusterTimecode>(m1), s_tc_scale);
+  cluster->InitTimecode(FindChildValue<KaxClusterTimecode>(m1), s_ts_scale);
 
   for (auto l2 : *m1)
     if (Is<KaxClusterTimecode>(l2))
-      show_element(l2, 2, BF_CLUSTER_TIMECODE      % (static_cast<double>(static_cast<KaxClusterTimecode *>(l2)->GetValue()) * s_tc_scale / 1000000000.0));
+      show_element(l2, 2, BF_CLUSTER_TIMESTAMP     % (static_cast<double>(static_cast<KaxClusterTimecode *>(l2)->GetValue()) * s_ts_scale / 1000000000.0));
 
     else if (Is<KaxClusterPosition>(l2))
       show_element(l2, 2, BF_CLUSTER_POSITION      % static_cast<KaxClusterPosition *>(l2)->GetValue());
@@ -1585,7 +1584,7 @@ handle_elements_rec(EbmlStream *es,
                     EbmlElement *e,
                     mtx::xml::ebml_converter_c const &converter) {
   static boost::format s_bf_handle_elements_rec("%1%: %2%");
-  static std::vector<std::string> const s_output_as_timecode{ "ChapterTimeStart", "ChapterTimeEnd" };
+  static std::vector<std::string> const s_output_as_timestamp{ "ChapterTimeStart", "ChapterTimeEnd" };
 
   std::string elt_name = converter.get_tag_name(*e);
 
@@ -1595,7 +1594,7 @@ handle_elements_rec(EbmlStream *es,
       handle_elements_rec(es, level + 1, child, converter);
 
   } else if (dynamic_cast<EbmlUInteger *>(e)) {
-    if (brng::find(s_output_as_timecode, elt_name) != s_output_as_timecode.end())
+    if (brng::find(s_output_as_timestamp, elt_name) != s_output_as_timestamp.end())
       show_element(e, level, s_bf_handle_elements_rec % elt_name % format_timestamp(static_cast<EbmlUInteger *>(e)->GetValue()));
     else
       show_element(e, level, s_bf_handle_elements_rec % elt_name % static_cast<EbmlUInteger *>(e)->GetValue());
@@ -1708,8 +1707,8 @@ handle_segment(EbmlElement *l0,
   else
     show_element(l0, 0, boost::format(Y("Segment, size %1%")) % l0->GetSize());
 
-  // Prevent reporting "first timecode after resync":
-  kax_file->set_timecode_scale(-1);
+  // Prevent reporting "first timestamp after resync":
+  kax_file->set_timestamp_scale(-1);
 
   while ((l1 = kax_file->read_next_level1_element())) {
     std::shared_ptr<EbmlElement> af_l1(l1);
@@ -1761,12 +1760,12 @@ display_track_info() {
   for (auto &track : s_tracks) {
     track_info_t &tinfo  = s_track_info[track->tnum];
 
-    if (tinfo.min_timecode_unset())
-      tinfo.m_min_timecode = 0;
-    if (tinfo.max_timecode_unset())
-      tinfo.m_max_timecode = tinfo.m_min_timecode;
+    if (tinfo.min_timestamp_unset())
+      tinfo.m_min_timestamp = 0;
+    if (tinfo.max_timestamp_unset())
+      tinfo.m_max_timestamp = tinfo.m_min_timestamp;
 
-    int64_t duration  = tinfo.m_max_timecode - tinfo.m_min_timecode;
+    int64_t duration  = tinfo.m_max_timestamp - tinfo.m_min_timestamp;
     duration         += tinfo.m_add_duration_for_n_packets * track->default_duration;
 
     mxinfo(boost::format(Y("Statistics for track number %1%: number of blocks: %2%; size in bytes: %3%; duration in seconds: %4%; approximate bitrate in bits/second: %5%\n"))
@@ -1782,7 +1781,7 @@ bool
 process_file(const std::string &file_name) {
   // Elements for different levels
 
-  s_tc_scale = TIMECODE_SCALE;
+  s_ts_scale = TIMESTAMP_SCALE;
   s_tracks.clear();
   s_tracks_by_number.clear();
   s_track_info.clear();
@@ -1792,7 +1791,7 @@ process_file(const std::string &file_name) {
   try {
     in = mm_file_io_c::open(file_name);
   } catch (mtx::mm_io::exception &ex) {
-    show_error((boost::format(Y("Error: Couldn't open input file %1% (%2%).")) % file_name % ex).str());
+    show_error((boost::format(Y("Error: Couldn't open source file %1% (%2%).")) % file_name % ex).str());
     return false;
   }
 
@@ -1849,7 +1848,7 @@ setup(char const *argv0,
   init_locales(locale);
   init_common_boost_formats();
 
-  version_info = get_version_info("mkvinfo", vif_full);
+  mtx::cli::g_version_info = get_version_info("mkvinfo", vif_full);
 }
 
 int
@@ -1867,7 +1866,7 @@ main(int argc,
      char **argv) {
   setup(argv[0]);
 
-  g_options = info_cli_parser_c(command_line_utf8(argc, argv)).run();
+  g_options = info_cli_parser_c(mtx::cli::args_in_utf8(argc, argv)).run();
 
   init_common_boost_formats();
 

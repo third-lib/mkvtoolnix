@@ -11,25 +11,26 @@
    Written by Moritz Bunkus <moritz@bunkus.org>.
 */
 
-#ifndef MTX_COMMON_VERSION_H
-#define MTX_COMMON_VERSION_H
+#pragma once
 
 #include "common/common_pch.h"
+
+#include <boost/date_time/posix_time/posix_time.hpp>
 
 #include "common/xml/xml.h"
 
 #define MTX_VERSION_CHECK_URL "https://mkvtoolnix.download/latest-release.xml"
 #define MTX_RELEASES_INFO_URL "https://mkvtoolnix.download/releases.xml"
 #define MTX_DOWNLOAD_URL      "https://mkvtoolnix.download/downloads.html"
-#define MTX_CHANGELOG_URL     "https://mkvtoolnix.download/doc/ChangeLog"
+#define MTX_NEWS_URL          "https://mkvtoolnix.download/doc/NEWS.md"
 
 struct version_number_t {
-  unsigned int parts[5];
-  bool valid;
+  std::vector<unsigned int> parts;
+  unsigned int build{};
+  bool valid{};
 
   version_number_t();
   version_number_t(const std::string &s);
-  version_number_t(const version_number_t &v);
 
   bool operator <(const version_number_t &cmp) const;
   int compare(const version_number_t &cmp) const;
@@ -54,13 +55,14 @@ enum version_info_flags_e {
   vif_full         = (0xffff & ~vif_untranslated),
 };
 
+struct segment_info_data_t {
+  std::string muxing_app, writing_app;
+  boost::posix_time::ptime writing_date;
+};
+
 std::string get_version_info(const std::string &program, version_info_flags_e flags = vif_default);
 int compare_current_version_to(const std::string &other_version_str);
 version_number_t get_current_version();
+mtx_release_version_t parse_latest_release_version(mtx::xml::document_cptr const &doc);
 
-# if defined(HAVE_CURL_EASY_H)
-mtx_release_version_t get_latest_release_version();
-mtx::xml::document_cptr get_releases_info();
-# endif  // defined(HAVE_CURL_EASY_H)
-
-#endif  // MTX_COMMON_VERSION_H
+segment_info_data_t get_default_segment_info_data(std::string const &application = "MKVToolNix");

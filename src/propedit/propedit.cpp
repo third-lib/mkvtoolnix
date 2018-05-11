@@ -57,7 +57,7 @@ display_update_element_result(const EbmlCallbacks &callbacks,
       message += (boost::format("%1% %2% %3% %4% %5%")
                   % Y("The Matroska file's last element is set to an unknown size.")
                   % Y("Due to the particular structure of the file this situation cannot be fixed automatically.")
-                  % Y("The file can be fixed by re-muxing the file with mkvmerge.")
+                  % Y("The file can be fixed by multiplexing it with mkvmerge again.")
                   % Y("The process will be aborted.")
                   % Y("The file has not been modified.")).str();
       break;
@@ -96,7 +96,8 @@ write_changes(options_cptr &options,
 
       mxverb(2, boost::format(Y("Element %1% is written.\n")) % l1_element.Generic().DebugName);
 
-      kax_analyzer_c::update_element_result_e result = l1_element.ListSize() ? analyzer->update_element(&l1_element, true) : analyzer->remove_elements(EbmlId(l1_element));
+      auto result = l1_element.ListSize() ? analyzer->update_element(&l1_element, target->write_elements_set_to_default_value(), target->add_mandatory_elements_if_missing())
+                  :                         analyzer->remove_elements(EbmlId(l1_element));
       if (kax_analyzer_c::uer_success != result)
         display_update_element_result(l1_element.Generic(), result);
 
@@ -129,7 +130,7 @@ run(options_cptr &options) {
       .set_open_mode(MODE_WRITE)
       .set_throw_on_error(true)
       .process();
-  } catch (mtx::mm_io::exception &ex) {
+  } catch (mtx::exception &ex) {
     mxerror(boost::format(Y("The file '%1%' could not be opened for reading and writing, or a read/write operation on it failed: %2%.\n")) % options->m_file_name % ex);
   } catch (...) {
   }
@@ -164,7 +165,7 @@ static
 void setup(char **argv) {
   mtx_common_init("mkvpropedit", argv[0]);
   clear_list_of_unique_numbers(UNIQUE_ALL_IDS);
-  version_info = get_version_info("mkvpropedit", vif_full);
+  mtx::cli::g_version_info = get_version_info("mkvpropedit", vif_full);
 }
 
 /** \brief Setup and high level program control
@@ -177,7 +178,7 @@ main(int argc,
      char **argv) {
   setup(argv);
 
-  options_cptr options = propedit_cli_parser_c(command_line_utf8(argc, argv)).run();
+  options_cptr options = propedit_cli_parser_c(mtx::cli::args_in_utf8(argc, argv)).run();
 
   if (debugging_c::requested("dump_options")) {
     mxinfo("\nDumping options after parsing the command line\n\n");

@@ -15,8 +15,8 @@
 
 #include <algorithm>
 
-#include <ebml/EbmlHead.h>
 #include <ebml/EbmlStream.h>
+#include <ebml/EbmlSubHead.h>
 #include <ebml/EbmlVoid.h>
 #include <matroska/KaxCluster.h>
 #include <matroska/KaxSeekHead.h>
@@ -31,6 +31,7 @@
 #include "common/list_utils.h"
 #include "common/kax_analyzer.h"
 #include "common/mm_io_x.h"
+#include "common/mm_read_buffer_io.h"
 #include "common/strings/editing.h"
 
 using namespace libebml;
@@ -100,6 +101,8 @@ kax_analyzer_c::reopen_file() {
 
   try {
     m_file = new mm_file_io_c(m_file_name, m_open_mode);
+    if (MODE_READ == m_open_mode)
+      m_file = new mm_read_buffer_io_c(m_file);
 
   } catch (mtx::mm_io::exception &) {
     delete m_file;
@@ -151,6 +154,9 @@ kax_analyzer_c::debug_dump_elements_maybe(const std::string &hook_name) {
 
 void
 kax_analyzer_c::validate_data_structures(const std::string &hook_name) {
+  if (m_data.empty())
+    return;
+
   bool gap_debugging = analyzer_debugging_requested("gaps");
   bool ok            = true;
   size_t i;
@@ -167,6 +173,10 @@ kax_analyzer_c::validate_data_structures(const std::string &hook_name) {
 
   if (!ok) {
     debug_dump_elements();
+
+    if (m_throw_on_error)
+      throw mtx::kax_analyzer_x{Y("The data in the file is corrupted and cannot be modified safely")};
+
     debug_abort_process();
   }
 }
@@ -280,13 +290,22 @@ kax_analyzer_c::process_internal() {
   m_stream = new EbmlStream(*m_file);
 
   // Find the EbmlHead element. Must be the first one.
-  EbmlElement *l0 = m_stream->FindNextID(EBML_INFO(EbmlHead), 0xFFFFFFFFL);
-  if (!l0)
+  m_ebml_head.reset(static_cast<EbmlHead *>(m_stream->FindNextID(EBML_INFO(EbmlHead), 0xFFFFFFFFL)));
+  if (!m_ebml_head)
     throw mtx::kax_analyzer_x(Y("Not a valid Matroska file (no EBML head found)"));
 
-  // Don't verify its data for now.
-  l0->SkipData(*m_stream, EBML_CONTEXT(l0));
-  delete l0;
+  EbmlElement *l0{};
+  int upper_lvl_el{};
+
+  m_ebml_head->Read(*m_stream, EBML_CONTEXT(m_ebml_head.get()), upper_lvl_el, l0, true, SCOPE_ALL_DATA);
+  m_ebml_head->SkipData(*m_stream, EBML_CONTEXT(m_ebml_head.get()));
+
+  determine_webm();
+
+  if (l0) {
+    delete l0;
+    l0 = nullptr;
+  }
 
   while (1) {
     // Next element must be a segment
@@ -302,12 +321,12 @@ kax_analyzer_c::process_internal() {
   }
 
   m_segment            = std::shared_ptr<KaxSegment>(static_cast<KaxSegment *>(l0));
-  int upper_lvl_el     = 0;
   bool aborted         = false;
   bool cluster_found   = false;
   bool meta_seek_found = false;
   m_segment_end        = m_segment->IsFiniteSize() ? m_segment->GetElementPosition() + m_segment->HeadSize() + m_segment->GetSize() : m_file->get_size();
   EbmlElement *l1      = nullptr;
+  upper_lvl_el         = 0;
 
   // In certain situations the caller doesn't way to have to pay the
   // price for full analysis. Then it can configure the parser to
@@ -348,6 +367,8 @@ kax_analyzer_c::process_internal() {
     read_all_meta_seeks();
 
   show_progress_done();
+
+  validate_data_structures("process_internal_end");
 
   if (!aborted) {
     if (parse_mode_full != m_parse_mode)
@@ -406,17 +427,20 @@ kax_analyzer_c::read_element(kax_analyzer_data_c const &element_data) {
 
 kax_analyzer_c::update_element_result_e
 kax_analyzer_c::update_element(ebml_element_cptr const &e,
-                               bool write_defaults) {
-  return update_element(e.get(), write_defaults);
+                               bool write_defaults,
+                               bool add_mandatory_elements_if_missing) {
+  return update_element(e.get(), write_defaults, add_mandatory_elements_if_missing);
 }
 
 kax_analyzer_c::update_element_result_e
 kax_analyzer_c::update_element(EbmlElement *e,
-                               bool write_defaults) {
+                               bool write_defaults,
+                               bool add_mandatory_elements_if_missing) {
   try {
     reopen_file_for_writing();
 
-    fix_mandatory_elements(e);
+    if (add_mandatory_elements_if_missing)
+      fix_mandatory_elements(e);
     remove_voids_from_master(e);
 
     placement_strategy_e strategy = get_placement_strategy_for(e);
@@ -942,11 +966,11 @@ kax_analyzer_c::ensure_front_seek_head_links_to(unsigned int seek_head_idx) {
 
   boost::optional<unsigned int> first_seek_head_idx;
 
-  for (unsigned int data_idx = 0, end = m_data.size(); end > data_idx; ++data_idx) {
+  for (int data_idx = 0, end = m_data.size(); end > data_idx; ++data_idx) {
     auto const &data = *m_data[data_idx];
 
     if (Is<KaxSeekHead>(data.m_id)) {
-      if (data_idx == seek_head_idx)
+      if (static_cast<unsigned int>(data_idx) == seek_head_idx)
         return seek_head_idx;
 
       first_seek_head_idx.reset(data_idx);
@@ -982,7 +1006,7 @@ kax_analyzer_c::ensure_front_seek_head_links_to(unsigned int seek_head_idx) {
   while (first_time) {
     mxdebug_if(m_debug, boost::format("  looking for place for the new seek head at the start…\n"));
     // Find a place at the front with enough space.
-    for (unsigned int data_idx = 0u, end = m_data.size(); data_idx < end; ++data_idx) {
+    for (int data_idx = 0, end = m_data.size(); data_idx < end; ++data_idx) {
       auto &data = *m_data[data_idx];
 
       if (Is<KaxCluster>(data.m_id))
@@ -1431,6 +1455,17 @@ kax_analyzer_c::get_placement_strategy_for(EbmlElement *e) {
   return Is<KaxTags>(e) ? ps_end : ps_anywhere;
 }
 
+EbmlHead &
+kax_analyzer_c::get_ebml_head() {
+  return *m_ebml_head;
+}
+
+bool
+kax_analyzer_c::is_webm()
+  const {
+  return m_is_webm;
+}
+
 uint64_t
 kax_analyzer_c::get_segment_pos()
   const {
@@ -1449,7 +1484,7 @@ kax_analyzer_c::get_segment_data_start_pos()
   return m_segment->GetElementPosition() + m_segment->HeadSize();
 }
 
-bitvalue_cptr
+mtx::bits::value_cptr
 kax_analyzer_c::read_segment_uid_from(std::string const &file_name) {
   try {
     auto analyzer = std::make_shared<kax_analyzer_c>(file_name);
@@ -1464,7 +1499,7 @@ kax_analyzer_c::read_segment_uid_from(std::string const &file_name) {
       auto segment_uid  = segment_info ? FindChild<KaxSegmentUID>(segment_info) : nullptr;
 
       if (segment_uid)
-        return std::make_shared<bitvalue_c>(*segment_uid);
+        return std::make_shared<mtx::bits::value_c>(*segment_uid);
     }
 
   } catch (mtx::mm_io::exception &ex) {
@@ -1498,6 +1533,13 @@ kax_analyzer_c::with_elements(const EbmlId &id,
     if (data->m_id == id)
       worker(*data);
 }
+
+void
+kax_analyzer_c::determine_webm() {
+  auto doc_type = FindChild<EDocType>(*m_ebml_head);
+  m_is_webm     = doc_type && (doc_type->GetValue() == "webm");
+}
+
 
 // ------------------------------------------------------------
 

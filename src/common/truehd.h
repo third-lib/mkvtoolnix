@@ -11,8 +11,7 @@
    Written by Moritz Bunkus <moritz@bunkus.org>.
 */
 
-#ifndef MTX_COMMON_TRUEHD_COMMON_H
-#define MTX_COMMON_TRUEHD_COMMON_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -46,7 +45,7 @@ struct truehd_frame_t {
   int m_size{}, m_sampling_rate{}, m_channels{}, m_samples_per_frame{};
   bool m_contains_atmos{};
 
-  ac3::frame_c m_ac3_header;
+  mtx::ac3::frame_c m_ac3_header;
 
   memory_cptr m_data;
 
@@ -101,7 +100,7 @@ protected:
     state_synced,
   } m_sync_state;
 
-  byte_buffer_c m_buffer;
+  mtx::bytes::buffer_c m_buffer;
   std::deque<truehd_frame_cptr> m_frames;
 
 public:
@@ -117,5 +116,3 @@ protected:
   virtual unsigned int resync(unsigned int offset);
 };
 using truehd_parser_cptr = std::shared_ptr<truehd_parser_c>;
-
-#endif // MTX_COMMON_TRUEHD_COMMON_H

@@ -1,5 +1,4 @@
-#ifndef MTX_MKVTOOLNIX_GUI_UTIL_BASIC_TREE_VIEW_H
-#define MTX_MKVTOOLNIX_GUI_UTIL_BASIC_TREE_VIEW_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -36,6 +35,9 @@ signals:
   void ctrlUpPressed();
   void ctrlDownPressed();
 
+public slots:
+  void toggleSelectionOfCurrentItem();
+
 protected:
   virtual void dragEnterEvent(QDragEnterEvent *event) override;
   virtual void dragMoveEvent(QDragMoveEvent *event) override;
@@ -44,5 +46,3 @@ protected:
 };
 
 }}}
-
-#endif  // MTX_MKVTOOLNIX_GUI_UTIL_BASIC_TREE_VIEW_H

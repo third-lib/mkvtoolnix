@@ -10,6 +10,7 @@
 #include "common/list_utils.h"
 #include "common/qt.h"
 #include "common/strings/formatting.h"
+#include "mkvtoolnix-gui/app.h"
 #include "mkvtoolnix-gui/forms/watch_jobs/tab.h"
 #include "mkvtoolnix-gui/jobs/mux_job.h"
 #include "mkvtoolnix-gui/jobs/tool.h"
@@ -21,6 +22,9 @@
 #include "mkvtoolnix-gui/util/widget.h"
 #include "mkvtoolnix-gui/watch_jobs/tab.h"
 #include "mkvtoolnix-gui/watch_jobs/tool.h"
+
+#define MTX_RUN_PROGRAM_CONFIGURATION_ADDRESS   "mtxRunProgramConfigurationAddress"
+#define MTX_RUN_PROGRAM_CONFIGURATION_CONDITION "mtxRunProgramConfigurationCondition"
 
 using namespace mtx::gui;
 
@@ -37,7 +41,7 @@ class TabPrivate {
   Jobs::Job::Status m_currentJobStatus;
   QDateTime m_currentJobStartTime;
   QString m_currentJobDescription;
-  QMenu *m_moreActions;
+  QMenu *m_whenFinished, *m_moreActions;
   bool m_forCurrentJob;
 
   // Only use this variable for determining whether or not to ignore
@@ -52,6 +56,7 @@ class TabPrivate {
     , m_currentJobProgress{}
     , m_queueProgress{}
     , m_currentJobStatus{Jobs::Job::PendingManual}
+    , m_whenFinished{new QMenu{tab}}
     , m_moreActions{new QMenu{tab}}
     , m_forCurrentJob{forCurrentJob}
     , m_currentlyConnectedJob{}
@@ -97,19 +102,23 @@ Tab::setupUi() {
 
   auto model = MainWindow::jobTool()->model();
 
-  connect(d->ui->abortButton,                        &QPushButton::clicked,            this, &Tab::onAbort);
-  connect(d->ui->acknowledgeWarningsAndErrorsButton, &QPushButton::clicked,            this, &Tab::acknowledgeWarningsAndErrors);
-  connect(model,                                     &Jobs::Model::progressChanged,    this, &Tab::onQueueProgressChanged);
-  connect(model,                                     &Jobs::Model::queueStatusChanged, this, &Tab::updateRemainingTime);
-  connect(d->m_moreActions,                          &QMenu::aboutToShow,              this, &Tab::enableMoreActionsActions);
-  connect(d->m_saveOutputAction,                     &QAction::triggered,              this, &Tab::onSaveOutput);
-  connect(d->m_clearOutputAction,                    &QAction::triggered,              this, &Tab::clearOutput);
-  connect(d->m_openFolderAction,                     &QAction::triggered,              this, &Tab::openFolder);
+  connect(d->ui->abortButton,                        &QPushButton::clicked,                                  this, &Tab::onAbort);
+  connect(d->ui->acknowledgeWarningsAndErrorsButton, &QPushButton::clicked,                                  this, &Tab::acknowledgeWarningsAndErrors);
+  connect(model,                                     &Jobs::Model::progressChanged,                          this, &Tab::onQueueProgressChanged);
+  connect(model,                                     &Jobs::Model::queueStatusChanged,                       this, &Tab::updateRemainingTime);
+  connect(d->m_whenFinished,                         &QMenu::aboutToShow,                                    this, &Tab::setupWhenFinishedActions);
+  connect(d->m_moreActions,                          &QMenu::aboutToShow,                                    this, &Tab::enableMoreActionsActions);
+  connect(d->m_saveOutputAction,                     &QAction::triggered,                                    this, &Tab::onSaveOutput);
+  connect(d->m_clearOutputAction,                    &QAction::triggered,                                    this, &Tab::clearOutput);
+  connect(d->m_openFolderAction,                     &QAction::triggered,                                    this, &Tab::openFolder);
+  connect(MainWindow::jobTool()->model(),            &Jobs::Model::numUnacknowledgedWarningsOrErrorsChanged, this, &Tab::disableButtonIfAllWarningsAndErrorsButtonAcknowledged);
 }
 
 void
 Tab::setupMoreActionsMenu() {
   Q_D(Tab);
+
+  d->ui->whenFinishedButton->setMenu(d->m_whenFinished);
 
   // Setup the "more actions" menu.
   d->m_moreActions->addAction(d->m_openFolderAction);
@@ -136,11 +145,9 @@ Tab::retranslateUi() {
   d->m_clearOutputAction->setText(QY("&Clear output and reset progress"));
   d->m_openFolderAction->setText(QY("&Open folder"));
 
-#if (QT_VERSION >= QT_VERSION_CHECK(5, 3, 0))
-  d->ui->output->setPlaceholderText(QY("no output yet"));
-  d->ui->warnings->setPlaceholderText(QY("no warnings yet"));
-  d->ui->errors->setPlaceholderText(QY("no errors yet"));
-#endif
+  d->ui->output->setPlaceholderText(QY("No output yet"));
+  d->ui->warnings->setPlaceholderText(QY("No warnings yet"));
+  d->ui->errors->setPlaceholderText(QY("No errors yet"));
 }
 
 void
@@ -220,7 +227,7 @@ Tab::onStatusChanged(uint64_t id,
     return;
   }
 
-  job->action([&]() {
+  job->action([this, d, job, newStatus]() {
     d->m_currentJobStatus = job->status();
 
     d->ui->abortButton->setEnabled(Jobs::Job::Running == d->m_currentJobStatus);
@@ -365,8 +372,8 @@ Tab::setInitialDisplay(Jobs::Job const &job) {
   d->ui->status->setText(Jobs::Job::displayableStatus(job.status()));
   d->ui->progressBar->setValue(job.progress());
 
-  d->ui->startedAt ->setText(job.dateStarted() .isValid() ? Util::displayableDate(job.dateStarted())  : QY("not started yet"));
-  d->ui->finishedAt->setText(job.dateFinished().isValid() ? Util::displayableDate(job.dateFinished()) : QY("not finished yet"));
+  d->ui->startedAt ->setText(job.dateStarted() .isValid() ? Util::displayableDate(job.dateStarted())  : QY("Not started yet"));
+  d->ui->finishedAt->setText(job.dateFinished().isValid() ? Util::displayableDate(job.dateFinished()) : QY("Not finished yet"));
 
   d->ui->abortButton->setEnabled(Jobs::Job::Running == job.status());
   d->m_saveOutputAction->setEnabled(!mtx::included_in(job.status(), Jobs::Job::PendingManual, Jobs::Job::PendingAuto, Jobs::Job::Disabled));
@@ -374,6 +381,15 @@ Tab::setInitialDisplay(Jobs::Job const &job) {
   d->ui->acknowledgeWarningsAndErrorsButton->setEnabled(job.numUnacknowledgedWarnings() || job.numUnacknowledgedErrors());
 
   updateRemainingTime();
+}
+
+void
+Tab::disableButtonIfAllWarningsAndErrorsButtonAcknowledged(int numWarnings,
+                                                           int numErrors) {
+  Q_D(Tab);
+
+  if (!numWarnings && !numErrors)
+    d->ui->acknowledgeWarningsAndErrorsButton->setEnabled(false);
 }
 
 void
@@ -442,10 +458,10 @@ Tab::clearOutput() {
   d->m_currentJobDescription.clear();
 
   d->ui->progressBar->reset();
-  d->ui->status->setText(QY("no job started yet"));
+  d->ui->status->setText(QY("No job started yet"));
   d->ui->description->setText(QY("No job has been started yet."));
-  d->ui->startedAt->setText(QY("not started yet"));
-  d->ui->finishedAt->setText(QY("not finished yet"));
+  d->ui->startedAt->setText(QY("Not started yet"));
+  d->ui->finishedAt->setText(QY("Not finished yet"));
   d->ui->remainingTimeCurrentJob->setText(Q("–"));
   d->ui->remainingTimeQueue->setText(Q("–"));
 
@@ -465,6 +481,62 @@ Tab::enableMoreActionsActions() {
 
   auto hasJob = std::numeric_limits<uint64_t>::max() != d->m_id;
   d->m_openFolderAction->setEnabled(hasJob);
+}
+
+void
+Tab::setupWhenFinishedActions() {
+  Q_D(Tab);
+
+  d->m_whenFinished->clear();
+
+  auto afterCurrentJobMenu                = new QMenu{QY("Execute action after next &job completion")};
+  auto afterJobQueueMenu                  = new QMenu{QY("Execute action when the &queue completes")};
+  auto editRunProgramConfigurationsAction = new QAction{d->m_whenFinished};
+  auto menus                              = QVector<QMenu *>{} << afterCurrentJobMenu << afterJobQueueMenu;
+  auto &programRunner                     = App::programRunner();
+
+  editRunProgramConfigurationsAction->setText(QY("&Edit available actions to execute"));
+
+  d->m_whenFinished->addMenu(afterCurrentJobMenu);
+  d->m_whenFinished->addMenu(afterJobQueueMenu);
+  d->m_whenFinished->addSeparator();
+  d->m_whenFinished->addAction(editRunProgramConfigurationsAction);
+
+  connect(editRunProgramConfigurationsAction, &QAction::triggered, MainWindow::get(), &MainWindow::editRunProgramConfigurations);
+
+  for (auto const &config : Util::Settings::get().m_runProgramConfigurations) {
+    if (!config->m_active)
+      continue;
+
+    for (auto const &menu : menus) {
+      auto action    = menu->addAction(config->name());
+      auto forQueue  = menu == afterJobQueueMenu;
+      auto condition = forQueue ? Jobs::ProgramRunner::ExecuteActionCondition::AfterQueueFinishes : Jobs::ProgramRunner::ExecuteActionCondition::AfterJobFinishes;
+
+      action->setProperty(MTX_RUN_PROGRAM_CONFIGURATION_ADDRESS,   reinterpret_cast<quint64>(config.get()));
+      action->setProperty(MTX_RUN_PROGRAM_CONFIGURATION_CONDITION, static_cast<int>(condition));
+
+      action->setCheckable(true);
+      action->setChecked(programRunner.isActionToExecuteEnabled(*config, condition));
+
+      connect(action, &QAction::triggered, this, &Tab::toggleActionToExecute);
+    }
+  }
+
+  afterCurrentJobMenu->setEnabled(!afterCurrentJobMenu->isEmpty());
+  afterJobQueueMenu->setEnabled(!afterJobQueueMenu->isEmpty());
+}
+
+void
+Tab::toggleActionToExecute() {
+  auto &action      = *qobject_cast<QAction *>(sender());
+  auto config       = reinterpret_cast<Util::Settings::RunProgramConfig *>(action.property(MTX_RUN_PROGRAM_CONFIGURATION_ADDRESS).value<quint64>());
+  auto conditionIdx = action.property(MTX_RUN_PROGRAM_CONFIGURATION_CONDITION).value<int>();
+  auto condition    = conditionIdx == static_cast<int>(Jobs::ProgramRunner::ExecuteActionCondition::AfterQueueFinishes) ? Jobs::ProgramRunner::ExecuteActionCondition::AfterQueueFinishes
+                    :                                                                                                     Jobs::ProgramRunner::ExecuteActionCondition::AfterJobFinishes;
+  auto enable       = action.isChecked();
+
+  App::programRunner().enableActionToExecute(*config, condition, enable);
 }
 
 }}}

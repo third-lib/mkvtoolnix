@@ -11,8 +11,7 @@
    Written by Moritz Bunkus <moritz@bunkus.org>.
 */
 
-#ifndef MTX_P_MP3_H
-#define MTX_P_MP3_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -26,7 +25,7 @@ private:
   bool m_first_packet;
   int64_t m_bytes_skipped;
   int m_samples_per_sec, m_channels, m_samples_per_frame;
-  byte_buffer_c m_byte_buffer;
+  mtx::bytes::buffer_c m_byte_buffer;
   bool m_codec_id_set, m_valid_headers_found;
   timestamp_calculator_c m_timestamp_calculator;
   int64_t m_packet_duration;
@@ -49,5 +48,3 @@ private:
 
   virtual void handle_garbage(int64_t bytes);
 };
-
-#endif // MTX_P_MP3_H

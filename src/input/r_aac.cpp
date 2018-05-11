@@ -20,8 +20,9 @@
 #include "common/id3.h"
 #include "common/id_info.h"
 #include "input/r_aac.h"
-#include "merge/input_x.h"
 #include "merge/file_status.h"
+#include "merge/input_x.h"
+#include "merge/output_control.h"
 #include "output/p_aac.h"
 
 int
@@ -46,8 +47,8 @@ aac_reader_c::aac_reader_c(const track_info_c &ti,
 void
 aac_reader_c::read_headers() {
   try {
-    int tag_size_start = skip_id3v2_tag(*m_in);
-    int tag_size_end   = id3_tag_present_at_end(*m_in);
+    int tag_size_start = mtx::id3::skip_v2_tag(*m_in);
+    int tag_size_end   = mtx::id3::tag_present_at_end(*m_in);
 
     if (0 > tag_size_start)
       tag_size_start = 0;
@@ -69,28 +70,28 @@ aac_reader_c::read_headers() {
 
     while (m_parser.frames_available()) {
       m_aacheader = m_parser.get_frame().m_header;
-      if (m_aacheader.sample_rate > 0)
+      if ((m_aacheader.config.sample_rate > 0) && (m_aacheader.config.channels > 0))
         break;
     }
 
-    if (!m_aacheader.sample_rate)
-      throw mtx::input::header_parsing_x();
+    if ((!m_aacheader.config.sample_rate || !m_aacheader.config.channels) && !g_identifying)
+      mxerror(boost::format(Y("The AAC file '%1%' contains invalid header data: the sampling frequency or the number of channels is 0.\n")) % m_ti.m_fname);
 
-    m_parser             = aac::parser_c{};
+    m_parser             = mtx::aac::parser_c{};
 
     m_ti.m_id            = 0;       // ID for this track.
-    int detected_profile = m_aacheader.profile;
+    int detected_profile = m_aacheader.config.profile;
 
-    if (24000 >= m_aacheader.sample_rate)
-      m_aacheader.profile = AAC_PROFILE_SBR;
+    if (24000 >= m_aacheader.config.sample_rate)
+      m_aacheader.config.profile = AAC_PROFILE_SBR;
 
     if (   (mtx::includes(m_ti.m_all_aac_is_sbr,  0) && m_ti.m_all_aac_is_sbr[ 0])
         || (mtx::includes(m_ti.m_all_aac_is_sbr, -1) && m_ti.m_all_aac_is_sbr[-1]))
-      m_aacheader.profile = AAC_PROFILE_SBR;
+      m_aacheader.config.profile = AAC_PROFILE_SBR;
 
     if (   (mtx::includes(m_ti.m_all_aac_is_sbr,  0) && !m_ti.m_all_aac_is_sbr[ 0])
         || (mtx::includes(m_ti.m_all_aac_is_sbr, -1) && !m_ti.m_all_aac_is_sbr[-1]))
-      m_aacheader.profile = detected_profile;
+      m_aacheader.config.profile = detected_profile;
 
   } catch (...) {
     throw mtx::input::open_x();
@@ -107,11 +108,8 @@ aac_reader_c::create_packetizer(int64_t) {
   if (!demuxing_requested('a', 0) || (NPTZR() != 0))
     return;
 
-  auto aacpacketizer = new aac_packetizer_c(this, m_ti, m_aacheader.profile, m_aacheader.sample_rate, m_aacheader.channels, true);
+  auto aacpacketizer = new aac_packetizer_c(this, m_ti, m_aacheader.config, aac_packetizer_c::headerless);
   add_packetizer(aacpacketizer);
-
-  if (AAC_PROFILE_SBR == m_aacheader.profile)
-    aacpacketizer->set_audio_output_sampling_freq(m_aacheader.sample_rate * 2);
 
   show_packetizer_info(0, aacpacketizer);
 }
@@ -138,10 +136,10 @@ aac_reader_c::read(generic_packetizer_c *,
 void
 aac_reader_c::identify() {
   auto info = mtx::id::info_c{};
-  info.add(mtx::id::aac_is_sbr,                      AAC_PROFILE_SBR == m_aacheader.profile ? std::string{"true"} : std::string{"unknown"});
-  info.add(mtx::id::audio_channels,                  m_aacheader.channels);
-  info.add(mtx::id::audio_sampling_frequency,        m_aacheader.sample_rate);
-  info.add(mtx::id::audio_output_sampling_frequency, m_aacheader.output_sample_rate);
+  info.add(mtx::id::aac_is_sbr,                      AAC_PROFILE_SBR == m_aacheader.config.profile ? std::string{"true"} : std::string{"unknown"});
+  info.add(mtx::id::audio_channels,                  m_aacheader.config.channels);
+  info.add(mtx::id::audio_sampling_frequency,        m_aacheader.config.sample_rate);
+  info.add(mtx::id::audio_output_sampling_frequency, m_aacheader.config.output_sample_rate);
 
   id_result_container();
   id_result_track(0, ID_RESULT_TRACK_AUDIO, codec_c::get_name(codec_c::type_e::A_AAC, "AAC"), info.get());
@@ -157,7 +155,7 @@ aac_reader_c::find_valid_headers(mm_io_c &in,
     auto num_read = in.read(buf->get_buffer(), probe_range);
     in.setFilePointer(0, seek_beginning);
 
-    return aac::parser_c::find_consecutive_frames(buf->get_buffer(), num_read, num_headers);
+    return mtx::aac::parser_c::find_consecutive_frames(buf->get_buffer(), num_read, num_headers);
   } catch (...) {
     return -1;
   }

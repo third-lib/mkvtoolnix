@@ -37,7 +37,7 @@
 #include "merge/output_control.h"
 #include "output/p_aac.h"
 #include "output/p_ac3.h"
-#include "output/p_avc.h"
+#include "output/p_avc_es.h"
 #include "output/p_kate.h"
 #include "output/p_mp3.h"
 #include "output/p_mpeg4_p2.h"
@@ -59,8 +59,7 @@ struct ogm_frame_t {
 
 class ogm_a_aac_demuxer_c: public ogm_demuxer_c {
 public:
-  int profile{}, output_sample_rate{};
-  bool sbr{};
+  mtx::aac::audio_config_t audio_config{};
 
 public:
   ogm_a_aac_demuxer_c(ogm_reader_c *p_reader);
@@ -121,7 +120,7 @@ public:
 
 class ogm_a_opus_demuxer_c: public ogm_demuxer_c {
 protected:
-  timestamp_c m_calculated_end_timecode;
+  timestamp_c m_calculated_end_timestamp;
 
   static debugging_option_c ms_debug;
 
@@ -527,7 +526,7 @@ ogm_reader_c::handle_new_stream(ogg_page *og) {
     if (!strncmp(sth->streamtype, "video", 5)) {
       memcpy(buf, (char *)sth->subtype, 4);
 
-      if (mpeg4::p10::is_avc_fourcc(buf) && !hack_engaged(ENGAGE_ALLOW_AVC_IN_VFW_MODE))
+      if (mtx::avc::is_avc_fourcc(buf) && !hack_engaged(ENGAGE_ALLOW_AVC_IN_VFW_MODE))
         dmx = new ogm_v_avc_demuxer_c(this);
       else
         dmx = new ogm_v_mscomp_demuxer_c(this);
@@ -600,7 +599,7 @@ ogm_reader_c::process_page(ogg_page *og) {
 
   if ((-1 != granulepos) && (granulepos < dmx->last_granulepos)) {
     mxwarn_tid(m_ti.m_fname, dmx->track_id,
-               Y("The timecodes for this stream have been reset in the middle of the file. This is not supported. The current packet will be discarded.\n"));
+               Y("The timestamps for this stream have been reset in the middle of the file. This is not supported. The current packet will be discarded.\n"));
     return;
   }
 
@@ -735,8 +734,10 @@ ogm_reader_c::identify() {
     if ((0 != sdemuxers[i]->display_width) && (0 != sdemuxers[i]->display_height))
       info.add(mtx::id::display_dimensions, boost::format("%1%x%2%") % sdemuxers[i]->display_width % sdemuxers[i]->display_height);
 
-    if (dynamic_cast<ogm_s_text_demuxer_c *>(sdemuxers[i].get()) || dynamic_cast<ogm_s_kate_demuxer_c *>(sdemuxers[i].get()))
+    if (dynamic_cast<ogm_s_text_demuxer_c *>(sdemuxers[i].get()) || dynamic_cast<ogm_s_kate_demuxer_c *>(sdemuxers[i].get())) {
       info.add(mtx::id::text_subtitles, true);
+      info.add(mtx::id::encoding,       "UTF-8");
+    }
 
     auto pixel_dimensions = sdemuxers[i]->get_pixel_dimensions();
     if (pixel_dimensions.first && pixel_dimensions.second)
@@ -749,7 +750,7 @@ ogm_reader_c::identify() {
   }
 
   if (m_chapters.get())
-    id_result_chapters(count_chapter_atoms(*m_chapters));
+    id_result_chapters(mtx::chapters::count_atoms(*m_chapters));
 }
 
 void
@@ -862,10 +863,10 @@ ogm_reader_c::handle_stream_comments() {
 
         std::shared_ptr<mm_text_io_c> text_out(new mm_text_io_c(out.get(), false));
 
-        m_chapters   = parse_chapters(text_out.get(), 0, -1, 0, m_ti.m_chapter_language, "", true);
+        m_chapters   = mtx::chapters::parse(text_out.get(), 0, -1, 0, m_ti.m_chapter_language, "", true);
         chapters_set = true;
 
-        align_chapter_edition_uids(m_chapters.get());
+        mtx::chapters::align_uids(m_chapters.get());
       } catch (...) {
         exception_parsing_chapters = true;
       }
@@ -1002,30 +1003,34 @@ ogm_a_aac_demuxer_c::ogm_a_aac_demuxer_c(ogm_reader_c *p_reader)
 
 void
 ogm_a_aac_demuxer_c::initialize() {
-  if ((packet_data[0]->get_size() >= (sizeof(stream_header) + 5)) &&
-      (aac::parse_audio_specific_config(packet_data[0]->get_buffer() + sizeof(stream_header) + 5,
-                      packet_data[0]->get_size()   - sizeof(stream_header) - 5,
-                      profile, channels, sample_rate, output_sample_rate, sbr))) {
-    if (sbr)
-      profile = AAC_PROFILE_SBR;
+  boost::optional<mtx::aac::audio_config_t> parsed_audio_config;
+
+  if (packet_data[0]->get_size() >= (sizeof(stream_header) + 5))
+    parsed_audio_config = mtx::aac::parse_audio_specific_config(packet_data[0]->get_buffer() + sizeof(stream_header) + 5,
+                                                                packet_data[0]->get_size()   - sizeof(stream_header) - 5);
+
+  if (parsed_audio_config) {
+    audio_config = *parsed_audio_config;
+    if (audio_config.sbr)
+      audio_config.profile = AAC_PROFILE_SBR;
 
   } else {
-    auto sth    = reinterpret_cast<stream_header *>(&packet_data[0]->get_buffer()[1]);
-    channels    = get_uint16_le(&sth->sh.audio.channels);
-    sample_rate = get_uint64_le(&sth->samples_per_unit);
-    profile     = AAC_PROFILE_LC;
+    auto sth                 = reinterpret_cast<stream_header *>(&packet_data[0]->get_buffer()[1]);
+    audio_config.channels    = get_uint16_le(&sth->sh.audio.channels);
+    audio_config.sample_rate = get_uint64_le(&sth->samples_per_unit);
+    audio_config.profile     = AAC_PROFILE_LC;
   }
 
   mxverb(2,
          boost::format("ogm_reader: %1%/%2%: profile %3%, channels %4%, sample_rate %5%, sbr %6%, output_sample_rate %7%\n")
-         % m_ti.m_id % m_ti.m_fname % profile % channels % sample_rate % sbr % output_sample_rate);
+         % m_ti.m_id % m_ti.m_fname % audio_config.profile % audio_config.channels % audio_config.sample_rate % audio_config.sbr % audio_config.output_sample_rate);
 }
 
 generic_packetizer_c *
 ogm_a_aac_demuxer_c::create_packetizer() {
-  generic_packetizer_c *ptzr_obj = new aac_packetizer_c(reader, m_ti, profile, sample_rate, channels, true);
-  if (sbr)
-    ptzr_obj->set_audio_output_sampling_freq(output_sample_rate);
+  auto ptzr_obj = new aac_packetizer_c(reader, m_ti, audio_config, aac_packetizer_c::headerless);
+  if (audio_config.sbr)
+    ptzr_obj->set_audio_output_sampling_freq(audio_config.output_sample_rate);
 
   show_packetizer_info(m_ti.m_id, ptzr_obj);
 
@@ -1167,7 +1172,7 @@ ogm_a_vorbis_demuxer_c::process_page(int64_t /* granulepos */) {
 
 ogm_a_opus_demuxer_c::ogm_a_opus_demuxer_c(ogm_reader_c *p_reader)
   : ogm_demuxer_c(p_reader)
-  , m_calculated_end_timecode{timestamp_c::ns(0)}
+  , m_calculated_end_timestamp{timestamp_c::ns(0)}
 {
   codec = codec_c::look_up(codec_c::type_e::A_OPUS);
 }
@@ -1186,7 +1191,7 @@ void
 ogm_a_opus_demuxer_c::process_page(int64_t granulepos) {
   ogg_packet op;
 
-  auto ogg_timecode = timestamp_c::ns(granulepos * 1000000000 / 48000);
+  auto ogg_timestamp = timestamp_c::ns(granulepos * 1000000000 / 48000);
 
   while (ogg_stream_packetout(&os, &op) == 1) {
     eos |= op.e_o_s;
@@ -1196,13 +1201,13 @@ ogm_a_opus_demuxer_c::process_page(int64_t granulepos) {
 
     auto packet                = std::make_shared<packet_t>(memory_c::clone(op.packet, op.bytes));
     auto toc                   = mtx::opus::toc_t::decode(packet->data);
-    m_calculated_end_timecode += toc.packet_duration;
+    m_calculated_end_timestamp += toc.packet_duration;
 
-    if (m_calculated_end_timecode > ogg_timecode) {
-      packet->discard_padding = m_calculated_end_timecode - ogg_timecode;
+    if (m_calculated_end_timestamp > ogg_timestamp) {
+      packet->discard_padding = m_calculated_end_timestamp - ogg_timestamp;
       mxdebug_if(ms_debug,
                  boost::format("Opus discard padding calculated %1% Ogg timestamp %2% diff %3% samples %4% (Ogg page's granulepos %5%)\n")
-                 % m_calculated_end_timecode % ogg_timecode % packet->discard_padding % (packet->discard_padding.to_ns() * 48000 / 1000000000) % granulepos);
+                 % m_calculated_end_timestamp % ogg_timestamp % packet->discard_padding % (packet->discard_padding.to_ns() * 48000 / 1000000000) % granulepos);
     }
 
     reader->m_reader_packetizers[ptzr]->process(packet);
@@ -1268,7 +1273,7 @@ ogm_v_avc_demuxer_c::ogm_v_avc_demuxer_c(ogm_reader_c *p_reader)
 generic_packetizer_c *
 ogm_v_avc_demuxer_c::create_packetizer() {
   stream_header *sth          = (stream_header *)&packet_data[0]->get_buffer()[1];
-  generic_packetizer_c *vptzr = new mpeg4_p10_es_video_packetizer_c(reader, m_ti);
+  generic_packetizer_c *vptzr = new avc_es_video_packetizer_c(reader, m_ti);
 
   vptzr->set_video_pixel_dimensions(get_uint32_le(&sth->sh.video.width), get_uint32_le(&sth->sh.video.height));
 
@@ -1391,10 +1396,10 @@ ogm_v_mscomp_demuxer_c::process_page(int64_t granulepos) {
   for (i = 0; i < frames.size(); ++i) {
     ogm_frame_t &frame = frames[i];
 
-    int64_t timecode = (last_granulepos + frames_since_granulepos_change) * default_duration;
+    int64_t timestamp = (last_granulepos + frames_since_granulepos_change) * default_duration;
     ++frames_since_granulepos_change;
 
-    reader->m_reader_packetizers[ptzr]->process(new packet_t(frame.mem, timecode, frame.duration, frame.flags & PACKET_IS_SYNCPOINT ? VFT_IFRAME : VFT_PFRAMEAUTOMATIC));
+    reader->m_reader_packetizers[ptzr]->process(new packet_t(frame.mem, timestamp, frame.duration, frame.flags & PACKET_IS_SYNCPOINT ? VFT_IFRAME : VFT_PFRAMEAUTOMATIC));
 
     units_processed += duration;
   }
@@ -1452,13 +1457,13 @@ ogm_v_theora_demuxer_c::process_page(int64_t granulepos) {
     // Zero-length frames are 'repeat previous frame' markers and
     // cannot be I frames.
     bool is_keyframe = (0 != op.bytes) && (0x00 == (op.packet[0] & 0x40));
-    int64_t timecode = (int64_t)(1000000000.0 * units_processed * theora.frd / theora.frn);
+    int64_t timestamp = (int64_t)(1000000000.0 * units_processed * theora.frd / theora.frn);
     int64_t duration = (int64_t)(1000000000.0 *                   theora.frd / theora.frn);
     int64_t bref     = is_keyframe ? VFT_IFRAME : VFT_PFRAMEAUTOMATIC;
 
     ++units_processed;
 
-    reader->m_reader_packetizers[ptzr]->process(new packet_t(new memory_c(op.packet, op.bytes, false), timecode, duration, bref, VFT_NOBFRAME));
+    reader->m_reader_packetizers[ptzr]->process(new packet_t(new memory_c(op.packet, op.bytes, false), timestamp, duration, bref, VFT_NOBFRAME));
 
     mxverb(3,
            boost::format("Theora track %1% kfgshift %2% granulepos 0x%|3$08x| %|4$08x|%5%\n")
@@ -1564,12 +1569,12 @@ ogm_v_vp8_demuxer_c::process_page(int64_t granulepos) {
     auto &data       = packets[idx];
     auto is_keyframe = (0 != data->get_size()) && ((data->get_buffer()[0] & 0x01) == 0);
     auto frame_num   = pts - std::min<int64_t>(pts, num_packets - idx - 1 + 1);
-    auto timecode    = static_cast<int64_t>(1000000000.0 * frame_num * frame_rate_den / frame_rate_num);
+    auto timestamp    = static_cast<int64_t>(1000000000.0 * frame_num * frame_rate_den / frame_rate_num);
     auto bref        = is_keyframe ? VFT_IFRAME : VFT_PFRAMEAUTOMATIC;
 
     ++units_processed;
 
-    reader->m_reader_packetizers[ptzr]->process(new packet_t(data, timecode, default_duration, bref, VFT_NOBFRAME));
+    reader->m_reader_packetizers[ptzr]->process(new packet_t(data, timestamp, default_duration, bref, VFT_NOBFRAME));
 
     mxdebug_if(debug,
                boost::format("VP8 track %1% size %10% #proc %11% frame# %12% fr_num %2% fr_den %3% granulepos 0x%|4$08x| %|5$08x| pts %6% inv_count %7% distance %8%%9%\n")

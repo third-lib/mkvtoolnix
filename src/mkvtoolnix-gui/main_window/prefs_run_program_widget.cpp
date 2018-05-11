@@ -6,6 +6,7 @@
 #include <QMenu>
 
 #include "common/qt.h"
+#include "mkvtoolnix-gui/app.h"
 #include "mkvtoolnix-gui/forms/main_window/prefs_run_program_widget.h"
 #include "mkvtoolnix-gui/jobs/program_runner.h"
 #include "mkvtoolnix-gui/main_window/prefs_run_program_widget.h"
@@ -22,6 +23,7 @@ class PrefsRunProgramWidgetPrivate {
   std::unique_ptr<QMenu> variableMenu;
   QString executable;
   QMap<QCheckBox *, Util::Settings::RunProgramForEvent> flagsByCheckbox;
+  QMap<Util::Settings::RunProgramType, QWidget *> pagesByType;
 
   explicit PrefsRunProgramWidgetPrivate()
     : ui{new Ui::PrefsRunProgramWidget}
@@ -65,14 +67,19 @@ PrefsRunProgramWidget::setupUi(Util::Settings::RunProgramConfig const &cfg) {
   // Setup UI controls.
   d->ui->setupUi(this);
 
+  setupTypeControl(cfg);
+
   d->flagsByCheckbox[d->ui->cbAfterJobQueueStopped] = Util::Settings::RunAfterJobQueueFinishes;
   d->flagsByCheckbox[d->ui->cbAfterJobSuccessful]   = Util::Settings::RunAfterJobCompletesSuccessfully;
   d->flagsByCheckbox[d->ui->cbAfterJobError]        = Util::Settings::RunAfterJobCompletesWithErrors;
 
   d->ui->cbConfigurationActive->setChecked(cfg.m_active);
 
-  d->executable = cfg.m_commandLine.value(0);
+  d->executable = Util::replaceApplicationDirectoryWithMtxVariable(cfg.m_commandLine.value(0));
+  d->ui->leName->setText(cfg.m_name);
   d->ui->leCommandLine->setText(Util::escape(cfg.m_commandLine, Util::EscapeShellUnix).join(" "));
+  d->ui->leAudioFile->setText(QDir::toNativeSeparators(Util::replaceApplicationDirectoryWithMtxVariable(cfg.m_audioFile)));
+  d->ui->sbVolume->setValue(cfg.m_volume);
 
   for (auto const &checkBox : d->flagsByCheckbox.keys())
     if (cfg.m_forEvents & d->flagsByCheckbox[checkBox])
@@ -150,19 +157,19 @@ PrefsRunProgramWidget::setupUi(Util::Settings::RunProgramConfig const &cfg) {
 #endif
        << Q("</li>")
        << Q("</li><li>")
-       << QYH("Open the merged file with a player:")
+       << QYH("Open the multiplexed file with a player:")
        << Q("</li>")
 #if defined(SYS_WINDOWS)
        << Q("<code>")
-       << QH("'C:\\Program Files (x86)\\VideoLAN\\VLC\\vlc.exe' '<MTX_OUTPUT_FILE_NAME>'")
+       << QH("'C:\\Program Files (x86)\\VideoLAN\\VLC\\vlc.exe' '<MTX_DESTINATION_FILE_NAME>'")
        << Q("</code>")
 #elif defined(SYS_APPLE)
        << Q("<code>")
-       << QH("/usr/bin/vlc '<MTX_OUTPUT_FILE_NAME>'")
+       << QH("/usr/bin/vlc '<MTX_DESTINATION_FILE_NAME>'")
        << Q("</code>")
 #else
        << Q("<code>")
-       << QH("/usr/bin/vlc '<MTX_OUTPUT_FILE_NAME>'")
+       << QH("/usr/bin/vlc '<MTX_DESTINATION_FILE_NAME>'")
        << Q("</code>")
 #endif
        << Q("</ul></body></html>");
@@ -173,11 +180,53 @@ PrefsRunProgramWidget::setupUi(Util::Settings::RunProgramConfig const &cfg) {
 }
 
 void
+PrefsRunProgramWidget::setupTypeControl(Util::Settings::RunProgramConfig const &cfg) {
+  Q_D(PrefsRunProgramWidget);
+
+  auto addItemIfSupported = [d, &cfg](QString const &title, Util::Settings::RunProgramType type) {
+    if (App::programRunner().isRunProgramTypeSupported(type)) {
+      d->ui->cbType->addItem(title, static_cast<int>(type));
+
+      if (cfg.m_type == type)
+        d->ui->cbType->setCurrentIndex(d->ui->cbType->count() - 1);
+    }
+  };
+
+  addItemIfSupported(QY("Execute a program"),      Util::Settings::RunProgramType::ExecuteProgram);
+  addItemIfSupported(QY("Play an audio file"),     Util::Settings::RunProgramType::PlayAudioFile);
+  addItemIfSupported(QY("Shut down the computer"), Util::Settings::RunProgramType::ShutDownComputer);
+  addItemIfSupported(QY("Hibernate the computer"), Util::Settings::RunProgramType::HibernateComputer);
+  addItemIfSupported(QY("Sleep the computer"),     Util::Settings::RunProgramType::SleepComputer);
+
+  d->pagesByType[Util::Settings::RunProgramType::ExecuteProgram]    = d->ui->executeProgramTypePage;
+  d->pagesByType[Util::Settings::RunProgramType::PlayAudioFile]     = d->ui->playAudioFileTypePage;
+  d->pagesByType[Util::Settings::RunProgramType::ShutDownComputer]  = d->ui->emptyTypePage;
+  d->pagesByType[Util::Settings::RunProgramType::HibernateComputer] = d->ui->emptyTypePage;
+  d->pagesByType[Util::Settings::RunProgramType::SleepComputer]     = d->ui->emptyTypePage;
+
+  showPageForType(cfg.m_type);
+
+  if (d->ui->cbType->count() > 1)
+    return;
+
+  d->ui->lType->setVisible(false);
+  d->ui->cbType->setVisible(false);
+}
+
+void
 PrefsRunProgramWidget::setupToolTips() {
   Q_D(PrefsRunProgramWidget);
 
+  auto conditionsToolTip = Q("%1 %2")
+    .arg(QY("If any of these checkboxes is checked, the action will be executed when the corresponding condition is met."))
+    .arg(QY("Independent of the checkboxes, every active configuration can be triggered manually from the \"job output\" tool."));
+
+  Util::setToolTip(d->ui->leName, QY("This is an arbitrary name the GUI can use to refer to this particular configuration."));
   Util::setToolTip(d->ui->cbConfigurationActive, QY("Deactivating this checkbox is a way to disable a configuration temporarily without having to change its parameters."));
-  Util::setToolTip(d->ui->pbExecuteNow, Q("%1 %2").arg(QY("Executes the program now as a test run.")).arg(QY("Note that most <MTX_…> variables are empty and will be removed for this test run.")));
+  Util::setToolTip(d->ui->pbExecuteNow, Q("%1 %2").arg(QY("Executes the action immediately.")).arg(QY("Note that most <MTX_…> variables are empty and will be removed for actions that can take variables as arguments.")));
+  Util::setToolTip(d->ui->cbAfterJobQueueStopped, conditionsToolTip);
+  Util::setToolTip(d->ui->cbAfterJobSuccessful,   conditionsToolTip);
+  Util::setToolTip(d->ui->cbAfterJobError,        conditionsToolTip);
 }
 
 void
@@ -185,19 +234,20 @@ PrefsRunProgramWidget::setupMenu() {
   Q_D(PrefsRunProgramWidget);
 
   QList<std::pair<QString, QString> > entries{
-    { QY("Variables for all job types"),                                 Q("")                      },
-    { QY("Job description"),                                             Q("JOB_DESCRIPTION")       },
-    { QY("Job start date && time in ISO 8601 format"),                   Q("JOB_START_TIME")        },
-    { QY("Job end date && time in ISO 8601 format"),                     Q("JOB_END_TIME")          },
-    { QY("Exit code (0: ok, 1: warnings occurred, 2: errors occurred)"), Q("JOB_EXIT_CODE")         },
+    { QY("Variables for all job types"),                                 Q("")                           },
+    { QY("Job description"),                                             Q("JOB_DESCRIPTION")            },
+    { QY("Job start date && time in ISO 8601 format"),                   Q("JOB_START_TIME")             },
+    { QY("Job end date && time in ISO 8601 format"),                     Q("JOB_END_TIME")               },
+    { QY("Exit code (0: ok, 1: warnings occurred, 2: errors occurred)"), Q("JOB_EXIT_CODE")              },
 
-    { QY("Variables for merge jobs"),                                    Q("")                      },
-    { QY("Output file's name"),                                          Q("OUTPUT_FILE_NAME")      },
-    { QY("Output file's directory"),                                     Q("OUTPUT_FILE_DIRECTORY") },
-    { QY("Source file names"),                                           Q("SOURCE_FILE_NAMES")     },
+    { QY("Variables for multiplex jobs"),                                Q("")                           },
+    { QY("Destination file's name"),                                     Q("DESTINATION_FILE_NAME")      },
+    { QY("Destination file's directory"),                                Q("DESTINATION_FILE_DIRECTORY") },
+    { QY("Source file names"),                                           Q("SOURCE_FILE_NAMES")          },
 
-    { QY("General variables"),                                           Q("")                      },
-    { QY("Current date && time in ISO 8601 format"),                     Q("CURRENT_TIME")          },
+    { QY("General variables"),                                           Q("")                           },
+    { QY("Current date && time in ISO 8601 format"),                     Q("CURRENT_TIME")               },
+    { QY("MKVToolNix GUI's installation directory"),                     Q("INSTALLATION_DIRECTORY")     },
   };
 
   d->variableMenu.reset(new QMenu{this});
@@ -218,11 +268,15 @@ void
 PrefsRunProgramWidget::setupConnections() {
   Q_D(PrefsRunProgramWidget);
 
-  connect(d->ui->leCommandLine,         &QLineEdit::textEdited, this, &PrefsRunProgramWidget::commandLineEdited);
-  connect(d->ui->pbBrowseExecutable,    &QPushButton::clicked,  this, &PrefsRunProgramWidget::changeExecutable);
-  connect(d->ui->pbAddVariable,         &QPushButton::clicked,  this, &PrefsRunProgramWidget::selectVariableToAdd);
-  connect(d->ui->pbExecuteNow,          &QPushButton::clicked,  this, &PrefsRunProgramWidget::executeNow);
-  connect(d->ui->cbConfigurationActive, &QCheckBox::toggled,    this, &PrefsRunProgramWidget::enableControls);
+  connect(d->ui->cbConfigurationActive, &QCheckBox::toggled,                                                    this, &PrefsRunProgramWidget::enableControls);
+  connect(d->ui->leName,                &QLineEdit::textEdited,                                                 this, &PrefsRunProgramWidget::nameEdited);
+  connect(d->ui->cbType,                static_cast<void (QComboBox::*)(int)>(&QComboBox::currentIndexChanged), this, &PrefsRunProgramWidget::typeChanged);
+  connect(d->ui->leCommandLine,         &QLineEdit::textEdited,                                                 this, &PrefsRunProgramWidget::commandLineEdited);
+  connect(d->ui->pbBrowseExecutable,    &QPushButton::clicked,                                                  this, &PrefsRunProgramWidget::changeExecutable);
+  connect(d->ui->pbAddVariable,         &QPushButton::clicked,                                                  this, &PrefsRunProgramWidget::selectVariableToAdd);
+  connect(d->ui->pbExecuteNow,          &QPushButton::clicked,                                                  this, &PrefsRunProgramWidget::executeNow);
+  connect(d->ui->leAudioFile,           &QLineEdit::textEdited,                                                 this, &PrefsRunProgramWidget::audioFileEdited);
+  connect(d->ui->pbBrowseAudioFile,     &QPushButton::clicked,                                                  this, &PrefsRunProgramWidget::changeAudioFile);
 }
 
 void
@@ -234,7 +288,7 @@ PrefsRunProgramWidget::selectVariableToAdd() {
 
 void
 PrefsRunProgramWidget::addVariable(QString const &variable) {
-  changeArguments([&](QStringList &arguments) {
+  changeArguments([&variable](QStringList &arguments) {
     arguments << variable;
   });
 }
@@ -242,16 +296,13 @@ PrefsRunProgramWidget::addVariable(QString const &variable) {
 bool
 PrefsRunProgramWidget::isValid()
   const {
-  Q_D(const PrefsRunProgramWidget);
-
-  auto arguments = Util::unescapeSplit(d->ui->leCommandLine->text(), Util::EscapeShellUnix);
-  return !arguments.value(0).isEmpty();
+  return config()->isValid();
 }
 
 void
 PrefsRunProgramWidget::executeNow() {
   if (isValid())
-    Jobs::ProgramRunner::run(Util::Settings::RunNever, [](Jobs::ProgramRunner::VariableMap &) {}, config());
+    App::programRunner().run(Util::Settings::RunNever, [](Jobs::ProgramRunner::VariableMap &) {}, config());
 }
 
 void
@@ -265,12 +316,14 @@ PrefsRunProgramWidget::changeExecutable() {
 #endif
   filters << QY("All files") + Q(" (*)");
 
-  auto newExecutable = Util::getOpenFileName(this, QY("Select executable"), d->executable, filters.join(Q(";;")));
-  newExecutable      = QDir::toNativeSeparators(newExecutable);
+  auto realExecutable = Util::replaceMtxVariableWithApplicationDirectory(d->executable);
+  auto newExecutable  = Util::getOpenFileName(this, QY("Select executable"), realExecutable, filters.join(Q(";;")));
+  newExecutable       = QDir::toNativeSeparators(Util::replaceApplicationDirectoryWithMtxVariable(newExecutable));
+
   if (newExecutable.isEmpty() || (newExecutable == d->executable))
     return;
 
-  changeArguments([&](QStringList &arguments) {
+  changeArguments([&newExecutable](QStringList &arguments) {
     if (arguments.isEmpty())
       arguments << newExecutable;
     else
@@ -281,14 +334,12 @@ PrefsRunProgramWidget::changeExecutable() {
 
   enableControls();
 
-  emit executableChanged(newExecutable);
+  emit titleChanged();
 }
 
 void
 PrefsRunProgramWidget::commandLineEdited(QString const &commandLine) {
   Q_D(PrefsRunProgramWidget);
-
-  enableControls();
 
   auto arguments     = Util::unescapeSplit(commandLine, Util::EscapeShellUnix);
   auto newExecutable = arguments.value(0);
@@ -298,7 +349,14 @@ PrefsRunProgramWidget::commandLineEdited(QString const &commandLine) {
 
   d->executable = newExecutable;
 
-  emit executableChanged(newExecutable);
+  enableControls();
+
+  emit titleChanged();
+}
+
+void
+PrefsRunProgramWidget::nameEdited() {
+  emit titleChanged();
 }
 
 void
@@ -319,14 +377,73 @@ PrefsRunProgramWidget::config()
 
   auto cfg           = std::make_shared<Util::Settings::RunProgramConfig>();
   auto cmdLine       = d->ui->leCommandLine->text().replace(QRegularExpression{"^\\s+"}, Q(""));
+  cfg->m_name        = d->ui->leName->text();
+  cfg->m_type        = static_cast<Util::Settings::RunProgramType>(d->ui->cbType->currentData().value<int>());
   cfg->m_commandLine = Util::unescapeSplit(cmdLine, Util::EscapeShellUnix);
   cfg->m_active      = d->ui->cbConfigurationActive->isChecked();
+  cfg->m_audioFile   = QDir::toNativeSeparators(Util::replaceApplicationDirectoryWithMtxVariable(d->ui->leAudioFile->text()));
+  cfg->m_volume      = d->ui->sbVolume->value();
 
   for (auto const &checkBox : d->flagsByCheckbox.keys())
     if (checkBox->isChecked())
       cfg->m_forEvents |= d->flagsByCheckbox[checkBox];
 
   return cfg;
+}
+
+void
+PrefsRunProgramWidget::changeAudioFile() {
+  Q_D(PrefsRunProgramWidget);
+
+  auto filters = QStringList{} << QY("Audio files") + Q(" (*.aac *.flac *.m4a *.mp3 *.ogg *.opus *.wav)")
+                               << QY("All files")   + Q(" (*)");
+
+  auto realAudioFile = Util::replaceMtxVariableWithApplicationDirectory(d->ui->leAudioFile->text());
+  auto newAudioFile  = Util::getOpenFileName(this, QY("Select audio file"), realAudioFile, filters.join(Q(";;")));
+  newAudioFile       = QDir::toNativeSeparators(Util::replaceApplicationDirectoryWithMtxVariable(newAudioFile));
+
+  if (newAudioFile.isEmpty())
+    return;
+
+  d->ui->leAudioFile->setText(newAudioFile);
+
+  enableControls();
+
+  emit titleChanged();
+}
+
+void
+PrefsRunProgramWidget::audioFileEdited() {
+  enableControls();
+
+  emit titleChanged();
+}
+
+void
+PrefsRunProgramWidget::typeChanged(int index) {
+  Q_D(PrefsRunProgramWidget);
+
+  auto type = static_cast<Util::Settings::RunProgramType>(d->ui->cbType->itemData(index).value<int>());
+  showPageForType(type);
+
+  emit titleChanged();
+
+  enableControls();
+}
+
+void
+PrefsRunProgramWidget::showPageForType(Util::Settings::RunProgramType type) {
+  Q_D(PrefsRunProgramWidget);
+
+  d->ui->typeWidgets->setCurrentWidget(d->pagesByType[type]);
+  d->ui->gbTypeSpecificSettings->setVisible(d->pagesByType[type] != d->ui->emptyTypePage);
+}
+
+QString
+PrefsRunProgramWidget::validate()
+  const {
+  auto cfg = config();
+  return cfg->m_active ? cfg->validate() : QString{};
 }
 
 }}

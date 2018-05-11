@@ -198,14 +198,14 @@ ebml_converter_c::parse_ustring(parser_context_t &ctx) {
 }
 
 void
-ebml_converter_c::parse_timecode(parser_context_t &ctx) {
+ebml_converter_c::parse_timestamp(parser_context_t &ctx) {
   int64_t value;
-  if (!::parse_timecode(strip_copy(ctx.content), value)) {
+  if (!::parse_timestamp(strip_copy(ctx.content), value)) {
     auto details = (boost::format(Y("Expected a time in the following format: HH:MM:SS.nnn "
                                     "(HH = hour, MM = minute, SS = second, nnn = millisecond up to nanosecond. "
                                     "You may use up to nine digits for 'n' which would mean nanosecond precision). "
                                     "You may omit the hour as well. Found '%1%' instead. Additional error message: %2%"))
-                    % ctx.content % timecode_parser_error.c_str()).str();
+                    % ctx.content % timestamp_parser_error.c_str()).str();
 
     throw malformed_data_x{ ctx.name, ctx.node.offset_debug(), details };
   }
@@ -220,7 +220,7 @@ ebml_converter_c::parse_timecode(parser_context_t &ctx) {
 
 void
 ebml_converter_c::parse_binary(parser_context_t &ctx) {
-  auto test_min_max = [&](std::string const &content) {
+  auto test_min_max = [&ctx](auto const &content) {
     if (ctx.limits.has_min && (content.length() < static_cast<size_t>(ctx.limits.min)))
       throw out_of_range_x{ ctx.name, ctx.node.offset_debug(), (boost::format(Y("Minimum allowed length: %1%, actual length: %2%")) % ctx.limits.min % content.length()).str() };
     if (ctx.limits.has_max && (content.length() > static_cast<size_t>(ctx.limits.max)))
@@ -275,7 +275,7 @@ ebml_converter_c::parse_binary(parser_context_t &ctx) {
 
   } else if (format == "base64") {
     try {
-      content = base64_decode(content);
+      content = mtx::base64::decode(content);
 
     } catch (mtx::base64::exception &) {
       throw malformed_data_x{ ctx.name, ctx.node.offset_debug(), Y("Invalid data for Base64 encoding found.") };

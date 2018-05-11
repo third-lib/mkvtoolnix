@@ -135,13 +135,17 @@ class SimpleTest
 
   def test_identify file, *args
     options             = args.extract_options!
-    options[:verbose]   = true if options[:verbose].nil?
-    full_command_line   = [ options[:verbose] ? "--identify-verbose" : "--identify", options[:args], file ].flatten.join(' ')
+    options[:format]    = :json if options[:format].nil?
+    full_command_line   = [ "--identification-format", options[:format].to_s, "--identify", options[:args], file ].flatten.join(' ')
     options[:name]    ||= full_command_line
     @blocks[:tests] << {
       :name  => full_command_line,
       :block => lambda {
-        sys "../src/mkvmerge #{full_command_line} > #{tmp}", :exit_code => options[:exit_code]
+        sys "../src/mkvmerge #{full_command_line} --engage no_variable_data > #{tmp}", :exit_code => options[:exit_code]
+
+        text = IO.readlines(tmp).reject { |line| %r{^\s*"identification_format_version":\s*\d+}.match(line) }.join('')
+        File.open(tmp, 'w') { |tmp_file| tmp_file.puts text }
+
         if options[:filter]
           text = options[:filter].call(IO.readlines(tmp).join(''))
           File.open(tmp, 'w') { |tmp_file| tmp_file.puts text }
@@ -214,6 +218,7 @@ class SimpleTest
         result = test[:block].call
       rescue RuntimeError => ex
         show_message "Test case '#{self.class.name}', sub-test '#{test[:name]}': #{ex}"
+        result = :failed
       end
       result
     end
@@ -231,7 +236,7 @@ class SimpleTest
 
     output  = options[:output] || self.tmp
     command = "../src/mkvmerge --engage no_variable_data -o #{output} #{args.first}"
-    self.sys command, :exit_code => options[:exit_code]
+    self.sys command, :exit_code => options[:exit_code], :no_result => options[:no_result]
   end
 
   def identify *args
@@ -243,7 +248,7 @@ class SimpleTest
 
     command = "../src/mkvmerge --identify --identification-format #{format} --engage no_variable_data #{args.first}"
 
-    self.sys command, :exit_code => options[:exit_code]
+    self.sys command, :exit_code => options[:exit_code], :no_result => options[:no_result]
   end
 
   def identify_json *args
@@ -252,7 +257,7 @@ class SimpleTest
 
     command = "../src/mkvmerge --identify --identification-format json --engage no_variable_data #{args.first}"
 
-    output, _ = self.sys(command, :exit_code => options[:exit_code])
+    output, _ = self.sys(command, :exit_code => options[:exit_code], :no_result => options[:no_result])
 
     return JSON.load(output.join(''))
   end
@@ -265,7 +270,7 @@ class SimpleTest
     output  = "> #{output}" unless %r{^[>\|]}.match(output)
     output  = '' if options[:output] == :return
     command = "../src/mkvinfo --engage no_variable_data --ui-language en_US #{args.first} #{output}"
-    self.sys command, :exit_code => options[:exit_code]
+    self.sys command, :exit_code => options[:exit_code], :no_result => options[:no_result]
   end
 
   def extract *args
@@ -275,7 +280,7 @@ class SimpleTest
     mode     = options[:mode] || :tracks
     command  = "../src/mkvextract --engage no_variable_data #{mode} #{args.first} " + options.keys.select { |key| key.is_a?(Numeric) }.sort.collect { |key| "#{key}:#{options[key]}" }.join(' ')
 
-    self.sys command, :exit_code => options[:exit_code]
+    self.sys command, :exit_code => options[:exit_code], :no_result => options[:no_result]
   end
 
   def propedit file_name, *args
@@ -283,7 +288,7 @@ class SimpleTest
     fail ArgumentError if args.empty?
 
     command = "../src/mkvpropedit --engage no_variable_data #{file_name} #{args.first}"
-    *result = self.sys command, :exit_code => options[:exit_code]
+    *result = self.sys command, :exit_code => options[:exit_code], :no_result => options[:no_result]
 
     self.sys "../src/tools/ebml_validator -M #{file_name}", dont_record_command: true if FileTest.exists?("../src/tools/ebml_validator")
 
@@ -296,7 +301,7 @@ class SimpleTest
     fail ArgumentError if args.empty?
 
     command    = args.shift
-    @commands << command unless options[:dont_record_command]
+    @commands << { :command => command, :no_result => options[:no_result] } unless options[:dont_record_command]
 
     if !%r{>}.match command
       temp_file = Tempfile.new('mkvtoolnix-test-output')
@@ -316,6 +321,13 @@ class SimpleTest
     return exit_code
   end
 
+  def cp source, target, *args
+    options = args.extract_options!
+    options[:no_result] = true unless options.key?(:no_result)
+
+    sys "cp '#{source}' '#{target}'", options
+  end
+
   def error reason
     show_message "  Failed. Reason: #{reason}"
     raise "test failed"
@@ -329,7 +341,8 @@ class SimpleTest
     json_store = JsonSchema::DocumentStore.new
     parser     = JsonSchema::Parser.new
     expander   = JsonSchema::ReferenceExpander.new
-    schema     = parser.parse JSON.load(File.read("../doc/json-schema/mkvmerge-identification-output-schema-v4.json"))
+    version    = IO.readlines("../src/merge/id_result.h").detect { |line| /#define +ID_JSON_FORMAT_VERSION\b/.match line }.gsub(/.* .* /, '').chop
+    schema     = parser.parse JSON.load(File.read("../doc/json-schema/mkvmerge-identification-output-schema-v#{version}.json"))
 
     expander.expand(schema, store: json_store)
     json_store.add_schema schema

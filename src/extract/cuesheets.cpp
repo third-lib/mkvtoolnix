@@ -5,7 +5,7 @@
    see the file COPYING for details
    or visit http://www.gnu.org/copyleft/gpl.html
 
-   extracts chapters and tags as CUE sheets from Matroska files
+   extracts chapters and tags as cue sheets from Matroska files
 
    Written by Moritz Bunkus <moritz@bunkus.org>.
 */
@@ -84,9 +84,9 @@ get_chapter_index(int idx,
   size_t i;
   std::string sidx = (boost::format("INDEX %|1$02d|") % idx).str();
   for (i = 0; i < atom.ListSize(); i++)
-    if (Is<KaxChapterAtom>(atom[i]) &&
-        (get_chapter_name(*static_cast<KaxChapterAtom *>(atom[i])) == sidx))
-      return get_chapter_start(*static_cast<KaxChapterAtom *>(atom[i]));
+    if (   Is<KaxChapterAtom>(atom[i])
+        && (mtx::chapters::get_name(*static_cast<KaxChapterAtom *>(atom[i])) == sidx))
+      return mtx::chapters::get_start(*static_cast<KaxChapterAtom *>(atom[i]));
 
   return -1;
 }
@@ -163,7 +163,7 @@ write_cuesheet(std::string file_name,
     KaxChapterAtom &atom =  *static_cast<KaxChapterAtom *>(chapters[i]);
 
     out.puts(boost::format("  TRACK %|1$02d| AUDIO\n") % (i + 1));
-    tag = find_tag_for_track(i + 1, tuid, get_chapter_uid(atom), tags);
+    tag = find_tag_for_track(i + 1, tuid, mtx::chapters::get_uid(atom), tags);
     if (!tag)
       continue;
 
@@ -193,19 +193,17 @@ write_cuesheet(std::string file_name,
   }
 }
 
-void
-extract_cuesheet(const std::string &file_name,
-                 kax_analyzer_c::parse_mode_e parse_mode) {
-  auto analyzer = open_and_analyze(file_name, parse_mode);
-
+bool
+extract_cuesheet(kax_analyzer_c &analyzer,
+                 options_c::mode_options_c &options) {
   KaxChapters all_chapters;
-  ebml_master_cptr chapters_m(analyzer->read_all(EBML_INFO(KaxChapters)));
-  ebml_master_cptr tags_m(    analyzer->read_all(EBML_INFO(KaxTags)));
+  auto chapters_m       = analyzer.read_all(EBML_INFO(KaxChapters));
+  auto tags_m           = analyzer.read_all(EBML_INFO(KaxTags));
   KaxChapters *chapters = dynamic_cast<KaxChapters *>(chapters_m.get());
   KaxTags *all_tags     = dynamic_cast<KaxTags *>(    tags_m.get());
 
   if (!chapters || !all_tags)
-    return;
+    return true;
 
   for (auto chapter_entry : *chapters) {
     if (!dynamic_cast<KaxEditionEntry *>(chapter_entry))
@@ -217,8 +215,10 @@ extract_cuesheet(const std::string &file_name,
         all_chapters.PushElement(*edition_entry);
   }
 
-  write_cuesheet(file_name, all_chapters, *all_tags, -1, *g_mm_stdio);
+  write_cuesheet(analyzer.get_file().get_file_name(), all_chapters, *all_tags, -1, *open_output_file(options.m_output_file_name));
 
   while (all_chapters.ListSize() > 0)
     all_chapters.Remove(0);
+
+  return true;
 }

@@ -1,14 +1,12 @@
-#ifndef MTX_MKVTOOLNIX_GUI_MAIN_WINDOW_MAIN_WINDOW_H
-#define MTX_MKVTOOLNIX_GUI_MAIN_WINDOW_MAIN_WINDOW_H
+#pragma once
 
 #include "common/common_pch.h"
 
-#if defined(HAVE_CURL_EASY_H)
-# include "mkvtoolnix-gui/main_window/update_check_thread.h"
-#endif  // HAVE_CURL_EASY_H
-
-#include <QAction>
 #include <QMainWindow>
+
+#include "mkvtoolnix-gui/main_window/preferences_dialog.h"
+#include "mkvtoolnix-gui/main_window/update_checker.h"
+#include "mkvtoolnix-gui/util/installation_checker.h"
 
 class QEvent;
 class QResizeEvent;
@@ -16,7 +14,6 @@ class QShowEvent;
 
 namespace mtx { namespace gui {
 
-class StatusBarProgressWidget;
 class ToolBase;
 
 namespace ChapterEditor {
@@ -31,6 +28,9 @@ class Tool;
 namespace Merge {
 class Tool;
 }
+namespace Ui {
+class MainWindow;
+}
 namespace Util {
 class MovingPixmapOverlay;
 }
@@ -39,33 +39,20 @@ class Tab;
 class Tool;
 }
 
-namespace Ui {
-class MainWindow;
-}
-
+class MainWindowPrivate;
 class MainWindow : public QMainWindow {
   Q_OBJECT;
 
 protected:
-  // UI stuff:
-  std::unique_ptr<Ui::MainWindow> ui;
-  StatusBarProgressWidget *m_statusBarProgress{};
-  Merge::Tool *m_toolMerge{};
-  Jobs::Tool *m_toolJobs{};
-  HeaderEditor::Tool *m_toolHeaderEditor{};
-  ChapterEditor::Tool *m_toolChapterEditor{};
-  WatchJobs::Tool *m_watchJobTool{};
-  QList<QAction *> m_toolSelectionActions;
-  std::unique_ptr<Util::MovingPixmapOverlay> m_movingPixmapOverlay;
+  Q_DECLARE_PRIVATE(MainWindow);
 
-  QHash<QObject *, QString> m_helpURLs;
+  QScopedPointer<MainWindowPrivate> const d_ptr;
 
-protected:                      // static
-  static MainWindow *ms_mainWindow;
+  explicit MainWindow(MainWindowPrivate &d, QWidget *parent);
 
 public:
   explicit MainWindow(QWidget *parent = nullptr);
-  ~MainWindow();
+  virtual ~MainWindow();
 
   virtual void setStatusBarMessage(QString const &message);
 
@@ -81,6 +68,10 @@ public:
 
   virtual bool eventFilter(QObject *watched, QEvent *event) override;
 
+  virtual void editPreferencesAndShowPage(PreferencesDialog::Page page);
+
+  virtual void registerSubWindowWidget(ToolBase &toolBase, QTabWidget &tabWidget);
+
 signals:
   void windowShown();
   void preferencesChanged();
@@ -90,15 +81,22 @@ public slots:
   virtual void changeToolToSender();
   virtual void toolChanged(int index);
   virtual void editPreferences();
+  virtual void editRunProgramConfigurations();
   virtual void visitHelpURL();
   virtual void visitMkvmergeDocumentation();
   virtual void setToolSelectorVisibility();
   virtual void raiseAndActivate();
 
-#if defined(HAVE_CURL_EASY_H)
+#if defined(HAVE_UPDATE_CHECK)
   virtual void updateCheckFinished(UpdateCheckStatus status, mtx_release_version_t release);
   virtual void checkForUpdates();
-#endif  // HAVE_CURL_EASY_H
+#endif  // HAVE_UPDATE_CHECK
+
+  virtual void displayInstallationProblems(Util::InstallationChecker::Problems const &problems);
+
+  virtual void setupWindowMenu();
+  virtual void showNextOrPreviousSubWindow(int delta);
+  virtual void showSubWindow(unsigned int tabIdx);
 
 public:                         // static
   static MainWindow *get();
@@ -109,9 +107,9 @@ public:                         // static
   static Jobs::Tool *jobTool();
   static WatchJobs::Tab *watchCurrentJobTab();
   static WatchJobs::Tool *watchJobTool();
-#if defined(HAVE_CURL_EASY_H)
+#if defined(HAVE_UPDATE_CHECK)
   static QString versionStringForSettings(version_number_t const &version);
-#endif  // HAVE_CURL_EASY_H
+#endif  // HAVE_UPDATE_CHECK
 
   static QIcon const & yesIcon();
   static QIcon const & noIcon();
@@ -128,11 +126,12 @@ protected:
 
   virtual boost::optional<bool> filterWheelEventForStrongFocus(QObject *watched, QEvent *event);
 
-#if defined(HAVE_CURL_EASY_H)
+#if defined(HAVE_UPDATE_CHECK)
   virtual void silentlyCheckForUpdates();
-#endif  // HAVE_CURL_EASY_H
+#endif  // HAVE_UPDATE_CHECK
+  virtual void runCacheCleanupOncePerVersion() const;
+
+  virtual std::pair<ToolBase *, QTabWidget *> currentSubWindowWidget();
 };
 
 }}
-
-#endif // MTX_MKVTOOLNIX_GUI_MAIN_WINDOW_MAIN_WINDOW_H

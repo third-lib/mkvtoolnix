@@ -2,6 +2,8 @@ dnl
 dnl Check for Qt 5
 dnl
 
+qt_min_ver=5.3.0
+
 AC_ARG_ENABLE([qt],
   AC_HELP_STRING([--enable-qt],[compile the Qt version of the GUIs (yes)]),
   [],[enable_qt=yes])
@@ -12,8 +14,6 @@ AC_ARG_WITH([qt_pkg_config_modules],
 AC_ARG_WITH([qt_pkg_config],
   AC_HELP_STRING([--without-qt-pkg-config], [do not use pkg-config for detecting Qt; instead rely on QT_CFLAGS/QT_LIBS being set correctly already]),
   [ with_qt_pkg_config=${withval} ], [ with_qt_pkg_config=yes ])
-
-qt_min_ver=5.2.0
 
 if test x"$enable_qt" = "xyes" -a \
   '(' x"$enable_gui" = x"yes" -o x"$enable_gui" = "x" ')'; then
@@ -44,10 +44,8 @@ if test x"$enable_qt" = "xyes" -a \
     moc_ver=`"$MOC" -v 2>&1 | sed -e 's:.*Qt ::' -e 's:.* ::' -e 's:[[^0-9\.]]::g'`
     if test -z "moc_ver"; then
       AC_MSG_RESULT(unknown; please contact the author)
-      exit 1
     elif ! check_version $qt_min_ver $moc_ver; then
       AC_MSG_RESULT(too old: $moc_ver)
-      exit 1
     else
       AC_MSG_RESULT($moc_ver)
       moc_found=1
@@ -74,10 +72,8 @@ if test x"$enable_qt" = "xyes" -a \
     uic_ver=`"$UIC" -v 2>&1 | sed -e 's:.*Qt ::' -e 's:.* ::' -e 's:[[^0-9\.]]::g'`
     if test -z "uic_ver"; then
       AC_MSG_RESULT(unknown; please contact the author)
-      exit 1
     elif ! check_version $qt_min_ver $uic_ver; then
       AC_MSG_RESULT(too old: $uic_ver)
-      exit 1
     else
       AC_MSG_RESULT($uic_ver)
       uic_found=1
@@ -104,24 +100,52 @@ if test x"$enable_qt" = "xyes" -a \
     rcc_ver=`"$RCC" -v 2>&1 | sed -e 's:.*Qt ::' -e 's:.* ::' -e 's:[[^0-9\.]]::g'`
     if test -z "rcc_ver"; then
       AC_MSG_RESULT(unknown; please contact the author)
-      exit 1
     elif ! check_version $qt_min_ver $rcc_ver; then
       AC_MSG_RESULT(too old: $rcc_ver)
-      exit 1
     else
       AC_MSG_RESULT($rcc_ver)
       rcc_found=1
     fi
   fi
 
+  AC_ARG_WITH(qmake,
+    AC_HELP_STRING([--with-qmake=prog],[use prog instead of looking for qmake]),
+    [ QMAKE="$with_qmake" ],)
+
+  if ! test -z "$QMAKE"; then
+    AC_MSG_CHECKING(for qmake)
+    AC_MSG_RESULT(using supplied $QMAKE)
+  else
+    AC_PATH_TOOL(QMAKE, qmake-qt5,, $PATH)
+    if test -z "$QMAKE"; then
+      AC_PATH_TOOL(QMAKE, qmake,, $PATH)
+    fi
+  fi
+
+  if test -n "$QMAKE" -a -x "$QMAKE"; then
+    dnl Check its version.
+    AC_MSG_CHECKING(for the Qt version $QMAKE uses)
+    qmake_ver=`LC_ALL=C "$QMAKE" -v 2>&1 | grep 'Using Qt' | sed -e 's:.*version ::' -e 's: .*::'`
+    if test -z "qmake_ver"; then
+      AC_MSG_RESULT(unknown; please contact the author)
+    elif ! check_version $qt_min_ver $qmake_ver; then
+      AC_MSG_RESULT(too old: $qmake_ver)
+    else
+      AC_MSG_RESULT($qmake_ver)
+      qmake_found=1
+    fi
+  fi
+
   ok=0
   AC_MSG_CHECKING(for Qt $qt_min_ver or newer)
   if test x"$moc_found" != "x1"; then
-    AC_MSG_RESULT(no: moc not found)
+    AC_MSG_RESULT(no: moc not found or too old)
   elif test x"$uic_found" != "x1"; then
-    AC_MSG_RESULT(no: uic not found)
+    AC_MSG_RESULT(no: uic not found or too old)
   elif test x"$rcc_found" != "x1"; then
-    AC_MSG_RESULT(no: rcc not found)
+    AC_MSG_RESULT(no: rcc not found or too old)
+  elif test x"$qmake_found" != "x1"; then
+    AC_MSG_RESULT(no: qmake not found or too old)
   else
     ok=1
   fi
@@ -132,7 +156,7 @@ if test x"$enable_qt" = "xyes" -a \
       with_qt_pkg_config_modules="$with_qt_pkg_config_modules,"
     fi
 
-    with_qt_pkg_config_modules="$with_qt_pkg_config_modules,Qt5Core,Qt5Gui,Qt5Widgets,Qt5Network"
+    with_qt_pkg_config_modules="$with_qt_pkg_config_modules,Qt5Core,Qt5Gui,Qt5Widgets,Qt5Multimedia,Qt5Network,Qt5Concurrent"
 
     if test x"$MINGW" = x1; then
       with_qt_pkg_config_modules="$with_qt_pkg_config_modules,Qt5WinExtras"
@@ -197,52 +221,70 @@ return 0;
       ])
     AC_LANG_POP()
 
-    if test x"$QT_PKG_CONFIG_STATIC" != x; then
-      platform_support_lib=Qt5PlatformSupport
-
-      case "$host" in
-        *mingw*)  wanted_plugin=windows ;;
-        *apple*)  wanted_plugin=cocoa   ;;
-        *darwin*) wanted_plugin=cocoa   ;;
-        *)        wanted_plugin=        ;;
-      esac
-
-      if test x"$wanted_plugin" != x; then
-        plugins_dir=
-        for dir in `echo " $QT_LIBS " | sed -e 's/ -l[^ ]*//g' -e 's/-L//g'` ; do
-          if test -f "$dir/../plugins/platforms/libq${wanted_plugin}.a"; then
-            plugins_dir="$dir/../plugins"
-            break
-          fi
-        done
-
-        if test x"$plugins_dir" = x; then
-          AC_MSG_RESULT(no: the platform plugins directory could not be found)
-          have_qt=no
-        else
-          QT_LIBS="-L$plugins_dir/platforms -lq$wanted_plugin $QT_LIBS"
-        fi
-      fi
-
-      if test x"$platform_support_lib" != x; then
-        for dir in `echo " $QT_LIBS " | sed -e 's/ -l[^ ]*//g' -e 's/-L//g'` ; do
-          if test -f "$dir/lib${platform_support_lib}.a"; then
-            QT_LIBS="$QT_LIBS -l${platform_support_lib}"
-            break
-          fi
-        done
-      fi
+    problem=""
+    if ! test x"$am_cv_qt_compilation" = x1; then
+      problem="test program could not be compiled"
     fi
 
-    if test x"$am_cv_qt_compilation" = x1; then
+    rm -f src/info/static_plugins.cpp src/mkvtoolnix-gui/static_plugins.cpp
+
+    if test x"$problem" = x && test x"$QT_PKG_CONFIG_STATIC" != x; then
+      qmake_dir="`mktemp -d`"
+
+      touch "$qmake_dir/empty.cpp"
+      cat > "$qmake_dir/dummy.pro" <<EOF
+QT += core multimedia
+CONFIG += release static
+TARGET = console
+TEMPLATE = app
+SOURCES += empty.cpp
+EOF
+
+      old_wd="$PWD"
+      cd "$qmake_dir"
+
+      "$QMAKE" -makefile -nocache dummy.pro > /dev/null
+
+      cd "$old_wd"
+
+      makefile=""
+      if ! test -f "$qmake_dir/console_plugin_import.cpp"; then
+        problem="static plugin list could not be generated via $QMAKE"
+
+      elif test -f "$qmake_dir/Makefile.Release"; then
+        makefile="$qmake_dir/Makefile.Release"
+
+      elif test -f "$qmake_dir/Makefile"; then
+        makefile="$qmake_dir/Makefile"
+
+      else
+        problem="the Makefile created by $QMAKE could not be found"
+      fi
+
+      if test x"$problem" = x; then
+        qmake_libs="`grep '^LIBS' "$makefile" | sed -Ee 's/^LIBS[[ \t]]*=[[ \t]]*//'`"
+        QT_LIBS="$qmake_libs $QT_LIBS"
+
+        cp "$qmake_dir/console_plugin_import.cpp" src/info/static_plugins.cpp
+        cp "$qmake_dir/console_plugin_import.cpp" src/mkvtoolnix-gui/static_plugins.cpp
+      fi
+
+      rm -rf "$qmake_dir"
+
+      unset makefile qmake_libs qmake_dir
+    fi
+
+    if test x"$problem" = x; then
      AC_DEFINE(HAVE_QT, 1, [Define if Qt is present])
      have_qt=yes
      USE_QT=yes
      opt_features_yes="$opt_features_yes\n   * GUIs"
      AC_MSG_RESULT(yes)
     else
-      AC_MSG_RESULT(no: test program could not be compiled)
+      AC_MSG_RESULT(no: $problem)
     fi
+
+    unset problem
   fi
 
   AC_PATH_PROG(LCONVERT, lconvert)

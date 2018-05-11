@@ -11,8 +11,7 @@
    Written by Moritz Bunkus <moritz@bunkus.org>.
 */
 
-#ifndef MTX_P_OPUS_H
-#define MTX_P_OPUS_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -24,7 +23,7 @@ private:
   static bool ms_experimental_warning_shown;
 
   debugging_option_c m_debug;
-  timestamp_c m_next_calculated_timecode, m_previous_provided_timecode;
+  timestamp_c m_next_calculated_timestamp, m_previous_provided_timestamp;
   mtx::opus::id_header_t m_id_header;
 
 public:
@@ -41,5 +40,3 @@ public:
 
   virtual bool is_compatible_with(output_compatibility_e compatibility);
 };
-
-#endif  // MTX_P_OPUS_H

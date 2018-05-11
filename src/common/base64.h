@@ -10,30 +10,26 @@
    Written by Moritz Bunkus <moritz@bunkus.org>.
 */
 
-#ifndef MTX_COMMON_BASE64_H
-#define MTX_COMMON_BASE64_H
+#pragma once
 
 #include "common/common_pch.h"
 
-namespace mtx {
-  namespace base64 {
-    class exception: public mtx::exception {
-    public:
-      virtual const char *what() const throw() {
-        return "unspecified Base64 encoder/decoder error";
-      }
-    };
-
-    class invalid_data_x: public exception {
-    public:
-      virtual const char *what() const throw() {
-        return Y("Invalid Base64 character encountered");
-      }
-    };
+namespace mtx { namespace base64 {
+class exception: public mtx::exception {
+public:
+  virtual const char *what() const throw() {
+    return "unspecified Base64 encoder/decoder error";
   }
-}
+};
 
-std::string base64_encode(const unsigned char *src, int src_len, bool line_breaks = false, int max_line_len = 72);
-std::string base64_decode(std::string const &src);
+class invalid_data_x: public exception {
+public:
+  virtual const char *what() const throw() {
+    return Y("Invalid Base64 character encountered");
+  }
+};
 
-#endif // MTX_COMMON_BASE64_H
+std::string encode(const unsigned char *src, int src_len, bool line_breaks = false, int max_line_len = 72);
+std::string decode(std::string const &src);
+
+}}

@@ -6,13 +6,12 @@
    see the file COPYING for details
    or visit http://www.gnu.org/copyleft/gpl.html
 
-   class definition for the timecode calculator
+   class definition for the timestamp calculator
 
    Written by Moritz Bunkus <moritz@bunkus.org>.
 */
 
-#ifndef MTX_MERGE_TIMESTAMP_CALCULATOR_H
-#define MTX_MERGE_TIMESTAMP_CALCULATOR_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -25,23 +24,29 @@ using packet_cptr = std::shared_ptr<packet_t>;
 
 class timestamp_calculator_c {
 private:
-  std::deque<timestamp_c> m_available_timecodes;
-  timestamp_c m_reference_timecode, m_last_timecode_returned;
-  int64_t m_samples_per_second, m_samples_since_reference_timecode;
+  std::deque<std::pair<timestamp_c, boost::optional<uint64_t>>> m_available_timestamps;
+  timestamp_c m_reference_timestamp, m_last_timestamp_returned;
+  int64_t m_samples_per_second, m_samples_since_reference_timestamp;
   samples_to_timestamp_converter_c m_samples_to_timestamp;
+  bool m_allow_smaller_timestamps;
   debugging_option_c m_debug;
 
 public:
   timestamp_calculator_c(int64_t samples_per_second);
 
-  void add_timecode(timestamp_c const &timecode);
-  void add_timecode(int64_t timecode);
-  void add_timecode(packet_cptr const &packet);
+  void add_timestamp(timestamp_c const &timestamp, boost::optional<uint64_t> stream_position = boost::none);
+  void add_timestamp(int64_t timestamp, boost::optional<uint64_t> stream_position = boost::none);
+  void add_timestamp(packet_cptr const &packet, boost::optional<uint64_t> stream_position = boost::none);
 
-  timestamp_c get_next_timecode(int64_t samples_in_frame);
+  void drop_timestamps_before_position(uint64_t stream_position);
+
+  timestamp_c get_next_timestamp(int64_t samples_in_frame, boost::optional<uint64_t> stream_position = boost::none);
   timestamp_c get_duration(int64_t samples);
 
   void set_samples_per_second(int64_t samples_per_second);
-};
+  void set_allow_smaller_timestamps(bool allow);
 
-#endif  // MTX_MERGE_TIMESTAMP_CALCULATOR_H
+protected:
+  timestamp_c fetch_next_available_timestamp(int64_t samples_in_frame);
+  timestamp_c calculate_next_timestamp(int64_t samples_in_frame);
+};

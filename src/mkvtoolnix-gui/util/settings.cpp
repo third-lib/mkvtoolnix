@@ -1,6 +1,7 @@
 #include "common/common_pch.h"
 
 #include <QDebug>
+#include <QRegularExpression>
 #include <QScreen>
 #include <QSettings>
 #include <QSplitter>
@@ -11,35 +12,64 @@
 #include "common/qt.h"
 #include "common/version.h"
 #include "mkvtoolnix-gui/app.h"
+#include "mkvtoolnix-gui/jobs/program_runner.h"
 #include "mkvtoolnix-gui/util/file_dialog.h"
 #include "mkvtoolnix-gui/util/settings.h"
 #include "mkvtoolnix-gui/util/string.h"
+#include "mkvtoolnix-gui/util/widget.h"
 
 namespace mtx { namespace gui { namespace Util {
 
-namespace {
-
-QFont
-defaultUiFont() {
-  auto font         = App::font();
-  // auto logicalDPI   = App::primaryScreen()->logicalDotsPerInch();
-  // auto minPointSize = static_cast<int>(9 + (std::max(logicalDPI, 95.) - 95 + 5) * 3 / 25);
-
-  // font.setPointSize(std::max(font.pointSize(), minPointSize));
-
-#if defined(SYS_WINDOWS)
-  font.setFamily(Q("Segoe UI"));
-#endif
-
-  return font;
-}
-
+QString
+Settings::RunProgramConfig::validate()
+  const {
+  return (m_type == RunProgramType::ExecuteProgram) && (m_commandLine.isEmpty() || m_commandLine.value(0).isEmpty()) ? QY("The program to execute hasn't been set yet.")
+       : (m_type == RunProgramType::PlayAudioFile)  && m_audioFile.isEmpty()                                         ? QY("The audio file to play hasn't been set yet.")
+       :                                                                                                               QString{};
 }
 
 bool
 Settings::RunProgramConfig::isValid()
   const {
-  return !m_commandLine.value(0).isEmpty();
+  return validate().isEmpty();
+}
+
+QString
+Settings::RunProgramConfig::name()
+  const {
+  if (!m_name.isEmpty())
+    return m_name;
+
+  return m_type == RunProgramType::ExecuteProgram    ? nameForExternalProgram()
+       : m_type == RunProgramType::PlayAudioFile     ? nameForPlayAudioFile()
+       : m_type == RunProgramType::ShutDownComputer  ? QY("Shut down the computer")
+       : m_type == RunProgramType::HibernateComputer ? QY("Hibernate the computer")
+       : m_type == RunProgramType::SleepComputer     ? QY("Sleep the computer")
+       :                                               Q("unknown");
+}
+
+QString
+Settings::RunProgramConfig::nameForExternalProgram()
+  const {
+  if (m_commandLine.isEmpty())
+    return QY("Execute a program");
+
+  auto program = m_commandLine.value(0);
+  program.replace(QRegularExpression{Q(".*[/\\\\]")}, Q(""));
+
+  return QY("Execute program '%1'").arg(program);
+}
+
+QString
+Settings::RunProgramConfig::nameForPlayAudioFile()
+  const {
+  if (m_audioFile.isEmpty())
+    return QY("Play an audio file");
+
+  auto audioFile = m_audioFile;
+  audioFile.replace(QRegularExpression{Q(".*[/\\\\]")}, Q(""));
+
+  return QY("Play audio file '%1'").arg(audioFile);
 }
 
 Settings Settings::s_settings;
@@ -68,6 +98,32 @@ Settings::iniFileLocation() {
 #else
   return Q("%1/%2/%3").arg(QStandardPaths::writableLocation(QStandardPaths::ConfigLocation)).arg(App::organizationName()).arg(App::applicationName());
 #endif
+}
+
+QString
+Settings::cacheDirLocation(QString const &subDir) {
+  QString dir;
+
+#if defined(SYS_WINDOWS)
+  if (!App::isInstalled())
+    dir = Q("%1/cache").arg(App::applicationDirPath());
+#endif
+
+  if (dir.isEmpty())
+    dir = QStandardPaths::writableLocation(QStandardPaths::CacheLocation);
+
+  if (!subDir.isEmpty())
+    dir = Q("%1/%2").arg(dir).arg(subDir);
+
+  return QDir::toNativeSeparators(dir);
+}
+
+QString
+Settings::prepareCacheDir(QString const &subDir) {
+  auto dirName = cacheDirLocation(subDir);
+  QDir{dirName}.mkpath(dirName);
+
+  return QDir::toNativeSeparators(dirName);
 }
 
 QString
@@ -194,9 +250,11 @@ Settings::load() {
   m_mergeAlwaysShowOutputFileControls  = reg.value("mergeAlwaysShowOutputFileControls",  true).toBool();
   m_mergeTrackPropertiesLayout         = static_cast<TrackPropertiesLayout>(reg.value("mergeTrackPropertiesLayout", static_cast<int>(TrackPropertiesLayout::HorizontalScrollArea)).toInt());
   m_mergeAddingAppendingFilesPolicy    = static_cast<MergeAddingAppendingFilesPolicy>(reg.value("mergeAddingAppendingFilesPolicy", static_cast<int>(MergeAddingAppendingFilesPolicy::Ask)).toInt());
+  m_mergeLastAddingAppendingDecision   = static_cast<MergeAddingAppendingFilesPolicy>(reg.value("mergeLastAddingAppendingDecision", static_cast<int>(MergeAddingAppendingFilesPolicy::Add)).toInt());
   m_headerEditorDroppedFilesPolicy     = static_cast<HeaderEditorDroppedFilesPolicy>(reg.value("headerEditorDroppedFilesPolicy", static_cast<int>(HeaderEditorDroppedFilesPolicy::Ask)).toInt());
 
   m_outputFileNamePolicy               = static_cast<OutputFileNamePolicy>(reg.value("outputFileNamePolicy", static_cast<int>(ToSameAsFirstInputFile)).toInt());
+  m_autoDestinationOnlyForVideoFiles   = reg.value("autoDestinationOnlyForVideoFiles", false).toBool();
   m_relativeOutputDir                  = QDir{reg.value("relativeOutputDir").toString()};
   m_fixedOutputDir                     = QDir{reg.value("fixedOutputDir").toString()};
   m_uniqueOutputFileNames              = reg.value("uniqueOutputFileNames",   true).toBool();
@@ -225,6 +283,7 @@ Settings::load() {
 
   m_chapterNameTemplate                = reg.value("chapterNameTemplate", QY("Chapter <NUM:2>")).toString();
   m_dropLastChapterFromBlurayPlaylist  = reg.value("dropLastChapterFromBlurayPlaylist", true).toBool();
+  m_ceTextFileCharacterSet             = reg.value("ceTextFileCharacterSet").toString();
 
   m_mediaInfoExe                       = reg.value("mediaInfoExe", Q("mediainfo-gui")).toString();
 
@@ -243,6 +302,7 @@ Settings::load() {
   loadDefaults(reg, guiVersion);
   loadSplitterSizes(reg);
   loadRunProgramConfigurations(reg);
+  addDefaultRunProgramConfigurations(reg);
 }
 
 void
@@ -306,15 +366,89 @@ Settings::loadRunProgramConfigurations(QSettings &reg) {
 
     reg.beginGroup(group);
     cfg->m_active      = reg.value("active", true).toBool();
+    cfg->m_name        = reg.value("name").toString();
+    auto type          = reg.value("type", static_cast<int>(RunProgramType::ExecuteProgram)).toInt();
+    cfg->m_type        = (type > static_cast<int>(RunProgramType::Min)) && (type < static_cast<int>(RunProgramType::Max)) ? static_cast<RunProgramType>(type) : RunProgramType::Default;
+    cfg->m_forEvents   = static_cast<RunProgramForEvents>(reg.value("forEvents").toInt());
     cfg->m_commandLine = reg.value("commandLine").toStringList();
-    cfg->m_forEvents   = static_cast<RunProgramForEvents>(reg.value("forEvents").value<int>());
+    cfg->m_audioFile   = reg.value("audioFile").toString();
+    cfg->m_volume      = std::min(reg.value("volume", 50).toUInt(), 100u);
     reg.endGroup();
 
-    if (cfg->isValid())
+    if (!cfg->m_active || cfg->isValid())
       m_runProgramConfigurations << cfg;
   }
 
   reg.endGroup();               // runProgramConfigurations
+}
+
+void
+Settings::addDefaultRunProgramConfigurationForType(QSettings &reg,
+                                                   RunProgramType type,
+                                                   std::function<void(RunProgramConfig &)> const &modifier) {
+  auto guard = Q("addedDefaultConfigurationType%1").arg(static_cast<int>(type));
+
+  if (reg.value(guard).toBool() || !App::programRunner().isRunProgramTypeSupported(type))
+    return;
+
+  auto cfg      = std::make_shared<RunProgramConfig>();
+
+  cfg->m_active = true;
+  cfg->m_type   = type;
+
+  if (modifier)
+    modifier(*cfg);
+
+  if (cfg->isValid()) {
+    m_runProgramConfigurations << cfg;
+    reg.setValue(guard, true);
+  }
+}
+
+void
+Settings::addDefaultRunProgramConfigurations(QSettings &reg) {
+  reg.beginGroup("runProgramConfigurations");
+
+  auto numConfigurationsBefore = m_runProgramConfigurations.count();
+
+  addDefaultRunProgramConfigurationForType(reg, RunProgramType::PlayAudioFile, [](RunProgramConfig &cfg) { cfg.m_audioFile = App::programRunner().defaultAudioFileName(); });
+  addDefaultRunProgramConfigurationForType(reg, RunProgramType::SleepComputer);
+  addDefaultRunProgramConfigurationForType(reg, RunProgramType::HibernateComputer);
+  addDefaultRunProgramConfigurationForType(reg, RunProgramType::ShutDownComputer);
+
+  auto changed = fixDefaultAudioFileNameBug();
+
+  if ((numConfigurationsBefore != m_runProgramConfigurations.count()) || changed)
+    saveRunProgramConfigurations(reg);
+
+  reg.endGroup();               // runProgramConfigurations
+}
+
+bool
+Settings::fixDefaultAudioFileNameBug() {
+#if defined(SYS_WINDOWS)
+  // In version v11.0.0 the default audio file name is wrong:
+  // <MTX_INSTALLATION_DIRECTORY>\sounds\… instead of
+  // <MTX_INSTALLATION_DIRECTORY>\data\sounds\… where the default
+  // sound files are actually installed. As each configuration is only
+  // added once, update an existing configuration to the actual path.
+  QRegularExpression wrongFileNameRE{"<MTX_INSTALLATION_DIRECTORY>[/\\\\]sounds[/\\\\]finished-1\\.ogg"};
+  auto changed = false;
+
+  for (auto const &config : m_runProgramConfigurations) {
+    if (   (config->m_type != RunProgramType::PlayAudioFile)
+        || !config->m_audioFile.contains(wrongFileNameRE))
+      continue;
+
+    config->m_audioFile = App::programRunner().defaultAudioFileName();
+    changed             = true;
+  }
+
+  return changed;
+
+#else
+  return false;
+#endif
 }
 
 QString
@@ -361,9 +495,11 @@ Settings::save()
   reg.setValue("mergeAlwaysShowOutputFileControls",  m_mergeAlwaysShowOutputFileControls);
   reg.setValue("mergeTrackPropertiesLayout",         static_cast<int>(m_mergeTrackPropertiesLayout));
   reg.setValue("mergeAddingAppendingFilesPolicy",    static_cast<int>(m_mergeAddingAppendingFilesPolicy));
+  reg.setValue("mergeLastAddingAppendingDecision",   static_cast<int>(m_mergeLastAddingAppendingDecision));
   reg.setValue("headerEditorDroppedFilesPolicy",     static_cast<int>(m_headerEditorDroppedFilesPolicy));
 
   reg.setValue("outputFileNamePolicy",               static_cast<int>(m_outputFileNamePolicy));
+  reg.setValue("autoDestinationOnlyForVideoFiles",   m_autoDestinationOnlyForVideoFiles);
   reg.setValue("relativeOutputDir",                  m_relativeOutputDir.path());
   reg.setValue("fixedOutputDir",                     m_fixedOutputDir.path());
   reg.setValue("uniqueOutputFileNames",              m_uniqueOutputFileNames);
@@ -392,6 +528,7 @@ Settings::save()
 
   reg.setValue("chapterNameTemplate",                m_chapterNameTemplate);
   reg.setValue("dropLastChapterFromBlurayPlaylist",  m_dropLastChapterFromBlurayPlaylist);
+  reg.setValue("ceTextFileCharacterSet",             m_ceTextFileCharacterSet);
 
   reg.setValue("uiLocale",                           m_uiLocale);
   reg.setValue("uiFontFamily",                       m_uiFontFamily);
@@ -443,14 +580,24 @@ Settings::saveSplitterSizes(QSettings &reg)
 void
 Settings::saveRunProgramConfigurations(QSettings &reg)
   const {
-  reg.remove("runProgramConfigurations");
   reg.beginGroup("runProgramConfigurations");
+
+  auto groups = reg.childGroups();
+  groups.sort();
+
+  for (auto const &group : groups)
+    reg.remove(group);
+
   auto idx = 0;
   for (auto const &cfg : m_runProgramConfigurations) {
     reg.beginGroup(Q("%1").arg(++idx, 4, 10, Q('0')));
     reg.setValue("active",      cfg->m_active);
-    reg.setValue("commandLine", cfg->m_commandLine);
+    reg.setValue("name",        cfg->m_name);
+    reg.setValue("type",        static_cast<int>(cfg->m_type));
     reg.setValue("forEvents",   static_cast<int>(cfg->m_forEvents));
+    reg.setValue("commandLine", cfg->m_commandLine);
+    reg.setValue("audioFile",   cfg->m_audioFile);
+    reg.setValue("volume",      cfg->m_volume);
     reg.endGroup();
   }
 
@@ -591,6 +738,25 @@ QString
 Settings::lastOpenDirPath()
   const {
   return Util::dirPath(m_lastOpenDir);
+}
+
+void
+Settings::runOncePerVersion(QString const &topic,
+                            std::function<void()> worker) {
+  auto reg = registry();
+  auto key = Q("runOncePerVersion/%1").arg(topic);
+
+  auto lastRunInVersion       = reg->value(key).toString();
+  auto lastRunInVersionNumber = version_number_t{to_utf8(lastRunInVersion)};
+  auto currentVersionNumber   = get_current_version();
+
+  if (   lastRunInVersionNumber.valid
+      && !(lastRunInVersionNumber < currentVersionNumber))
+    return;
+
+  reg->setValue(key, Q(currentVersionNumber.to_string()));
+
+  worker();
 }
 
 }}}

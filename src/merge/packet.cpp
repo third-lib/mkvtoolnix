@@ -20,18 +20,18 @@
 #include "merge/packet.h"
 
 void
-packet_t::normalize_timecodes() {
-  // Normalize the timecodes according to the timecode scale.
-  unmodified_assigned_timecode = assigned_timecode;
-  unmodified_duration          = duration;
-  timecode                     = RND_TIMECODE_SCALE(timecode);
-  assigned_timecode            = RND_TIMECODE_SCALE(assigned_timecode);
+packet_t::normalize_timestamps() {
+  // Normalize the timestamps according to the timestamp scale.
+  unmodified_assigned_timestamp = assigned_timestamp;
+  unmodified_duration           = duration;
+  timestamp                     = ROUND_TIMESTAMP_SCALE(timestamp);
+  assigned_timestamp            = ROUND_TIMESTAMP_SCALE(assigned_timestamp);
   if (has_duration())
-    duration                   = RND_TIMECODE_SCALE(duration);
+    duration                    = ROUND_TIMESTAMP_SCALE(duration);
   if (has_bref())
-    bref                       = RND_TIMECODE_SCALE(bref);
+    bref                        = ROUND_TIMESTAMP_SCALE(bref);
   if (has_fref())
-    fref                       = RND_TIMECODE_SCALE(fref);
+    fref                        = ROUND_TIMESTAMP_SCALE(fref);
 }
 
 void
@@ -40,7 +40,16 @@ packet_t::add_extensions(std::vector<packet_extension_cptr> const &new_extension
 }
 
 void
-packet_t::account(track_statistics_c &statistics)
-  const {
-  statistics.account(assigned_timecode, get_duration(), data->get_size());
+packet_t::account(track_statistics_c &statistics,
+                  int64_t timestamp_offset) {
+  statistics.account(assigned_timestamp - timestamp_offset, get_duration(), calculate_uncompressed_size());
+}
+
+uint64_t
+packet_t::calculate_uncompressed_size() {
+  if (!uncompressed_size) {
+    uncompressed_size = data->get_size() + boost::accumulate(data_adds, 0ull, [](auto const &sum, auto const &data_add) { return sum + data_add->get_size(); });
+  }
+
+  return *uncompressed_size;
 }

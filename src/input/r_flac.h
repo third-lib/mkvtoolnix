@@ -11,11 +11,11 @@
    Written by Moritz Bunkus <moritz@bunkus.org>.
 */
 
-#ifndef MTX_R_FLAC_H
-#define MTX_R_FLAC_H
+#pragma once
 
 #include "common/common_pch.h"
 
+#include "common/debugging.h"
 #include "common/mm_io.h"
 #include "merge/generic_reader.h"
 
@@ -44,20 +44,22 @@ private:
   std::vector<flac_block_t> blocks;
   std::vector<flac_block_t>::iterator current_block;
   FLAC__StreamMetadata_StreamInfo stream_info;
+  unsigned int m_attachment_id{};
+  debugging_option_c m_debug{"flac_reader|flac"};
 
 public:
   flac_reader_c(const track_info_c &ti, const mm_io_cptr &in);
   virtual ~flac_reader_c();
 
-  virtual file_type_e get_format_type() const {
-    return FILE_TYPE_FLAC;
+  virtual mtx::file_type_e get_format_type() const {
+    return mtx::file_type_e::flac;
   }
 
   virtual void read_headers();
   virtual file_status_e read(generic_packetizer_c *ptzr, bool force = false);
   virtual void identify();
   virtual void create_packetizer(int64_t id);
-  virtual bool is_providing_timecodes() const {
+  virtual bool is_providing_timestamps() const {
     return false;
   }
 
@@ -73,6 +75,9 @@ public:
 
 protected:
   virtual bool parse_file(bool for_identification_only);
+  virtual void handle_picture_metadata(FLAC__StreamMetadata const *metadata);
+  virtual void handle_stream_info_metadata(FLAC__StreamMetadata const *metadata);
+  virtual std::string attachment_name_from_metadata(FLAC__StreamMetadata_Picture const &picture) const;
 };
 
 #else  // HAVE_FLAC_FORMAT_H
@@ -83,5 +88,3 @@ public:
 };
 
 #endif // HAVE_FLAC_FORMAT_H
-
-#endif  // MTX_R_FLAC_H

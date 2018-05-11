@@ -28,11 +28,11 @@
 using namespace libmatroska;
 
 struct cue_point_t {
-  uint64_t timecode;
+  uint64_t timestamp;
   boost::optional<uint64_t> cluster_position, relative_position, duration;
 
-  cue_point_t(uint64_t p_timecode)
-    : timecode{p_timecode}
+  cue_point_t(uint64_t p_timestamp)
+    : timestamp{p_timestamp}
   {
   }
 };
@@ -42,7 +42,7 @@ write_cues(std::vector<track_spec_t> const &tracks,
            std::map<int64_t, int64_t> const &track_number_map,
            std::unordered_map<int64_t, std::vector<cue_point_t> > const &cue_points,
            uint64_t segment_data_start_pos,
-           uint64_t timecode_scale) {
+           uint64_t timestamp_scale) {
   for (auto const &track : tracks) {
     auto track_number_itr = track_number_map.find(track.tid);
     if (track_number_itr == track_number_map.end())
@@ -60,9 +60,9 @@ write_cues(std::vector<track_spec_t> const &tracks,
       auto out = mm_file_io_c{track.out_name, MODE_CREATE};
 
       for (auto const &p : track_cue_points) {
-        auto line = (boost::format("timecode=%1% duration=%2% cluster_position=%3% relative_position=%4%\n")
-                     % format_timestamp(p.timecode * timecode_scale, 9)
-                     % (p.duration          ? format_timestamp(p.duration.get() * timecode_scale, 9)        : "-")
+        auto line = (boost::format("timestamp=%1% duration=%2% cluster_position=%3% relative_position=%4%\n")
+                     % format_timestamp(p.timestamp * timestamp_scale, 9)
+                     % (p.duration          ? format_timestamp(p.duration.get() * timestamp_scale, 9)      : "-")
                      % (p.cluster_position  ? to_string(p.cluster_position.get() + segment_data_start_pos) : "-")
                      % (p.relative_position ? to_string(p.relative_position.get())                         : "-")
                      ).str();
@@ -100,7 +100,7 @@ generate_track_number_map(kax_analyzer_c &analyzer) {
 }
 
 static uint64_t
-find_timecode_scale(kax_analyzer_c &analyzer) {
+find_timestamp_scale(kax_analyzer_c &analyzer) {
   auto info_m = analyzer.read_all(EBML_INFO(KaxInfo));
   auto info   = dynamic_cast<KaxInfo *>(info_m.get());
 
@@ -175,20 +175,19 @@ determine_cluster_data_start_positions(mm_io_c &file,
   }
 }
 
-void
-extract_cues(std::string const &file_name,
-             std::vector<track_spec_t> const &tracks,
-             kax_analyzer_c::parse_mode_e parse_mode) {
-  if (tracks.empty())
-    mxerror(Y("Nothing to do.\n"));
+bool
+extract_cues(kax_analyzer_c &analyzer,
+             options_c::mode_options_c &options) {
+  if (options.m_tracks.empty())
+    return false;
 
-  auto analyzer               = open_and_analyze(file_name, parse_mode);
+  auto cue_points             = parse_cue_points(analyzer);
+  auto timestamp_scale        = find_timestamp_scale(analyzer);
+  auto track_number_map       = generate_track_number_map(analyzer);
+  auto segment_data_start_pos = analyzer.get_segment_data_start_pos();
 
-  auto cue_points             = parse_cue_points(*analyzer);
-  auto timecode_scale         = find_timecode_scale(*analyzer);
-  auto track_number_map       = generate_track_number_map(*analyzer);
-  auto segment_data_start_pos = analyzer->get_segment_data_start_pos();
+  determine_cluster_data_start_positions(analyzer.get_file(), segment_data_start_pos, cue_points);
+  write_cues(options.m_tracks, track_number_map, cue_points, segment_data_start_pos, timestamp_scale);
 
-  determine_cluster_data_start_positions(analyzer->get_file(), segment_data_start_pos, cue_points);
-  write_cues(tracks, track_number_map, cue_points, segment_data_start_pos, timecode_scale);
+  return true;
 }

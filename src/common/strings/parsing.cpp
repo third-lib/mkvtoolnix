@@ -13,21 +13,22 @@
 
 #include "common/common_pch.h"
 
+#include "common/list_utils.h"
 #include "common/math.h"
 #include "common/strings/formatting.h"
 #include "common/strings/parsing.h"
 
-std::string timecode_parser_error;
+std::string timestamp_parser_error;
 
 inline bool
 set_tcp_error(const std::string &error) {
-  timecode_parser_error = error;
+  timestamp_parser_error = error;
   return false;
 }
 
 inline bool
 set_tcp_error(const boost::format &error) {
-  timecode_parser_error = error.str();
+  timestamp_parser_error = error.str();
   return false;
 }
 
@@ -65,16 +66,14 @@ parse_number_as_rational(std::string const &string,
 }
 
 bool
-parse_timecode(const std::string &src,
-               int64_t &timecode,
-               bool allow_negative) {
+parse_timestamp(const std::string &src,
+                int64_t &timestamp,
+                bool allow_negative) {
   // Recognized format:
   // 1. XXXXXXXu   with XXXXXX being a number followed
   //    by one of the units 's', 'ms', 'us' or 'ns'
   // 2. HH:MM:SS.nnnnnnnnn  with up to nine digits 'n' for ns precision;
-  // HH: is optional; HH, MM and SS can be either one or two digits.
-  // 2. HH:MM:SS:nnnnnnnnn  with up to nine digits 'n' for ns precision;
-  // HH: is optional; HH, MM and SS can be either one or two digits.
+  //    HH: is optional; HH, MM and SS can be either one or two digits.
   int h, m, s, n, values[4], num_values, num_digits, num_colons, negative = 1;
   size_t offset = 0, i;
   bool decimal_point_found;
@@ -95,28 +94,11 @@ parse_timecode(const std::string &src,
 
     std::string unit = src.substr(src.length() - 2, 2);
 
-    int64_t multiplier = 1000000000;
-    size_t unit_length = 2;
-    int64_t value      = 0;
-
-    if (unit == "ms")
-      multiplier = 1000000;
-    else if (unit == "us")
-      multiplier = 1000;
-    else if (unit == "ns")
-      multiplier = 1;
-    else if (unit.substr(1, 1) == "s")
-      unit_length = 1;
-    else
+    int64_t value = 0;
+    if (!parse_duration_number_with_unit(src.substr(offset, src.length() - offset), value))
       throw false;
 
-    if (src.length() < (unit_length + 1 + offset))
-      throw false;
-
-    if (!parse_number(src.substr(offset, src.length() - unit_length - offset), value))
-      throw false;
-
-    timecode = value * multiplier * negative;
+    timestamp = value * negative;
 
     return true;
   } catch (...) {
@@ -205,21 +187,21 @@ parse_timecode(const std::string &src,
   if (s > 59)
     return set_tcp_error(boost::format(Y("Invalid number of seconds: %1% > 59")) % s);
 
-  timecode              = (((int64_t)h * 60 * 60 + (int64_t)m * 60 + (int64_t)s) * 1000000000ll + n) * negative;
-  timecode_parser_error = Y("no error");
+  timestamp              = (((int64_t)h * 60 * 60 + (int64_t)m * 60 + (int64_t)s) * 1000000000ll + n) * negative;
+  timestamp_parser_error = Y("no error");
 
   return true;
 }
 
 bool
-parse_timecode(const std::string &src,
-               timestamp_c &timecode,
-               bool allow_negative) {
+parse_timestamp(const std::string &src,
+                timestamp_c &timestamp,
+                bool allow_negative) {
   int64_t tmp{};
-  if (!parse_timecode(src, tmp, allow_negative))
+  if (!parse_timestamp(src, tmp, allow_negative))
     return false;
 
-  timecode = timestamp_c::ns(tmp);
+  timestamp = timestamp_c::ns(tmp);
 
   return true;
 }
@@ -254,8 +236,8 @@ parse_bool(std::string value) {
 bool
 parse_duration_number_with_unit(const std::string &s,
                                 int64_t &value) {
-  boost::regex re1("(-?\\d+\\.?\\d*)(s|ms|us|ns|fps|p|i)?",  boost::regex::perl | boost::regex::icase);
-  boost::regex re2("(-?\\d+)/(-?\\d+)(s|ms|us|ns|fps|p|i)?", boost::regex::perl | boost::regex::icase);
+  boost::regex re1("(-?\\d+\\.?\\d*)(h|m|min|s|ms|msec|us|µs|ns|nsec|fps|p|i)?",  boost::regex::perl | boost::regex::icase);
+  boost::regex re2("(-?\\d+)/(-?\\d+)(h|m|min|s|ms|msec|us|µs|ns|nsec|fps|p|i)?", boost::regex::perl | boost::regex::icase);
 
   std::string unit, s_n, s_d;
   int64_rational_c r{0, 1};
@@ -301,13 +283,17 @@ parse_duration_number_with_unit(const std::string &s,
     return true;
   }
 
-  int64_t multiplier = 1000000000;
+  int64_t multiplier = 1000000000; // default: 1s
 
-  if (unit == "ms")
+  if (mtx::included_in(unit, "h"))
+    multiplier = 3600ll * 1000000000;
+  else if (mtx::included_in(unit, "m", "min"))
+    multiplier = 60ll * 1000000000;
+  else if (mtx::included_in(unit, "ms", "msec"))
     multiplier = 1000000;
-  else if (unit == "us")
+  else if (mtx::included_in(unit, "us", "µs"))
     multiplier = 1000;
-  else if (unit == "ns")
+  else if (mtx::included_in(unit, "ns", "nsec"))
     multiplier = 1;
   else if (unit != "s")
     return false;

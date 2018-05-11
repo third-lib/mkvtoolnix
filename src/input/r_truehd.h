@@ -11,8 +11,7 @@
    Written by Moritz Bunkus <moritz@bunkus.org>.
 */
 
-#ifndef MTX_R_TRUEHD_H
-#define MTX_R_TRUEHD_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -28,15 +27,15 @@ private:
   memory_cptr m_chunk;
   truehd_frame_cptr m_header;
   int m_truehd_ptzr, m_ac3_ptzr;
-  ac3::frame_c m_ac3_header;
+  mtx::ac3::frame_c m_ac3_header;
   truehd_ac3_splitting_packet_converter_c m_converter;
 
 public:
   truehd_reader_c(const track_info_c &ti, const mm_io_cptr &in);
   virtual ~truehd_reader_c();
 
-  virtual file_type_e get_format_type() const {
-    return FILE_TYPE_TRUEHD;
+  virtual mtx::file_type_e get_format_type() const {
+    return mtx::file_type_e::truehd;
   }
 
   virtual void read_headers();
@@ -45,7 +44,7 @@ public:
   virtual void create_packetizers();
   virtual void create_packetizer(int64_t tid);
   virtual void add_available_track_ids();
-  virtual bool is_providing_timecodes() const {
+  virtual bool is_providing_timestamps() const {
     return false;
   }
 
@@ -54,5 +53,3 @@ public:
 protected:
   static bool find_valid_headers(mm_io_c &in, int64_t probe_range, int num_headers);
 };
-
-#endif // MTX_R_TRUEHD_H

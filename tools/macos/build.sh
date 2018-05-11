@@ -6,6 +6,12 @@ set -x
 export SCRIPT_PATH=${0:a:h}
 source ${SCRIPT_PATH}/config.sh
 
+if type -p drake &> /dev/null; then
+  RAKE=drake
+else
+  RAKE=rake
+fi
+
 function fail {
   echo $@
   exit 1
@@ -24,11 +30,11 @@ function build_package {
   local DIR=${DIR:-$PACKAGE}
 
   case ${FILE##*.} in
-    xz)  COMPRESSION=J ;;
-    bz2) COMPRESSION=j ;;
-    gz)  COMPRESSION=z ;;
-    tar) COMPRESSION=  ;;
-    *)   echo Unknown compression for ${FILE} ; exit 1 ;;
+    xz|lzma) COMPRESSION=J ;;
+    bz2)     COMPRESSION=j ;;
+    gz)      COMPRESSION=z ;;
+    tar)     COMPRESSION=  ;;
+    *)       echo Unknown compression for ${FILE} ; exit 1 ;;
   esac
 
   cd $CMPL
@@ -71,7 +77,7 @@ function build_ogg {
 }
 
 function build_vorbis {
-  build_package libvorbis-1.3.4.tar.gz --prefix=${TARGET} \
+  build_package libvorbis-1.3.5.tar.gz --prefix=${TARGET} \
     --with-ogg-libraries=${TARGET}/lib --with-ogg-includes=${TARGET}/include/ \
     --enable-static --disable-shared
 }
@@ -88,7 +94,7 @@ function build_zlib {
 }
 
 function build_gettext {
-  NO_MAKE=1 build_package gettext-0.19.3.tar.gz --prefix=${TARGET} \
+  NO_MAKE=1 build_package gettext-0.19.8.1.tar.gz --prefix=${TARGET} \
     --without-libexpat-prefix \
     --without-libxml2-prefix \
     --without-emacs \
@@ -104,29 +110,39 @@ function build_ruby {
 }
 
 function build_boost {
-  local -a args
+  local -a args properties
 
-  args=(--reconfigure toolset=clang link=static -sICONV_PATH=/usr --prefix=${TARGET} -j$DRAKETHREADS)
-  if [[ -n $CXXFLAGS ]] args+=(cxxflags=$CXXFLAGS)
-  if [[ -n $LDFLAGS  ]] args+=(linkflags=$LDFLAGS)
+  args=(--reconfigure -sICONV_PATH=/usr -j$DRAKETHREADS --prefix=TMPDIR/${TARGET} --libdir=TMPDIR/${TARGET}/lib)
+  properties=(toolset=clang link=static variant=release)
+  if [[ -n $CXXFLAGS ]] properties+=(cxxflags="${(q)CXXFLAGS}")
+  if [[ -n $LDFLAGS  ]] properties+=(linkflags="${(q)LDFLAGS}")
 
-  NO_MAKE=1 CONFIGURE=./bootstrap.sh build_package boost_1_57_0.tar.bz2 \
-    --with-toolset=clang --prefix=${TARGET} --libdir=${TARGET}/lib
-  ./b2 ${args} install
+  NO_MAKE=1 CONFIGURE=./bootstrap.sh build_package boost_1_60_0.tar.bz2 \
+    --with-toolset=clang
+  build_tarball command "./b2 ${args} ${properties} install"
 }
 
 function build_qtbase {
   local -a args
   args=(--prefix=${TARGET} -opensource -confirm-license -release
-        -force-pkg-config -nomake examples -nomake tests
+        -c++std c++14
+        -force-pkg-config -pkg-config -nomake examples -nomake tests
         -no-glib -no-dbus  -no-sql-mysql -no-sql-sqlite -no-sql-odbc -no-sql-psql -no-sql-tds
-        -no-openssl -no-cups -no-feature-cups -no-feature-printer
+        -no-openssl -no-cups -no-feature-cups
+        # -no-feature-printer
         -no-feature-printpreviewwidget -no-feature-printdialog -no-feature-printpreviewdialog)
   args+=(-no-framework)
   if [[ -z $SHARED_QT ]] args+=(-static)
 
   local package=qtbase-opensource-src-${QTVER}
-  NO_MAKE=1 build_package ${package}.tar.xz $args
+  local saved_CXXFLAGS=$CXXFLAGS
+  export CXXFLAGS="${QT_CXXFLAGS}"
+  export QMAKE_CXXFLAGS="${CXXFLAGS}"
+
+  NO_CONFIGURE=1 build_package ${package}.tar.xz
+
+  if [[ $QTVER == 5.7.0 ]] patch -p2 < ${SCRIPT_PATH}/qt-patches/002-xcrun-xcode-8.patch
+  $DEBUG ./configure ${args}
 
   # find . -name Makefile| xargs perl -pi -e 's{-fvisibility=hidden|-fvisibility-inlines-hidden}{}g'
 
@@ -134,19 +150,25 @@ function build_qtbase {
 
   # cd ${CMPL}/${package}
   build_tarball command "make INSTALL_ROOT=TMPDIR install"
+
+  CXXFLAGS=$saved_CXXFLAGS
 }
 
 function build_qttools {
   local -a tools to_install
-  tools=(lrelease lconvert lupdate)
+  tools=(linguist/lrelease linguist/lconvert linguist/lupdate macdeployqt)
   to_install=()
 
   local package=qttools-opensource-src-${QTVER}
+  local saved_CXXFLAGS=$CXXFLAGS
+  export CXXFLAGS="${QT_CXXFLAGS}"
+  export QMAKE_CXXFLAGS="${CXXFLAGS}"
+
   CONFIGURE=qmake NO_MAKE=1 build_package ${package}.tar.xz
 
   for tool ($tools) {
-    to_install+=($PWD/bin/$tool)
-    pushd src/linguist/$tool
+    to_install+=($PWD/bin/${tool##*/})
+    pushd src/$tool
     qmake
     make
     popd
@@ -154,27 +176,77 @@ function build_qttools {
 
   # cd ${CMPL}/${package}
   build_tarball command "mkdir -p TMPDIR/${TARGET}/bin && cp -v $to_install TMPDIR/${TARGET}/bin/"
+
+  CXXFLAGS=$saved_CXXFLAGS
 }
 
 function build_qttranslations {
+  local saved_CXXFLAGS=$CXXFLAGS
+  export CXXFLAGS="${QT_CXXFLAGS}"
+  export QMAKE_CXXFLAGS="${CXXFLAGS}"
+
   CONFIGURE=qmake NO_MAKE=1 build_package qttranslations-opensource-src-${QTVER}.tar.xz
   $DEBUG make
   build_tarball command "make INSTALL_ROOT=TMPDIR install"
+
+  CXXFLAGS=$saved_CXXFLAGS
 }
 
 function build_qtmacextras {
+  local saved_CXXFLAGS=$CXXFLAGS
+  export CXXFLAGS="${QT_CXXFLAGS}"
+  export QMAKE_CXXFLAGS="${CXXFLAGS}"
+
   CONFIGURE=qmake NO_MAKE=1 build_package qtmacextras-opensource-src-${QTVER}.tar.xz
   $DEBUG make
   build_tarball command "make INSTALL_ROOT=TMPDIR install"
+
+  CXXFLAGS=$saved_CXXFLAGS
 }
 
-function build_curl {
-  build_package curl-7.40.0.tar.xz --prefix=${TARGET} \
-    --disable-shared --enable-static \
-    --disable-ldap --disable-ldaps --disable-rtsp \
-    --disable-dict --disable-telnet --disable-gopher \
-    --disable-imap --disable-imaps --disable-pop3 --disable-pop3s \
-    --disable-smb --disable-smbs --disable-smtp --disable-smtps --disable-tftp
+function build_qtmultimedia {
+  local saved_CXXFLAGS=$CXXFLAGS
+  export CXXFLAGS="${QT_CXXFLAGS}"
+  export QMAKE_CXXFLAGS="${CXXFLAGS}"
+
+  CONFIGURE=qmake NO_MAKE=1 build_package qtmultimedia-opensource-src-${QTVER}.tar.xz
+  $DEBUG make
+  build_tarball command "make INSTALL_ROOT=TMPDIR install"
+
+  CXXFLAGS=$saved_CXXFLAGS
+}
+
+function build_qtsvg {
+  local saved_CXXFLAGS=$CXXFLAGS
+  export CXXFLAGS="${QT_CXXFLAGS}"
+  export QMAKE_CXXFLAGS="${CXXFLAGS}"
+
+  CONFIGURE=qmake NO_MAKE=1 build_package qtsvg-opensource-src-${QTVER}.tar.xz
+  $DEBUG make
+  build_tarball command "make INSTALL_ROOT=TMPDIR install"
+
+  CXXFLAGS=$saved_CXXFLAGS
+}
+
+function build_qtimageformats {
+  local saved_CXXFLAGS=$CXXFLAGS
+  export CXXFLAGS="${QT_CXXFLAGS}"
+  export QMAKE_CXXFLAGS="${CXXFLAGS}"
+
+  CONFIGURE=qmake NO_MAKE=1 build_package qtimageformats-opensource-src-${QTVER}.tar.xz
+  $DEBUG make
+  build_tarball command "make INSTALL_ROOT=TMPDIR install"
+
+  CXXFLAGS=$saved_CXXFLAGS
+}
+
+function build_qt {
+  build_qtbase
+  build_qtmultimedia
+  build_qtsvg
+  build_qtimageformats
+  build_qttools
+  build_qttranslations
 }
 
 function build_configured_mkvtoolnix {
@@ -186,9 +258,10 @@ function build_configured_mkvtoolnix {
 
   local -a args
   args=(
-    --prefix=$dmgmac --bindir=$dmgmac --datarootdir=$dmgmac \
-    --with-extra-libs=${TARGET}/lib --with-extra-includes=${TARGET}/include \
-    --with-boost-libdir=${TARGET}/lib \
+    --prefix=$dmgmac --bindir=$dmgmac --datarootdir=$dmgmac
+    --with-extra-libs=${TARGET}/lib --with-extra-includes=${TARGET}/include
+    --with-boost-libdir=${TARGET}/lib
+    --with-docbook-xsl-root=${DOCBOOK_XSL_ROOT_DIR}
     --disable-debug
   )
 
@@ -200,8 +273,6 @@ function build_configured_mkvtoolnix {
     ${args}
 
   grep -q 'USE_QT.*yes' build-config
-
-  # sed -i '' -e 's/^\(QT_LIBS.*\)$/\1 -lcups/' build-config
 }
 
 function build_mkvtoolnix {
@@ -214,15 +285,18 @@ function build_mkvtoolnix {
   NO_MAKE=1 NO_CONFIGURE=1 build_package mkvtoolnix-${MTX_VER}.tar.xz
   build_configured_mkvtoolnix
 
-  ./drake clean
-  ./drake
+  ${RAKE} clean
+  ${RAKE} -j ${DRAKETHREADS}
 }
 
 function build_dmg {
   if [[ -z ${MTX_VER} ]] fail Variable MTX_VER not set
 
+  if [[ -f tools/macos/unlock_keychain.sh ]] tools/macos/unlock_keychain.sh
+
   dmgbase=${CMPL}/dmg-${MTX_VER}
-  dmgcnt=$dmgbase/MKVToolNix-${MTX_VER}.app/Contents
+  dmgapp=$dmgbase/MKVToolNix-${MTX_VER}.app
+  dmgcnt=$dmgapp/Contents
   dmgmac=$dmgcnt/MacOS
   latest_link=${CMPL}/latest
 
@@ -231,14 +305,17 @@ function build_dmg {
   if [[ -z $DMG_NO_CD ]] cd ${CMPL}/mkvtoolnix-${MTX_VER}
 
   rm -rf $dmgbase
-  ./drake install prefix=${dmgcnt}
+  ${RAKE} install prefix=${dmgcnt}
   test -f ${dmgmac}/mkvtoolnix-gui
 
   strip ${dmgcnt}/MacOS/mkv{merge,info,info-gui,extract,propedit,toolnix-gui}
 
+  mv ${dmgmac}/mkvtoolnix/sounds ${dmgmac}/sounds
+  rmdir ${dmgmac}/mkvtoolnix
+
   cp README.md $dmgbase/README.txt
   cp COPYING $dmgbase/COPYING.txt
-  cp ChangeLog $dmgbase/ChangeLog.txt
+  cp NEWS.md $dmgbase/NEWS.txt
 
   cat > $dmgbase/README.MacOS.txt <<EOF
 MKVToolNix – Mac OS specific notes
@@ -256,7 +333,7 @@ to /usr/local/bin
 EOF
 
   mkdir -p $dmgcnt/Resources
-  cp ${SRCDIR}/mmg.icns $dmgcnt/Resources/MKVToolNix.icns
+  cp share/icons/macos/MKVToolNix.icns $dmgcnt/Resources/MKVToolNix.icns
 
   for file in ${TARGET}/translations/qtbase_*.qm; do
     lang=${${file%.qm}##*_}
@@ -292,7 +369,7 @@ EOF
     <key>CFBundleVersion</key>               <string>MKVToolNix-${MTX_VER}</string>
     <key>CFBundleShortVersionString</key>    <string>${MTX_VER}</string>
     <key>NSPrincipalClass</key>              <string>NSApplication</string>
-    <key>LSMinimumSystemVersion</key>        <string>10.8.0</string>
+    <key>LSMinimumSystemVersion</key>        <string>${MACOSX_DEPLOYMENT_TARGET}</string>
     <key>CFBundleName</key>                  <string>MKVToolNix</string>
     <key>CFBundleIconFile</key>              <string>MKVToolNix.icns</string>
     <key>CFBundleDocumentTypes</key>
@@ -313,13 +390,12 @@ EOF
 </plist>
 EOF
 
-  mkdir -p ${dmgcnt}/plugins/platforms ${dmgmac}/libs
-  cp -v -a ${TARGET}/lib/libQt5{Core*.dylib,Gui*.dylib,Network*.dylib,PrintSupport*.dylib,Widgets*.dylib} ${dmgmac}/libs/
-  cp -v -R ${TARGET}/plugins/platforms ${dmgmac}/
+  mkdir -p ${dmgmac}/libs
+  cp -v -a ${TARGET}/lib/libQt5{Concurrent*.dylib,Core*.dylib,Gui*.dylib,Multimedia*.dylib,Network*.dylib,PrintSupport*.dylib,Widgets*.dylib} ${dmgmac}/libs/
 
-  for LIB (${dmgmac}/libs/libQt*.5.dylib) echo install_name_tool -id @executable_path/libs/${LIB:t} ${LIB}
+  for plugin (audio mediaservice platforms playlistformats) cp -v -R ${TARGET}/plugins/${plugin} ${dmgmac}/
 
-  for FILE (${dmgmac}/{mkvinfo,mkvinfo-gui,mkvtoolnix-gui} ${dmgmac}/libs/libQt*.5.dylib ${dmgmac}/platforms/*.dylib) {
+  for FILE (${dmgmac}/**/*.dylib(.) ${dmgmac}/{mkvinfo,mkvinfo-gui,mkvtoolnix-gui}) {
     otool -L ${FILE} | \
       grep -v : | \
       grep -v @executable_path | \
@@ -329,6 +405,18 @@ EOF
       done
     }
   }
+
+  if [[ -n ${SIGNATURE_IDENTITY} ]]; then
+    typeset -a non_executables
+    for FILE (${dmgcnt}/**/*(.)) {
+      if [[ ${FILE} != */MacOS/mkv* ]] non_executables+=(${FILE})
+    }
+
+    codesign --force --sign ${SIGNATURE_IDENTITY} ${non_executables}
+    codesign --force --sign ${SIGNATURE_IDENTITY} ${dmgmac}/mkv*(.)
+  fi
+
+  if [[ -n $DMG_NO_DMG ]] return
 
   volumename=MKVToolNix-${MTX_VER}
   if [[ $DMG_PRE == 1 ]]; then
@@ -347,10 +435,17 @@ EOF
   hdiutil create -srcfolder ${dmgbase} -volname ${volumename} \
     -fs HFS+ -fsargs "-c c=64,a=16,e=16" -format UDZO -imagekey zlib-level=9 \
     ${CMPL}/MKVToolNix-${MTX_VER}
+
+  if [[ -n ${SIGNATURE_IDENTITY} ]] codesign --force -s ${SIGNATURE_IDENTITY} ${dmgname}
+
   if [[ ${dmgname} != ${dmgbuildname} ]] mv ${dmgname} ${dmgbuildname}
 
   ln -s ${dmgbuildname} ${latest_link}
 }
+
+if [[ -z $MTX_VER ]]; then
+  MTX_VER=$(awk -F, '/AC_INIT/ { gsub("[][]", "", $2); print $2 }' < ${SCRIPT_PATH}/../../configure.ac)
+fi
 
 if [[ -z $@ ]]; then
   build_autoconf
@@ -359,17 +454,12 @@ if [[ -z $@ ]]; then
   build_ogg
   build_vorbis
   build_flac
-  # build_zlib
+  build_zlib
   build_gettext
-  build_ruby
   build_boost
-  build_curl
-  build_qtbase
-  build_qttools
-  build_qttranslations
+  build_qt
+  build_ruby
   build_configured_mkvtoolnix
-
-  # autoconf automake pkgconfig ogg vorbis flac gettext ruby boost curl qtbase qttools qttranslations configured_mkvtoolnix1
 
 else
   while [[ -n $1 ]]; do

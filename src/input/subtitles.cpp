@@ -39,10 +39,10 @@ subtitles_c::process(generic_packetizer_c *p) {
 
 // ------------------------------------------------------------
 
-#define SRT_RE_VALUE         "\\s*(-?)\\s*(\\d+)"
-#define SRT_RE_TIMECODE      SRT_RE_VALUE ":" SRT_RE_VALUE ":" SRT_RE_VALUE "[,\\.:]" SRT_RE_VALUE
-#define SRT_RE_TIMECODE_LINE "^" SRT_RE_TIMECODE "\\s*[\\-\\s]+>\\s*" SRT_RE_TIMECODE "\\s*"
-#define SRT_RE_COORDINATES   "([XY]\\d+:\\d+\\s*){4}\\s*$"
+#define SRT_RE_VALUE          "\\s*(-?)\\s*(\\d+)"
+#define SRT_RE_TIMESTAMP      SRT_RE_VALUE ":" SRT_RE_VALUE ":" SRT_RE_VALUE "[,\\.:]" SRT_RE_VALUE
+#define SRT_RE_TIMESTAMP_LINE "^" SRT_RE_TIMESTAMP "\\s*[\\-\\s]+>\\s*" SRT_RE_TIMESTAMP "\\s*"
+#define SRT_RE_COORDINATES    "([XY]\\d+:\\d+\\s*){4}\\s*$"
 
 bool
 srt_parser_c::probe(mm_text_io_c *io) {
@@ -59,9 +59,8 @@ srt_parser_c::probe(mm_text_io_c *io) {
       return false;
 
     s = io->getline(100);
-    boost::regex timecode_re(SRT_RE_TIMECODE_LINE, boost::regex::perl);
-    boost::smatch matches;
-    if (!boost::regex_search(s, timecode_re))
+    boost::regex timestamp_re(SRT_RE_TIMESTAMP_LINE, boost::regex::perl);
+    if (!boost::regex_search(s, timestamp_re))
       return false;
 
     s = io->getline();
@@ -86,18 +85,18 @@ srt_parser_c::srt_parser_c(mm_text_io_c *io,
 
 void
 srt_parser_c::parse() {
-  boost::regex timecode_re(SRT_RE_TIMECODE_LINE, boost::regex::perl);
+  boost::regex timestamp_re(SRT_RE_TIMESTAMP_LINE, boost::regex::perl);
   boost::regex number_re("^\\d+$", boost::regex::perl);
   boost::regex coordinates_re(SRT_RE_COORDINATES, boost::regex::perl);
 
   int64_t start                 = 0;
   int64_t end                   = 0;
   int64_t previous_start        = 0;
-  bool timecode_warning_printed = false;
+  bool timestamp_warning_printed = false;
   parser_state_e state          = STATE_INITIAL;
   int line_number               = 0;
   unsigned int subtitle_number  = 0;
-  unsigned int timecode_number  = 0;
+  unsigned int timestamp_number  = 0;
   std::string subtitles;
 
   m_io->setFilePointer(0, seek_beginning);
@@ -132,12 +131,12 @@ srt_parser_c::parse() {
 
     } else if (STATE_TIME == state) {
       boost::smatch matches;
-      if (!boost::regex_search(s, matches, timecode_re)) {
-        mxwarn_tid(m_file_name, m_tid, boost::format(Y("Error in line %1%: expected a SRT timecode line but found something else. Aborting this file.\n")) % line_number);
+      if (!boost::regex_search(s, matches, timestamp_re)) {
+        mxwarn_tid(m_file_name, m_tid, boost::format(Y("Error in line %1%: expected a SRT timestamp line but found something else. Aborting this file.\n")) % line_number);
         break;
       }
 
-      int s_h = 0, s_min = 0, s_sec = 0, e_h = 0, e_min = 0, e_sec = 0;
+      int64_t s_h = 0, s_min = 0, s_sec = 0, s_ns = 0, e_h = 0, e_min = 0, e_sec = 0, e_ns = 0;
 
       //        1         2       3      4        5     6             7    8
       // "\\s*(-?)\\s*(\\d+):\\s(-?)*(\\d+):\\s*(-?)(\\d+)[,\\.]\\s*(-?)(\\d+)?"
@@ -152,9 +151,9 @@ srt_parser_c::parse() {
       std::string s_rest = matches[ 8].str();
       std::string e_rest = matches[16].str();
 
-      auto neg_calculator = [&](size_t const start_idx) -> int64_t {
+      auto neg_calculator = [&matches](auto start_idx) -> auto {
         int64_t neg = 1;
-        for (size_t idx = start_idx; idx <= (start_idx + 6); idx += 2)
+        for (auto idx = start_idx; idx <= (start_idx + 6); idx += 2)
           neg *= matches[idx].str() == "-" ? -1 : 1;
         return neg;
       };
@@ -164,7 +163,7 @@ srt_parser_c::parse() {
 
       if (boost::regex_search(s, coordinates_re) && !m_coordinates_warning_shown) {
         mxwarn_tid(m_file_name, m_tid,
-                   Y("This file contains coordinates in the timecode lines. "
+                   Y("This file contains coordinates in the timestamp lines. "
                      "Such coordinates are not supported by the Matroska SRT subtitle format. "
                      "The coordinates will be removed automatically.\n"));
         m_coordinates_warning_shown = true;
@@ -173,27 +172,25 @@ srt_parser_c::parse() {
       // The previous entry is done now. Append it to the list of subtitles.
       if (!subtitles.empty()) {
         strip_back(subtitles, true);
-        add(start, end, timecode_number, subtitles.c_str());
+        add(start, end, timestamp_number, subtitles.c_str());
       }
-
-      // Calculate the start and end time in ns precision for the following entry.
-      start  = (int64_t)s_h * 60 * 60 + s_min * 60 + s_sec;
-      end    = (int64_t)e_h * 60 * 60 + e_min * 60 + e_sec;
-
-      start *= 1000000000ll * s_neg;
-      end   *= 1000000000ll * e_neg;
 
       while (s_rest.length() < 9)
         s_rest += "0";
       if (s_rest.length() > 9)
         s_rest.erase(9);
-      start += atol(s_rest.c_str());
 
       while (e_rest.length() < 9)
         e_rest += "0";
       if (e_rest.length() > 9)
         e_rest.erase(9);
-      end += atol(e_rest.c_str());
+
+      parse_number(s_rest, s_ns);
+      parse_number(e_rest, e_ns);
+
+      // Calculate the start and end time in ns precision for the following entry.
+      start  = ((s_h * 60 * 60 + s_min * 60 + s_sec) * 1'000'000'000ll + s_ns) * s_neg;
+      end    = ((e_h * 60 * 60 + e_min * 60 + e_sec) * 1'000'000'000ll + e_ns) * e_neg;
 
       if (0 > start) {
         mxwarn_tid(m_file_name, m_tid,
@@ -204,20 +201,20 @@ srt_parser_c::parse() {
           end *= -1;
       }
 
-      // There are files for which start timecodes overlap. Matroska requires
-      // blocks to be sorted by their timecode. mkvmerge does this at the end
+      // There are files for which start timestamps overlap. Matroska requires
+      // blocks to be sorted by their timestamp. mkvmerge does this at the end
       // of this function, but warn the user that the original order is being
       // changed.
-      if (!timecode_warning_printed && (start < previous_start)) {
-        mxwarn_tid(m_file_name, m_tid, boost::format(Y("Warning in line %1%: The start timecode is smaller than that of the previous entry. "
+      if (!timestamp_warning_printed && (start < previous_start)) {
+        mxwarn_tid(m_file_name, m_tid, boost::format(Y("Warning in line %1%: The start timestamp is smaller than that of the previous entry. "
                                                        "All entries from this file will be sorted by their start time.\n")) % line_number);
-        timecode_warning_printed = true;
+        timestamp_warning_printed = true;
       }
 
-      previous_start  = start;
-      subtitles       = "";
-      state           = STATE_SUBS;
-      timecode_number = subtitle_number;
+      previous_start   = start;
+      subtitles        = "";
+      state            = STATE_SUBS;
+      timestamp_number = subtitle_number;
 
     } else if (STATE_SUBS == state) {
       if (!subtitles.empty())
@@ -237,7 +234,7 @@ srt_parser_c::parse() {
 
   if (!subtitles.empty()) {
     strip_back(subtitles, true);
-    add(start, end, timecode_number, subtitles.c_str());
+    add(start, end, timestamp_number, subtitles.c_str());
   }
 
   sort();
@@ -567,9 +564,9 @@ ssa_parser_c::decode_chars(unsigned char const *in,
   size_t bytes_out = 4 == bytes_in ? 3 : 3 == bytes_in ? 2 : 1;
   uint32_t value   = 0;
 
-  for (size_t idx = 0; idx < bytes_in; ++idx)
+  for (int idx = 0; idx < static_cast<int>(bytes_in); ++idx)
     value |= (static_cast<uint32_t>(in[idx]) - 33) << (6 * (3 - idx));
 
-  for (size_t idx = 0; idx < bytes_out; ++idx)
+  for (int idx = 0; idx < static_cast<int>(bytes_out); ++idx)
     out[idx] = (value >> ((2 - idx) * 8)) & 0xff;
 }

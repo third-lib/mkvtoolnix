@@ -67,25 +67,23 @@ charset_converter_c::get_charset()
 }
 
 charset_converter_cptr
-charset_converter_c::init(const std::string &charset) {
+charset_converter_c::init(const std::string &charset,
+                          bool ignore_errors) {
   std::string actual_charset = charset.empty() ? get_local_charset() : charset;
 
   std::map<std::string, charset_converter_cptr>::iterator converter = s_converters.find(actual_charset);
   if (converter != s_converters.end())
     return (*converter).second;
 
-#if defined(HAVE_ICONV_H) && defined(SYS_WINDOWS)
-  if (iconv_charset_converter_c::is_available(actual_charset) || !windows_charset_converter_c::is_available(actual_charset))
-    return charset_converter_cptr(new iconv_charset_converter_c(actual_charset));
-
-  return charset_converter_cptr(new windows_charset_converter_c(actual_charset));
-
-#elif defined(HAVE_ICONV_H)
-  return charset_converter_cptr(new iconv_charset_converter_c(actual_charset));
-
-#else
-  return charset_converter_cptr(new windows_charset_converter_c(actual_charset));
+#if defined(SYS_WINDOWS)
+  if (windows_charset_converter_c::is_available(actual_charset))
+    return charset_converter_cptr(new windows_charset_converter_c(actual_charset));
 #endif
+
+  if (ignore_errors && !iconv_charset_converter_c::is_available(actual_charset))
+    return {};
+
+  return charset_converter_cptr(new iconv_charset_converter_c(actual_charset));
 }
 
 bool
@@ -117,8 +115,6 @@ charset_converter_c::handle_string_with_bom(const std::string &source,
 }
 
 // ------------------------------------------------------------
-#if defined(HAVE_ICONV_H)
-
 static iconv_t const s_iconv_t_error_value = reinterpret_cast<iconv_t>(-1);
 
 iconv_charset_converter_c::iconv_charset_converter_c(const std::string &charset)
@@ -208,7 +204,6 @@ iconv_charset_converter_c::is_available(const std::string &charset) {
 
   return true;
 }
-#endif //HAVE_ICONV_H
 
 // ------------------------------------------------------------
 

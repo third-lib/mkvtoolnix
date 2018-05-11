@@ -11,8 +11,7 @@
    Written by Moritz Bunkus <moritz@bunkus.org>.
 */
 
-#ifndef MTX_R_DIRAC_H
-#define MTX_R_DIRAC_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -29,19 +28,17 @@ private:
 public:
   dirac_es_reader_c(const track_info_c &ti, const mm_io_cptr &in);
 
-  virtual file_type_e get_format_type() const {
-    return FILE_TYPE_DIRAC;
+  virtual mtx::file_type_e get_format_type() const {
+    return mtx::file_type_e::dirac;
   }
 
   virtual void read_headers();
   virtual file_status_e read(generic_packetizer_c *ptzr, bool force = false);
   virtual void identify();
   virtual void create_packetizer(int64_t id);
-  virtual bool is_providing_timecodes() const {
+  virtual bool is_providing_timestamps() const {
     return false;
   }
 
   static int probe_file(mm_io_c *in, uint64_t size);
 };
-
-#endif // MTX_R_DIRAC_H

@@ -28,28 +28,6 @@ using namespace libmatroska;
 
 namespace mtx { namespace tags {
 
-void
-fix_mandatory_elements(EbmlElement *e) {
-  if (dynamic_cast<KaxTag *>(e)) {
-    KaxTag &t = *static_cast<KaxTag *>(e);
-    GetChild<KaxTagTargets>(t);
-    GetChild<KaxTagSimple>(t);
-
-  } else if (dynamic_cast<KaxTagSimple *>(e))
-    FixMandatoryElement<KaxTagName, KaxTagLangue, KaxTagDefault>(static_cast<KaxTagSimple *>(e));
-
-  else if (dynamic_cast<KaxTagTargets *>(e)) {
-    KaxTagTargets &t = *static_cast<KaxTagTargets *>(e);
-    GetChild<KaxTagTargetTypeValue>(t);
-    FixMandatoryElement<KaxTagTargetTypeValue>(t);
-
-  }
-
-  if (dynamic_cast<EbmlMaster *>(e))
-    for (auto child : *static_cast<EbmlMaster *>(e))
-      fix_mandatory_elements(child);
-}
-
 KaxTags *
 select_for_chapters(KaxTags &tags,
                     KaxChapters &chapters) {
@@ -66,13 +44,13 @@ select_for_chapters(KaxTags &tags,
     if (targets) {
       for (auto child : *targets) {
         auto t_euid = dynamic_cast<KaxTagEditionUID *>(child);
-        if (t_euid && !find_edition_with_uid(chapters, t_euid->GetValue())) {
+        if (t_euid && !mtx::chapters::find_edition_with_uid(chapters, t_euid->GetValue())) {
           copy = false;
           break;
         }
 
         auto t_cuid = dynamic_cast<KaxTagChapterUID *>(child);
-        if (t_cuid && !find_chapter_with_uid(chapters, t_cuid->GetValue())) {
+        if (t_cuid && !mtx::chapters::find_chapter_with_uid(chapters, t_cuid->GetValue())) {
           copy = false;
           break;
         }

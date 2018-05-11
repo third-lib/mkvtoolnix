@@ -122,17 +122,17 @@ handle_attachments(KaxAttachments *atts,
   }
 }
 
-void
-extract_attachments(const std::string &file_name,
-                    std::vector<track_spec_t> &tracks,
-                    kax_analyzer_c::parse_mode_e parse_mode) {
-  if (tracks.empty())
-    mxerror(Y("Nothing to do.\n"));
+bool
+extract_attachments(kax_analyzer_c &analyzer,
+                    options_c::mode_options_c &options) {
+  if (options.m_tracks.empty())
+    return false;
 
-  auto analyzer = open_and_analyze(file_name, parse_mode);
+  auto attachments = analyzer.read_all(EBML_INFO(KaxAttachments));
+  if (!dynamic_cast<KaxAttachments *>(attachments.get()))
+    return false;
 
-  ebml_master_cptr attachments_m(analyzer->read_all(EBML_INFO(KaxAttachments)));
-  KaxAttachments *attachments = dynamic_cast<KaxAttachments *>(attachments_m.get());
-  if (attachments)
-    handle_attachments(attachments, tracks);
+  handle_attachments(static_cast<KaxAttachments *>(attachments.get()), options.m_tracks);
+
+  return true;
 }

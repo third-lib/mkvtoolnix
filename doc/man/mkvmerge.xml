@@ -3,8 +3,8 @@
 <!DOCTYPE refentry PUBLIC "-//OASIS//DTD DocBook XML V4.5//EN" "http://www.oasis-open.org/docbook/xml/4.5/docbookx.dtd"
 [
 <!ENTITY product "mkvmerge">
-<!ENTITY version "9.5.0">
-<!ENTITY date "2016-10-16">
+<!ENTITY version "18.0.0">
+<!ENTITY date "2017-11-18">
 
 <!ENTITY mkvmerge "<citerefentry><refentrytitle>mkvmerge</refentrytitle><manvolnum>1</manvolnum></citerefentry>">
 <!ENTITY mkvinfo "<citerefentry><refentrytitle>mkvinfo</refentrytitle><manvolnum>1</manvolnum></citerefentry>">
@@ -57,7 +57,7 @@
     <arg>options2</arg>
     <arg choice="req">file2</arg>
    </arg>
-   <arg>@optionsfile</arg>
+   <arg>@options-file.json</arg>
   </cmdsynopsis>
  </refsynopsisdiv>
 
@@ -105,8 +105,13 @@
      <term><option>-w</option>, <option>--webm</option></term>
      <listitem>
       <para>Create a WebM compliant file. This is also turned on if the output file name's extension is &quot;webm&quot;. This mode enforces
-      several restrictions. The only allowed codecs are VP8, VP9 video and Opus, Vorbis audio tracks. Neither chapters nor tags are
-      allowed. The DocType header item is changed to &quot;webm&quot;.
+      several restrictions. The only allowed codecs are VP8, VP9 video and Opus, Vorbis audio tracks. The DocType header item is changed to
+      &quot;webm&quot;.
+      </para>
+
+      <para>
+       For chapters and tags only a subset of elements are allowed. &mkvmerge; will automatically remove all elements not allowed by the
+       specification.
       </para>
      </listitem>
     </varlistentry>
@@ -476,18 +481,18 @@
      </listitem>
     </varlistentry>
 
-    <varlistentry id="mkvmerge.description.timecode_scale">
-     <term><option>--timecode-scale</option> <parameter>factor</parameter></term>
+    <varlistentry id="mkvmerge.description.timestamp_scale">
+     <term><option>--timestamp-scale</option> <parameter>factor</parameter></term>
      <listitem>
       <para>
-       Forces the timecode scale factor to <parameter>factor</parameter>. Valid values are in the range
+       Forces the timestamp scale factor to <parameter>factor</parameter>. Valid values are in the range
        <constant>1000</constant>..<constant>10000000</constant> or the special value <constant>-1</constant>.
       </para>
 
       <para>
-       Normally &mkvmerge; will use a value of <constant>1000000</constant> which means that timecodes and durations will have a precision of
-       1ms. For files that will not contain a video track but at least one audio track &mkvmerge; will automatically chose a timecode scale
-       factor so that all timecodes and durations have a precision of one audio sample. This causes bigger overhead but allows precise
+       Normally &mkvmerge; will use a value of <constant>1000000</constant> which means that timestamps and durations will have a precision of
+       1ms. For files that will not contain a video track but at least one audio track &mkvmerge; will automatically chose a timestamp scale
+       factor so that all timestamps and durations have a precision of one audio sample. This causes bigger overhead but allows precise
        seeking and extraction.
       </para>
 
@@ -571,31 +576,31 @@
 
        <listitem>
         <para>
-         Splitting after specific timecodes.
+         Splitting after specific timestamps.
         </para>
 
         <para>
-         Syntax: <option>--split</option> <literal>timecodes:</literal><parameter>A</parameter><optional>,<parameter>B</parameter><optional>,<parameter>C</parameter>...</optional></optional>
+         Syntax: <option>--split</option> <literal>timestamps:</literal><parameter>A</parameter><optional>,<parameter>B</parameter><optional>,<parameter>C</parameter>...</optional></optional>
         </para>
 
         <para>
-         Example: <code>--split timecodes:00:45:00.000,01:20:00.250,6300s</code>
+         Example: <code>--split timestamps:00:45:00.000,01:20:00.250,6300s</code>
         </para>
 
         <para>
          The parameters <parameter>A</parameter>, <parameter>B</parameter>, <parameter>C</parameter> etc must all have the same format as the
-         ones used for the duration (see above). The list of timecodes is separated by commas.  After the input stream has reached the
-         current split point's timecode a new file is created. Then the next split point given in this list is used.
+         ones used for the duration (see above). The list of timestamps is separated by commas.  After the input stream has reached the
+         current split point's timestamp a new file is created. Then the next split point given in this list is used.
         </para>
 
         <para>
-         The '<literal>timecodes:</literal>' prefix must not be omitted.
+         The '<literal>timestamps:</literal>' prefix must not be omitted.
         </para>
        </listitem>
 
        <listitem>
         <para>
-         Keeping specific parts by specifying timecode ranges while discarding others.
+         Keeping specific parts by specifying timestamp ranges while discarding others.
         </para>
 
         <para>
@@ -612,26 +617,26 @@
         </para>
 
         <para>
-         The <literal>parts</literal> mode tells &mkvmerge; to keep certain ranges of timecodes while discarding others. The ranges to keep
+         The <literal>parts</literal> mode tells &mkvmerge; to keep certain ranges of timestamps while discarding others. The ranges to keep
          have to be listed after the <literal>parts:</literal> keyword and be separated by commas. A range itself consists of a start and an
-         end timecode in the same format the other variations of <parameter>--split</parameter> accept (e.g. both
-         <literal>00:01:20</literal> and <literal>80s</literal> refer to the same timecode).
+         end timestamp in the same format the other variations of <parameter>--split</parameter> accept (e.g. both
+         <literal>00:01:20</literal> and <literal>80s</literal> refer to the same timestamp).
         </para>
 
         <para>
-         If a start timecode is left out then it defaults to the previous range's end timecode. If there was no previous range then it
+         If a start timestamp is left out then it defaults to the previous range's end timestamp. If there was no previous range then it
          defaults to the start of the file (see example 3).
         </para>
 
         <para>
-         If an end timecode is left out then it defaults to the end of the source files which basically tells &mkvmerge; to keep the rest (see
+         If an end timestamp is left out then it defaults to the end of the source files which basically tells &mkvmerge; to keep the rest (see
          example 3).
         </para>
 
         <para>
          Normally each range will be written to a new file. This can be changed so that consecutive ranges are written to the same file. For
-         that the user has to prefix the start timecode with a <literal>+</literal>. This tells &mkvmerge; not to create a new file and
-         instead append the range to the same file the previous range was written to. Timecodes will be adjusted so that there will be no
+         that the user has to prefix the start timestamp with a <literal>+</literal>. This tells &mkvmerge; not to create a new file and
+         instead append the range to the same file the previous range was written to. Timestamps will be adjusted so that there will be no
          gap in the output file even if there was a gap in the two ranges in the input file.
         </para>
 
@@ -655,7 +660,7 @@
         <note>
           <para>
             Note that &mkvmerge; only makes decisions about splitting at key frame positions. This applies to both the start and the end of
-            each range. So even if an end timecode is between two key frames &mkvmerge; will continue outputting the frames up to but
+            each range. So even if an end timestamp is between two key frames &mkvmerge; will continue outputting the frames up to but
             excluding the following key frame.
           </para>
         </note>
@@ -698,7 +703,7 @@
         <para>
          Normally each range will be written to a new file. This can be changed so that consecutive ranges are written to the same file. For
          that the user has to prefix the start number with a <literal>+</literal>. This tells &mkvmerge; not to create a new file and
-         instead append the range to the same file the previous range was written to. Timecodes will be adjusted so that there will be no
+         instead append the range to the same file the previous range was written to. Timestamps will be adjusted so that there will be no
          gap in the output file even if there was a gap in the two ranges in the input file.
         </para>
 
@@ -795,7 +800,7 @@
         <para>
          The parameters <parameter>A</parameter>, <parameter>B</parameter>, <parameter>C</parameter> etc must all be positive integers.
          Numbering starts at 1.  The list of chapter numbers is separated by commas.  Splitting will occur right before the first key frame
-         whose timecode is equal to or bigger than the start timecode for the chapters whose numbers are listed.  A chapter starting at 0s
+         whose timestamp is equal to or bigger than the start timestamp for the chapters whose numbers are listed.  A chapter starting at 0s
          is never considered for splitting and discarded silently.
         </para>
 
@@ -869,16 +874,16 @@
      <term><option>--append-mode</option> <parameter>mode</parameter></term>
      <listitem>
       <para>
-       Determines how timecodes are calculated when appending files.  The parameter <parameter>mode</parameter> can have two values:
+       Determines how timestamps are calculated when appending files.  The parameter <parameter>mode</parameter> can have two values:
        '<literal>file</literal>' which is also the default and '<literal>track</literal>'.
       </para>
 
       <para>
        When mkvmerge appends a track (called '<literal>track2_1</literal>' from now on) from a second file (called
        '<literal>file2</literal>') to a track (called '<literal>track1_1</literal>') from the first file (called '<literal>file1</literal>')
-       then it has to offset all timecodes for '<literal>track2_1</literal>' by an amount.  For '<literal>file</literal>' mode this amount is
-       the highest timecode encountered in '<literal>file1</literal>' even if that timecode was from a different track than
-       '<literal>track1_1</literal>'. In track mode the offset is the highest timecode of '<literal>track1_1</literal>'.
+       then it has to offset all timestamps for '<literal>track2_1</literal>' by an amount.  For '<literal>file</literal>' mode this amount is
+       the highest timestamp encountered in '<literal>file1</literal>' even if that timestamp was from a different track than
+       '<literal>track1_1</literal>'. In track mode the offset is the highest timestamp of '<literal>track1_1</literal>'.
       </para>
 
       <para>
@@ -1298,7 +1303,7 @@ $ mkvmerge -o out.mkv '(' file.mkv ')'</screen>
      <term><option>-y</option>, <option>--sync</option> <parameter>TID:d<optional>,o<optional>/p</optional></optional></parameter></term>
      <listitem>
       <para>
-       Adjust the timecodes of the track with the id <parameter>TID</parameter> by <parameter>d</parameter> ms. The track IDs are the same as
+       Adjust the timestamps of the track with the id <parameter>TID</parameter> by <parameter>d</parameter> ms. The track IDs are the same as
        the ones given with <link linkend="mkvmerge.description.identify"><option>--identify</option></link> (see section <link
        linkend="mkvmerge.track_ids">track IDs</link>).
       </para>
@@ -1461,12 +1466,12 @@ $ mkvmerge -o out.mkv '(' file.mkv ')'</screen>
     </varlistentry>
 
     <varlistentry>
-     <term><option>--timecodes</option> <parameter>TID:file-name</parameter></term>
+     <term><option>--timestamps</option> <parameter>TID:file-name</parameter></term>
      <listitem>
       <para>
-       Read the timecodes to be used for the specific track ID from <parameter>file-name</parameter>.  These timecodes forcefully override
-       the timecodes that &mkvmerge; normally calculates. Read the section about <link linkend="mkvmerge.external_timecode_files">external
-       timecode files</link>.
+       Read the timestamps to be used for the specific track ID from <parameter>file-name</parameter>.  These timestamps forcefully override
+       the timestamps that &mkvmerge; normally calculates. Read the section about <link linkend="mkvmerge.external_timestamp_files">external
+       timestamp files</link>.
       </para>
      </listitem>
     </varlistentry>
@@ -1475,7 +1480,7 @@ $ mkvmerge -o out.mkv '(' file.mkv ')'</screen>
      <term><option>--default-duration</option> <parameter>TID:x</parameter></term>
      <listitem>
       <para>
-       Forces the default duration of a given track to the specified value.  Also modifies the track's timecodes to match the default
+       Forces the default duration of a given track to the specified value.  Also modifies the track's timestamps to match the default
        duration.  The argument <parameter>x</parameter> must be postfixed with '<literal>s</literal>', '<literal>ms</literal>',
        '<literal>us</literal>', '<literal>ns</literal>', '<literal>fps</literal>', '<literal>p</literal>' or '<literal>i</literal>' to
        specify the default duration in seconds, milliseconds, microseconds, nanoseconds, 'frames per second', 'progressive frames per
@@ -1489,7 +1494,7 @@ $ mkvmerge -o out.mkv '(' file.mkv ')'</screen>
       </para>
 
       <para>
-       This option can also be used to change the <abbrev>FPS</abbrev> of video tracks without having to use an external timecode file.
+       This option can also be used to change the <abbrev>FPS</abbrev> of video tracks without having to use an external timestamp file.
       </para>
      </listitem>
     </varlistentry>
@@ -1795,7 +1800,52 @@ $ mkvmerge -o out.mkv '(' file.mkv ')'</screen>
      <term><option>--min-luminance</option> <parameter>TID:float</parameter></term>
      <listitem>
       <para>
-       Sets the mininum luminance in candelas per square meter (cd/m²). The value should be less than 999.9999.
+       Sets the minimum luminance in candelas per square meter (cd/m²). The value should be less than 999.9999.
+      </para>
+     </listitem>
+    </varlistentry>
+
+    <varlistentry>
+     <term><option>--projection-type</option> <parameter>TID:method</parameter></term>
+     <listitem>
+      <para>
+       Sets the video projection method used. Valid values are 0 (rectangular projection), 1 (equirectangular projection), 2 (cubemap projection) and 3 (mesh projection).
+      </para>
+     </listitem>
+    </varlistentry>
+
+    <varlistentry>
+     <term><option>--projection-private</option> <parameter>TID:data</parameter></term>
+     <listitem>
+      <para>
+       Sets private data that only applies to a specific projection. Data must be given as hex numbers with or without the &quot;0x&quot; prefix, with or without spaces.
+      </para>
+     </listitem>
+    </varlistentry>
+
+    <varlistentry>
+     <term><option>--projection-pose-yaw</option> <parameter>TID:float</parameter></term>
+     <listitem>
+      <para>
+       Specifies a yaw rotation to the projection.
+      </para>
+     </listitem>
+    </varlistentry>
+
+    <varlistentry>
+     <term><option>--projection-pose-pitch</option> <parameter>TID:float</parameter></term>
+     <listitem>
+      <para>
+       Specifies a pitch rotation to the projection.
+      </para>
+     </listitem>
+    </varlistentry>
+
+    <varlistentry>
+     <term><option>--projection-pose-roll</option> <parameter>TID:float</parameter></term>
+     <listitem>
+      <para>
+       Specifies a roll rotation to the projection.
       </para>
      </listitem>
     </varlistentry>
@@ -1876,12 +1926,30 @@ $ mkvmerge -o out.mkv '(' file.mkv ')'</screen>
      </listitem>
     </varlistentry>
 
+    <varlistentry id="mkvmerge.description.identify_json">
+     <term><option>-J</option> <parameter>file-name</parameter></term>
+     <listitem>
+      <para>
+       This is a convenient alias for "<literal>--identification-format json --identify file-name</literal>".
+      </para>
+     </listitem>
+    </varlistentry>
+
     <varlistentry id="mkvmerge.description.identify_verbose">
      <term><option>-I</option>, <option>--identify-verbose</option> <parameter>file-name</parameter></term>
      <listitem>
       <para>
-       This option is deprecated. Use <link linkend="mkvmerge.description.identification_format"><literal>--identification-format verbose-text --identify …</literal></link> instead.
+       Will let &mkvmerge; probe the single file and report its type, the tracks contained in the file and their track IDs. If this option is
+       used then the only other option allowed is the filename.
       </para>
+
+      <para>
+       The output will also contain properties for all items found, e.g. the file title or the track language.
+      </para>
+
+      <note>
+       <para>This option is deprecated. It will be removed in 2018.</para>
+      </note>
      </listitem>
     </varlistentry>
 
@@ -1916,13 +1984,24 @@ $ mkvmerge -o out.mkv '(' file.mkv ')'</screen>
 
         <para>This format is not meant to be parsed. The output will be translated into the language &mkvmerge; uses (see also <link
         linkend="mkvmerge.description.ui_language">--ui-language</link>).</para>
+
+        <note>
+         <para>This option is deprecated. It will be removed in 2018.</para>
+        </note>
        </listitem>
 
        <listitem>
         <para>
          The <literal>json</literal> format outputs a machine-readable JSON representation. This format follows the JSON schema described in
-         the file <ulink
-         url="https://mkvtoolnix.download/doc/mkvmerge-identification-output-schema.json"><literal>mkvmerge-identification-output-schema.json</literal></ulink>.
+         the following file:
+        </para>
+
+        <para>
+         <ulink url="https://mkvtoolnix.download/doc/mkvmerge-identification-output-schema-v10.json"><literal>mkvmerge-identification-output-schema-v10.json</literal></ulink>
+        </para>
+
+        <para>
+         All versions of the JSON schema are available both online and in the released source code archives.
         </para>
        </listitem>
       </orderedlist>
@@ -2057,7 +2136,7 @@ $ mkvmerge -o out.mkv '(' file.mkv ')'</screen>
     </varlistentry>
 
     <varlistentry>
-     <term><option>@</option><parameter>options-file</parameter></term>
+     <term><option>@</option><parameter>options-file.json</parameter></term>
      <listitem>
       <para>
        Reads additional command line arguments from the file <parameter>options-file</parameter>. See the section about <link
@@ -2100,28 +2179,6 @@ $ mkvmerge -o out.mkv '(' file.mkv ')'</screen>
      <listitem>
       <para>
        Show version information and exit.
-      </para>
-     </listitem>
-    </varlistentry>
-
-    <varlistentry>
-     <term><option>--check-for-updates</option></term>
-     <listitem>
-      <para>
-       Checks online for new releases by downloading the URL <ulink
-       url="http://mkvtoolnix-releases.bunkus.org/latest-release.xml">http://mkvtoolnix-releases.bunkus.org/latest-release.xml</ulink>. Four
-       lines will be output in <literal>key=value</literal> style: the URL from where the information was retrieved (key
-       <literal>version_check_url</literal>), the currently running version (key <literal>running_version</literal>), the latest release's
-       version (key <literal>available_version</literal>) and the download URL (key <literal>download_url</literal>).
-      </para>
-
-      <para>
-       Afterwards the program exists with an exit code of 0 if no newer release is available, with 1 if a newer release is available and with
-       2 if an error occured (e.g. if the update information could not be retrieved).
-      </para>
-
-      <para>
-       This option is only available if the program was built with support for libcurl.
       </para>
      </listitem>
     </varlistentry>
@@ -2537,30 +2594,67 @@ Track ID 1: audio (A_MPEG/L3)</screen>
   </para>
 
   <para>
-   There are several rules regarding option files. Lines whose first non-whitespace character is a hash mark ('<literal>#</literal>') are
-   treated as comments and ignored. White spaces at the start and end of a line will be stripped. Each line must contain exactly one
-   option.
+   There are two formats for option files: a JSON format and a proprietary legacy format. The legacy format is deprecated, and support for
+   it will likely be removed in 2018.
   </para>
 
-  <para>
-   A line not containing anything is also ignored. An empty argument is represented by the line '<literal>#EMPTY#</literal>'.
-  </para>
+  <refsect2 id="mkvmerge.option_files.json_format">
+   <title>The JSON format</title>
 
-  <para>
-   Several chars can be escaped, e.g. if you need to start a non-comment line with '#'. The rules are described in <link
-   linkend="mkvmerge.escaping">the section about escaping text</link>.
-  </para>
+   <para>
+    A JSON option file's name must end in '<filename>.json</filename>'. Its content must be a valid JSON array consisting solely of JSON
+    strings. The file's encoding must be UTF-8. The file should not start with a <foreignphrase>byte order marker</foreignphrase>
+    (<abbrev>BOM</abbrev>), but if one exists, it will be skipped.
+   </para>
 
-  <para>
-   Note that backslashes must always be escaped. Hash marks ('#') must be escaped if they should not start a comment.
-  </para>
+   <para>
+    The rules for escaping special characters inside JSON are the ones in the official JSON specification, <ulink url="https://tools.ietf.org/html/rfc7159">RFC 7159</ulink>.
+   </para>
 
-  <para>
-   The command line '<command>mkvmerge -o "my file.mkv" -A "a movie.avi" sound.ogg</command>' could be converted into the following
-   option file:
-  </para>
+   <para>
+    The command line '<command>mkvmerge -o "my file.mkv" -A "a movie.avi" sound.ogg</command>' could be converted into the following
+    JSON option file called e.g. '<filename>options.json</filename>':
+   </para>
 
-  <programlisting># Write to the file "c:\Matroska\my file.mkv" on Windows.
+   <programlisting>[
+  "-o",
+  "c:\\Matroska\\my file.mkv",
+  "--title",
+  "#65",
+  "-A",
+  "a movie.avi",
+  "sound.ogg"
+]</programlisting>
+  </refsect2>
+
+  <refsect2 id="mkvmerge.option_files.legacy_format">
+   <title>The legacy format</title>
+
+   <para>
+    There are several rules regarding option files. Lines whose first non-whitespace character is a hash mark ('<literal>#</literal>') are
+    treated as comments and ignored. White spaces at the start and end of a line will be stripped. Each line must contain exactly one
+    option.
+   </para>
+
+   <para>
+    A line not containing anything is also ignored. An empty argument is represented by the line '<literal>#EMPTY#</literal>'.
+   </para>
+
+   <para>
+    Several chars can be escaped, e.g. if you need to start a non-comment line with '#'. The rules are described in <link
+    linkend="mkvmerge.escaping">the section about escaping text</link>.
+   </para>
+
+   <para>
+    Note that backslashes must always be escaped. Hash marks ('#') must be escaped if they should not start a comment.
+   </para>
+
+   <para>
+    The command line '<command>mkvmerge -o "my file.mkv" -A "a movie.avi" sound.ogg</command>' could be converted into the following
+    legacy option file called e.g. '<filename>options.txt</filename>':
+   </para>
+
+   <programlisting># Write to the file "c:\Matroska\my file.mkv" on Windows.
 -o
 c:\\Matroska\\my file.mkv
 # Set the title to '#65'.
@@ -2570,6 +2664,7 @@ c:\\Matroska\\my file.mkv
 -A
 a movie.avi
 sound.ogg</programlisting>
+  </refsect2>
 
  </refsect1>
 
@@ -2652,9 +2747,9 @@ sound.ogg</programlisting>
   </para>
 
   <para>
-   If a file is split into several smaller ones and linking is used then the timecodes will not start at 0 again but will continue where the
+   If a file is split into several smaller ones and linking is used then the timestamps will not start at 0 again but will continue where the
    last file has left off. This way the absolute time is kept even if the previous files are not available (e.g. when streaming). If no
-   linking is used then the timecodes should start at 0 for each file. By default &mkvmerge; does not use file linking. If you want that you
+   linking is used then the timestamps should start at 0 for each file. By default &mkvmerge; does not use file linking. If you want that you
    can turn it on with the <option>--link</option> option. This option is only useful if splitting is activated as well.
   </para>
 
@@ -2734,7 +2829,7 @@ sound.ogg</programlisting>
 
    <para>
     This formmat consists of pairs of lines that start with '<literal>CHAPTERxx=</literal>' and '<literal>CHAPTERxxNAME=</literal>'
-    respectively. The first one contains the start timecode while the second one contains the title. Here's an example:
+    respectively. The first one contains the start timestamp while the second one contains the title. Here's an example:
    </para>
 
    <screen>CHAPTER01=00:00:00.000
@@ -2837,7 +2932,7 @@ CHAPTER03NAME=Baby rocks the house</screen>
    <title>General notes</title>
    <para>
     When splitting files &mkvmerge; will correctly adjust the chapters as well. This means that each file only includes the chapter entries
-    that apply to it, and that the timecodes will be offset to match the new timecodes of each output file.
+    that apply to it, and that the timestamps will be offset to match the new timestamps of each output file.
    </para>
 
    <para>
@@ -2990,7 +3085,7 @@ CHAPTER03NAME=Baby rocks the house</screen>
   <para>
    Other &quot;segment information&quot; header fields can be set via command line options but not via the XML file. This includes e.g. the
    <option><link linkend="mkvmerge.description.title">--title</link></option> and the <option><link
-   linkend="mkvmerge.description.timecode_scale">--timecode-scale</link></option> options.
+   linkend="mkvmerge.description.timestamp_scale">--timestamp-scale</link></option> options.
   </para>
 
   <para>
@@ -3060,21 +3155,21 @@ CHAPTER03NAME=Baby rocks the house</screen>
   </para>
  </refsect1>
 
- <refsect1 id="mkvmerge.external_timecode_files">
-  <title>External timecode files</title>
+ <refsect1 id="mkvmerge.external_timestamp_files">
+  <title>External timestamp files</title>
   <para>
-   &mkvmerge; allows the user to chose the timecodes for a specific track himself. This can be used in order to create files with variable
+   &mkvmerge; allows the user to chose the timestamps for a specific track himself. This can be used in order to create files with variable
    frame rate video or include gaps in audio. A frame in this case is the unit that &mkvmerge; creates separately per &matroska; block. For
    video this is exactly one frame, for audio this is one packet of the specific audio type. E.g. for <abbrev>AC-3</abbrev> this would be a
    packet containing <constant>1536</constant> samples.
   </para>
 
   <para>
-   Timecode files that are used when tracks are appended to each other must only be specified for the first part in a chain of tracks.  For
-   example if you append two files, v1.avi and v2.avi, and want to use timecodes then your command line must look something like this:
+   Timestamp files that are used when tracks are appended to each other must only be specified for the first part in a chain of tracks.  For
+   example if you append two files, v1.avi and v2.avi, and want to use timestamps then your command line must look something like this:
   </para>
 
-  <screen>$ mkvmerge ... --timecodes 0:my_timecodes.txt v1.avi +v2.avi</screen>
+  <screen>$ mkvmerge ... --timestamps 0:my_timestamps.txt v1.avi +v2.avi</screen>
 
   <para>
    There are four formats that are recognized by &mkvmerge;. The first line always contains the version number. Empty lines, lines
@@ -3082,7 +3177,7 @@ CHAPTER03NAME=Baby rocks the house</screen>
   </para>
 
   <refsect2>
-   <title>Timecode file format v1</title>
+   <title>Timestamp file format v1</title>
    <para>
     This format starts with the version line. The second line declares the default number of frames per second.  All following lines contain
     three numbers separated by commas: the start frame (<constant>0</constant> is the first frame), the end frame and the number of frames
@@ -3090,37 +3185,37 @@ CHAPTER03NAME=Baby rocks the house</screen>
     can contain gaps for which the default <abbrev>FPS</abbrev> is used. An example:
    </para>
 
-   <screen># timecode format v1
+   <screen># timestamp format v1
 assume 27.930
 800,1000,25
 1500,1700,30</screen>
   </refsect2>
 
   <refsect2>
-   <title>Timecode file format v2</title>
+   <title>Timestamp file format v2</title>
 
    <para>
-    In this format each line contains a timecode for the corresponding frame.  This timecode must be given in millisecond precision.  It can
-    be a floating point number, but it doesn't have to be.  You <emphasis>have to</emphasis> give at least as many timecode lines as there
-    are frames in the track.  The timecodes in this file must be sorted.  Example for 25fps:
+    In this format each line contains a timestamp for the corresponding frame.  This timestamp must be given in millisecond precision.  It can
+    be a floating point number, but it doesn't have to be.  You <emphasis>have to</emphasis> give at least as many timestamp lines as there
+    are frames in the track.  The timestamps in this file must be sorted.  Example for 25fps:
    </para>
 
-   <screen># timecode format v2
+   <screen># timestamp format v2
 0
 40
 80</screen>
   </refsect2>
 
   <refsect2>
-   <title>Timecode file format v3</title>
+   <title>Timestamp file format v3</title>
    <para>
     In this format each line contains a duration in seconds followed by an optional number of frames per second.  Both can be floating point
     numbers.  If the number of frames per second is not present the default one is used.  For audio you should let the codec calculate the
-    frame timecodes itself.  For that you should be using <constant>0.0</constant> as the number of frames per second.  You can also create
+    frame timestamps itself.  For that you should be using <constant>0.0</constant> as the number of frames per second.  You can also create
     gaps in the stream by using the '<literal>gap</literal>' keyword followed by the duration of the gap.  Example for an audio file:
    </para>
 
-   <screen># timecode format v3
+   <screen># timestamp format v3
 assume 0.0
 25.325
 7.530,38.236
@@ -3129,9 +3224,9 @@ gap, 10.050
   </refsect2>
 
   <refsect2>
-   <title>Timecode file format v4</title>
+   <title>Timestamp file format v4</title>
    <para>
-    This format is identical to the v2 format.  The only difference is that the timecodes do not have to be sorted.  This format should
+    This format is identical to the v2 format.  The only difference is that the timestamps do not have to be sorted.  This format should
     almost never be used.
    </para>
   </refsect2>

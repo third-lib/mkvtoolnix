@@ -8,8 +8,7 @@
    Written by Moritz Bunkus <moritz@bunkus.org>.
 */
 
-#ifndef MTX_PROPEDIT_CHANGE_H
-#define MTX_PROPEDIT_CHANGE_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -36,18 +35,18 @@ public:
   uint64_t m_ui_value;
   int64_t m_si_value;
   bool m_b_value;
-  bitvalue_c m_x_value;
+  mtx::bits::value_c m_x_value;
   double m_fp_value;
 
-  EbmlMaster *m_master;
+  EbmlMaster *m_master, *m_sub_sub_master, *m_sub_sub_sub_master;
 
 public:
   change_c(change_type_e type, const std::string &name, const std::string &value);
 
-  void validate(std::vector<property_element_c> *property_table = nullptr);
+  void validate();
   void dump_info() const;
 
-  bool lookup_property(std::vector<property_element_c> &table);
+  bool look_up_property(std::vector<property_element_c> &table);
 
   std::string get_spec();
 
@@ -60,6 +59,7 @@ protected:
   void parse_ascii_string();
   void parse_binary();
   void parse_boolean();
+  void parse_date_time();
   void parse_floating_point_number();
   void parse_signed_integer();
   void parse_unicode_string();
@@ -75,5 +75,3 @@ protected:
 
   const EbmlSemantic *get_semantic();
 };
-
-#endif // MTX_PROPEDIT_CHANGE_H

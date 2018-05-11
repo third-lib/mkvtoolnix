@@ -1,5 +1,4 @@
-#ifndef MTX_MKVTOOLNIX_GUI_MERGE_TAB_H
-#define MTX_MKVTOOLNIX_GUI_MERGE_TAB_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -29,12 +28,16 @@ enum class InitialDirMode {
   , ContentFirstInputFileLastOpenDir
 };
 
+class FileIdentificationThread;
+
 class Tab : public QWidget {
   Q_OBJECT;
 
 protected:
   // non-UI stuff:
   MuxConfig m_config;
+
+  int m_lastAddAppendFileIdx;
 
   // UI stuff:
   std::unique_ptr<Ui::Tab> ui;
@@ -50,11 +53,11 @@ protected:
   bool m_currentlySettingInputControlValues;
 
   QAction *m_addFilesAction, *m_appendFilesAction, *m_addAdditionalPartsAction, *m_addFilesAction2, *m_appendFilesAction2, *m_addAdditionalPartsAction2;
-  QAction *m_removeFilesAction, *m_removeAllFilesAction, *m_selectAllTracksAction, *m_enableAllTracksAction, *m_disableAllTracksAction;
-  QAction *m_selectAllVideoTracksAction, *m_selectAllAudioTracksAction, *m_selectAllSubtitlesTracksAction, *m_openFilesInMediaInfoAction, *m_openTracksInMediaInfoAction;
+  QAction *m_removeFilesAction, *m_removeAllFilesAction, *m_setDestinationFileNameAction, *m_selectAllTracksAction, *m_enableAllTracksAction, *m_disableAllTracksAction;
+  QAction *m_selectAllVideoTracksAction, *m_selectAllAudioTracksAction, *m_selectAllSubtitlesTracksAction, *m_openFilesInMediaInfoAction, *m_openTracksInMediaInfoAction, *m_selectTracksFromFilesAction;
   QAction *m_enableAllAttachedFilesAction, *m_disableAllAttachedFilesAction, *m_enableSelectedAttachedFilesAction, *m_disableSelectedAttachedFilesAction;
-  QAction *m_startMuxingLeaveAsIs, *m_startMuxingCreateNewSettings, *m_startMuxingRemoveInputFiles;
-  QAction *m_addToJobQueueLeaveAsIs, *m_addToJobQueueCreateNewSettings, *m_addToJobQueueRemoveInputFiles;
+  QAction *m_startMuxingLeaveAsIs, *m_startMuxingCreateNewSettings, *m_startMuxingCloseSettings, *m_startMuxingRemoveInputFiles;
+  QAction *m_addToJobQueueLeaveAsIs, *m_addToJobQueueCreateNewSettings, *m_addToJobQueueCloseSettings, *m_addToJobQueueRemoveInputFiles;
   QMenu *m_filesMenu, *m_tracksMenu, *m_attachedFilesMenu, *m_attachmentsMenu, *m_selectTracksOfTypeMenu, *m_addFilesMenu, *m_startMuxingMenu, *m_addToJobQueueMenu;
 
   // "Attachments" tab:
@@ -63,6 +66,8 @@ protected:
   QAction *m_addAttachmentsAction, *m_removeAttachmentsAction, *m_removeAllAttachmentsAction, *m_selectAllAttachmentsAction;
 
   QString m_savedState, m_emptyState;
+
+  FileIdentificationThread *m_identifier;
 
   debugging_option_c m_debugTrackModel;
 
@@ -74,6 +79,7 @@ public:
   virtual bool isEmpty();
   virtual bool hasSourceFiles() const;
   virtual bool hasDestinationFileName() const;
+  virtual bool hasTitle() const;
 
   virtual QString const &fileName() const;
   virtual QString title() const;
@@ -101,6 +107,7 @@ public slots:
   virtual void selectAllVideoTracks();
   virtual void selectAllAudioTracks();
   virtual void selectAllSubtitlesTracks();
+  virtual void selectAllTracksFromSelectedFiles();
   virtual void enableAllTracks();
   virtual void disableAllTracks();
 
@@ -122,6 +129,7 @@ public slots:
   virtual void enableMoveFilesButtons();
 
   virtual void setupInputLayout();
+  virtual void setupFileIdentificationThread();
 
   virtual void onTrackNameChanged(QString newValue);
   virtual void onTrackItemChanged(QStandardItem *item);
@@ -134,8 +142,8 @@ public slots:
   virtual void onDelayChanged(QString newValue);
   virtual void onStretchByChanged(QString newValue);
   virtual void onDefaultDurationChanged(QString newValue);
-  virtual void onTimecodesChanged(QString newValue);
-  virtual void onBrowseTimecodes();
+  virtual void onTimestampsChanged(QString newValue);
+  virtual void onBrowseTimestamps();
   virtual void onFixBitstreamTimingInfoChanged(bool newValue);
   virtual void onBrowseTrackTags();
   virtual void onSetAspectRatio();
@@ -155,6 +163,8 @@ public slots:
   virtual void setChapterCharacterSet(QString const &characterSet);
   virtual void onCopyFirstFileNameToTitle();
   virtual void onCopyOutputFileNameToTitle();
+  virtual void onCopyTitleToOutputFileName();
+  virtual void setDestinationFileNameFromSelectedFile();
 
   virtual void addToJobQueue(bool startNow, boost::optional<Util::Settings::ClearMergeSettingsAction> clearSettings = boost::none);
 
@@ -167,11 +177,22 @@ public slots:
   virtual void addOrAppendDroppedFiles(QStringList const &fileNamesToAddOrAppend, Qt::MouseButtons mouseButtons);
   virtual void addOrAppendDroppedFilesDelayed();
   virtual void addFilesToBeAddedOrAppendedDelayed(QStringList const &fileNames, Qt::MouseButtons mouseButtons);
+  virtual void addOrAppendIdentifiedFiles(QList<SourceFilePtr> const &identifiedFiles, bool append, QModelIndex const &sourceFileIdx);
 
   virtual void showFilesContextMenu(QPoint const &pos);
   virtual void showTracksContextMenu(QPoint const &pos);
   virtual void showAttachedFilesContextMenu(QPoint const &pos);
   virtual void showAttachmentsContextMenu(QPoint const &pos);
+
+  virtual void fileIdentificationStarted();
+  virtual void fileIdentificationFinished();
+  virtual void handleIdentifiedXmlOrSimpleChapters(QString const &fileName);
+  virtual void handleIdentifiedXmlSegmentInfo(QString const &fileName);
+  virtual void handleIdentifiedXmlTags(QString const &fileName);
+  virtual void showFileIdentificationError(QString const &errorTitle, QString const &errorText);
+  virtual void showScanningPlaylistDialog(int numFilesToScan);
+  virtual void selectScanPlaylistPolicy(SourceFilePtr const &sourceFile, QFileInfoList const &files);
+  virtual void selectPlaylistToAdd(QList<SourceFilePtr> const &identifiedPlaylists);
 
   // Output tab:
   virtual void setupOutputFileControls();
@@ -255,7 +276,7 @@ protected:
   virtual void addOrAppendFiles(bool append);
   virtual void addOrAppendFiles(bool append, QStringList const &fileNames, QModelIndex const &sourceFileIdx);
   virtual void setDefaultsFromSettingsForAddedFiles(QList<SourceFilePtr> const &files);
-  virtual QStringList handleDroppedSpecialFiles(QStringList const &fileNames);
+
   virtual void enableFilesActions();
   virtual void enableTracksActions();
   virtual void enableAttachedFilesActions();
@@ -267,9 +288,9 @@ protected:
   virtual void clearInputControlValues();
   virtual void setControlValuesFromConfig();
   virtual MuxConfig &updateConfigFromControlValues();
-  virtual void withSelectedTracks(std::function<void(Track *)> code, bool notIfAppending = false, QWidget *widget = nullptr);
+  virtual void withSelectedTracks(std::function<void(Track &)> code, bool notIfAppending = false, QWidget *widget = nullptr);
   virtual void withSelectedAttachedFiles(std::function<void(Track &)> code);
-  virtual void withSelectedAttachments(std::function<void(Attachment *)> code);
+  virtual void withSelectedAttachments(std::function<void(Attachment &)> code);
   virtual void addOrRemoveEmptyComboBoxItem(bool add);
   virtual QString getOpenFileName(QString const &title, QString const &filter, QLineEdit *lineEdit, InitialDirMode intialDirMode = InitialDirMode::ContentLastOpenDir);
   virtual QString getSaveFileName(QString const &title, QString const &filter, QLineEdit *lineEdit);
@@ -306,7 +327,7 @@ protected:
   virtual void setTitleMaybe(QList<SourceFilePtr> const &files);
   virtual void setTitleMaybe(QString const &title);
 
-  virtual void setOutputFileNameMaybe();
+  virtual void setOutputFileNameMaybe(bool force = false);
   virtual QString suggestOutputFileNameExtension() const;
 
   virtual void enableDisableAllTracks(bool enable);
@@ -322,5 +343,3 @@ protected:
 };
 
 }}}
-
-#endif // MTX_MKVTOOLNIX_GUI_MERGE_TAB_H

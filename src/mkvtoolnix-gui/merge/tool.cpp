@@ -33,6 +33,8 @@ Tool::Tool(QWidget *parent,
 {
   // Setup UI controls.
   ui->setupUi(this);
+
+  MainWindow::get()->registerSubWindowWidget(*this, *ui->merges);
 }
 
 Tool::~Tool() {
@@ -70,6 +72,7 @@ Tool::setupActions() {
   connect(mwUi->actionMergeShowMkvmergeCommandLine,   &QAction::triggered,               this, &Tool::showCommandLine);
   connect(mwUi->actionMergeCopyFirstFileNameToTitle,  &QAction::triggered,               this, &Tool::copyFirstFileNameToTitle);
   connect(mwUi->actionMergeCopyOutputFileNameToTitle, &QAction::triggered,               this, &Tool::copyOutputFileNameToTitle);
+  connect(mwUi->actionMergeCopyTitleToOutputFileName, &QAction::triggered,               this, &Tool::copyTitleToOutputFileName);
 
   connect(ui->merges,                                 &QTabWidget::tabCloseRequested,    this, &Tool::closeTab);
   connect(ui->newFileButton,                          &QPushButton::clicked,             this, &Tool::newConfig);
@@ -97,6 +100,7 @@ Tool::enableMenuActions() {
   mwUi->actionMergeShowMkvmergeCommandLine->setEnabled(hasTab);
   mwUi->actionMergeCopyFirstFileNameToTitle->setEnabled(hasTab && tab->hasSourceFiles());
   mwUi->actionMergeCopyOutputFileNameToTitle->setEnabled(hasTab && tab->hasDestinationFileName());
+  mwUi->actionMergeCopyTitleToOutputFileName->setEnabled(hasTab && tab->hasTitle());
   mwUi->menuMergeAll->setEnabled(hasTab);
   mwUi->actionMergeSaveAll->setEnabled(hasTab);
   mwUi->actionMergeCloseAll->setEnabled(hasTab);
@@ -110,6 +114,7 @@ Tool::enableCopyMenuActions() {
 
   mwUi->actionMergeCopyFirstFileNameToTitle->setEnabled(true);
   mwUi->actionMergeCopyOutputFileNameToTitle->setEnabled(true);
+  mwUi->actionMergeCopyTitleToOutputFileName->setEnabled(true);
 }
 
 void
@@ -163,7 +168,7 @@ Tool::newConfig() {
 void
 Tool::openConfig() {
   auto &settings = Util::Settings::get();
-  auto fileName  = Util::getOpenFileName(this, QY("Open settings file"), settings.lastConfigDirPath(), QY("MKVToolnix GUI config files") + Q(" (*.mtxcfg);;") + QY("All files") + Q(" (*)"));
+  auto fileName  = Util::getOpenFileName(this, QY("Open settings file"), settings.lastConfigDirPath(), QY("MKVToolNix GUI config files") + Q(" (*.mtxcfg);;") + QY("All files") + Q(" (*)"));
   if (fileName.isEmpty())
     return;
 
@@ -319,6 +324,13 @@ Tool::copyOutputFileNameToTitle() {
 }
 
 void
+Tool::copyTitleToOutputFileName() {
+  auto tab = currentTab();
+  if (tab && tab->isEnabled())
+    tab->onCopyTitleToOutputFileName();
+}
+
+void
 Tool::tabTitleChanged() {
   auto tab = dynamic_cast<Tab *>(sender());
   auto idx = ui->merges->indexOf(tab);
@@ -424,6 +436,15 @@ Tool::forEachTab(std::function<void(Tab &)> const &worker) {
   }
 
   ui->merges->setCurrentIndex(currentIndex);
+}
+
+std::pair<QString, QString>
+Tool::nextPreviousWindowActionTexts()
+  const {
+  return {
+    QY("&Next multiplex settings"),
+    QY("&Previous multiplex settings"),
+  };
 }
 
 }}}

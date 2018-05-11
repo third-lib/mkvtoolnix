@@ -11,8 +11,7 @@
    Written by Moritz Bunkus <moritz@bunkus.org>.
 */
 
-#ifndef MTX_COMMON_COMMON_H
-#define MTX_COMMON_COMMON_H
+#pragma once
 
 #undef min
 #undef max
@@ -75,27 +74,20 @@ namespace brng  = boost::range;
 /* i18n stuff */
 #if defined(HAVE_LIBINTL_H)
 # include <libintl.h>
-# if !defined Y
-#  define Y(s) gettext(s)
-#  define NY(s_singular, s_plural, count) ngettext(s_singular, s_plural, count)
-#  define PY(context, s) pgettext(context, s)
-#  define PNY(context, s_singular, s_plural, count) pngettext(context, s_singular, s_plural, count)
-# endif
-#else /* HAVE_LIBINTL_H */
-# if !defined Y
-#  define Y(s) (s)
-#  define NY(s_singular, s_plural, count) ((count) != 1 ? (s_plural) : (s_singular))
-#  define PY(context, s) (s)
-#  define PNY(context, s_singular, s_plural, count) ((count) != 1 ? (s_plural) : (s_singular))
-# endif
+#else
+# define gettext(s)                            (s)
+# define ngettext(s_singular, s_plural, count) ((count) != 1 ? (s_plural) : (s_singular))
 #endif
 
+#undef Y
+#undef NY
+#define Y(s)                            gettext(u8##s)
+#define NY(s_singular, s_plural, count) ngettext(u8##s_singular, u8##s_plural, count)
 #define YF(s)        Y(s)
 #define NYF(s, p, c) NY(s, p, c)
 
 #include "common/debugging.h"
 #include "common/error.h"
-#include "common/make_unique.h"
 #include "common/memory.h"
 #include "common/mm_io.h"
 #include "common/output.h"
@@ -130,7 +122,7 @@ using namespace libmatroska;
 #define isblanktab(c) (((c) == ' ')  || ((c) == '\t'))
 #define iscr(c)       (((c) == '\n') || ((c) == '\r'))
 
-#define TIMECODE_SCALE 1000000
+#define TIMESTAMP_SCALE 1000000
 
 void mxrun_before_exit(std::function<void()> function);
 void mxexit(int code = -1);
@@ -140,5 +132,3 @@ extern unsigned int verbose;
 
 void mtx_common_init(std::string const &program_name, char const *argv0);
 std::string const &get_program_name();
-
-#endif // MTX_COMMON_COMMON_H

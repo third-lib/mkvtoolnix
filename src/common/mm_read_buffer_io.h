@@ -12,8 +12,7 @@
    Modifications by Nils Maier <maierman@web.de>
 */
 
-#ifndef MTX_COMMON_MM_READ_BUFFER_IO_H
-#define MTX_COMMON_MM_READ_BUFFER_IO_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -32,7 +31,7 @@ protected:
   debugging_option_c m_debug_seek, m_debug_read;
 
 public:
-  mm_read_buffer_io_c(mm_io_c *in, size_t buffer_size = 1 << 12, bool delete_in = true);
+  mm_read_buffer_io_c(mm_io_c *in, size_t buffer_size = 1 << 17, bool delete_in = true);
   virtual ~mm_read_buffer_io_c();
 
   virtual uint64 getFilePointer();
@@ -48,5 +47,3 @@ protected:
 };
 
 using mm_read_buffer_io_cptr = std::shared_ptr<mm_read_buffer_io_c>;
-
-#endif // MTX_COMMON_MM_READ_BUFFER_IO_H

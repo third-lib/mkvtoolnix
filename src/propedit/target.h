@@ -8,8 +8,7 @@
    Written by Moritz Bunkus <moritz@bunkus.org>.
 */
 
-#ifndef MTX_PROPEDIT_TARGET_H
-#define MTX_PROPEDIT_TARGET_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -60,10 +59,12 @@ public:
   virtual std::string const &get_spec() const;
   virtual uint64_t get_track_uid() const;
   virtual EbmlMaster *get_level1_element() const;
+  virtual std::tuple<EbmlMaster *, EbmlMaster *> get_masters() const;
+
+  virtual bool write_elements_set_to_default_value() const;
+  virtual bool add_mandatory_elements_if_missing() const;
 
 protected:
   virtual void add_or_replace_all_master_elements(EbmlMaster *source);
 };
 using target_cptr = std::shared_ptr<target_c>;
-
-#endif // MTX_PROPEDIT_TARGET_H

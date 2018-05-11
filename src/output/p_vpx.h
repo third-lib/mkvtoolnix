@@ -11,8 +11,7 @@
    Written by Moritz Bunkus <moritz@bunkus.org>.
 */
 
-#ifndef MTX_OUTPUT_P_VPX_H
-#define MTX_OUTPUT_P_VPX_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -21,7 +20,7 @@
 
 class vpx_video_packetizer_c: public generic_packetizer_c {
 protected:
-  int64_t m_previous_timecode;
+  int64_t m_previous_timestamp;
   codec_c::type_e m_codec;
 
 public:
@@ -37,5 +36,3 @@ public:
   virtual connection_result_e can_connect_to(generic_packetizer_c *src, std::string &error_message);
   virtual bool is_compatible_with(output_compatibility_e compatibility);
 };
-
-#endif // MTX_OUTPUT_P_VPX_H

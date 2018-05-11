@@ -20,7 +20,7 @@
 #include "propedit/propedit_cli_parser.h"
 
 propedit_cli_parser_c::propedit_cli_parser_c(const std::vector<std::string> &args)
-  : cli_parser_c(args)
+  : mtx::cli::parser_c{args}
   , m_options(options_cptr(new options_c))
   , m_target(m_options->add_track_or_segmentinfo_target("segment_info"))
 {
@@ -143,6 +143,7 @@ propedit_cli_parser_c::get_ebml_type_abbrev_map() {
     s_ebml_type_abbrevs[property_element_c::EBMLT_USTRING] = "US";
     s_ebml_type_abbrevs[property_element_c::EBMLT_BINARY]  = "X";
     s_ebml_type_abbrevs[property_element_c::EBMLT_FLOAT]   = "FP";
+    s_ebml_type_abbrevs[property_element_c::EBMLT_DATE]    = "DT";
   }
 
   return s_ebml_type_abbrevs;
@@ -164,6 +165,7 @@ propedit_cli_parser_c::list_property_names() {
   mxinfo(Y("  US: Unicode string\n"));
   mxinfo(Y("  X:  binary in hex\n"));
   mxinfo(Y("  FP: floating point number\n"));
+  mxinfo(Y("  DT: date & time\n"));
 
   mxexit();
 }
@@ -262,7 +264,7 @@ propedit_cli_parser_c::init_parser() {
   add_information(YT("2. A number with the prefix '=' which will be interpreted as the attachment's unique ID (UID) as listed by 'mkvmerge --identify-verbose'. These are usually random-looking numbers (e.g. '128975986723')."), 2);
   add_information(YT("3. Either 'name:<value>' or 'mime-type:<value>' in which case the selector applies to all attachments whose name or MIME type respectively equals <value>."), 2);
 
-  add_hook(cli_parser_c::ht_unknown_option, std::bind(&propedit_cli_parser_c::set_file_name, this));
+  add_hook(mtx::cli::parser_c::ht_unknown_option, std::bind(&propedit_cli_parser_c::set_file_name, this));
 }
 
 #undef OPT

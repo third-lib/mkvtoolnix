@@ -1,10 +1,18 @@
 !define LANG "Ukrainian"
-!insertmacro LANG_STRING STRING_SHORTCUT_ON_DESKTOP "Чи треба розміщувати посилання на робочому столі?"
-!insertmacro LANG_STRING STRING_UNINSTALLED_OK "$(^Name) було успішно видалено."
-!insertmacro LANG_STRING STRING_REMOVE_PROGRAM_QUESTION "Ви дійсно хочете видалити $(^Name) і всі його компоненти?"
+
+# The next entry needs translations:
+!insertmacro LANG_STRING STRING_EXT_LINKS_INTRO "If you need a GUI for mkvextract then give these projects a try:"
+# The next entry needs translations:
+!insertmacro LANG_STRING STRING_MFF_CONTINUE_ANYWAY "Continue with installation anyway"
+# The next entry needs translations:
+!insertmacro LANG_STRING STRING_MFF_MORE_INFORMATION "More information"
+# The next entry needs translations:
+!insertmacro LANG_STRING STRING_MFF_NOT_FOUND "Your Windows installation seems to lack Microsoft's 'Media Foundation' framework. This framework is required by MKVToolNix. Please install it and run the MKVToolNix installer again."
 !insertmacro LANG_STRING STRING_REMOVE_JOB_FILES_QUESTION "Чи повинні файли завдань, створені за допомогою GUI, також бути видалені?"
+!insertmacro LANG_STRING STRING_REMOVE_PROGRAM_QUESTION "Ви дійсно хочете видалити $(^Name) і всі його компоненти?"
+!insertmacro LANG_STRING STRING_UNINSTALLED_OK "$(^Name) було успішно видалено."
 
 # Local Variables:
-# mode: nsi
+# mode: nsis
 # coding: windows-1251
 # End:

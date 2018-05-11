@@ -11,14 +11,17 @@
    Written by Moritz Bunkus <moritz@bunkus.org>.
 */
 
-#ifndef MTX_COMMON_DTS_PARSER_H
-#define MTX_COMMON_DTS_PARSER_H
+#pragma once
 
 #include "common/common_pch.h"
 
-class byte_buffer_c;
+namespace mtx {
 
-namespace mtx { namespace dts {
+namespace bytes {
+class buffer_c;
+}
+
+namespace dts {
 
 struct header_t;
 
@@ -42,9 +45,7 @@ public:
 
 protected:
   void decode_buffer();
-  void decode_step(byte_buffer_c &remainder_buffer, std::size_t multiples_of, std::function<void()> const &worker);
+  void decode_step(mtx::bytes::buffer_c &remainder_buffer, std::size_t multiples_of, std::function<void()> const &worker);
 };
 
 }}
-
-#endif // MTX_COMMON_DTS_PARSER_H

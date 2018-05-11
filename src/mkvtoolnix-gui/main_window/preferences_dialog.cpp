@@ -18,26 +18,32 @@
 #include "mkvtoolnix-gui/main_window/prefs_run_program_widget.h"
 #include "mkvtoolnix-gui/merge/additional_command_line_options_dialog.h"
 #include "mkvtoolnix-gui/util/file_dialog.h"
+#include "mkvtoolnix-gui/util/message_box.h"
+#include "mkvtoolnix-gui/util/model.h"
 #include "mkvtoolnix-gui/util/side_by_side_multi_select.h"
 #include "mkvtoolnix-gui/util/widget.h"
 
 namespace mtx { namespace gui {
 
-PreferencesDialog::PreferencesDialog(QWidget *parent)
+PreferencesDialog::PreferencesDialog(QWidget *parent,
+                                     Page pageToShow)
   : QDialog{parent, Qt::Dialog | Qt::WindowMaximizeButtonHint | Qt::WindowCloseButtonHint}
   , ui{new Ui::PreferencesDialog}
   , m_cfg(Util::Settings::get())
   , m_previousUiLocale{m_cfg.m_uiLocale}
+  , m_previousProbeRangePercentage{m_cfg.m_probeRangePercentage}
+  , m_ignoreNextCurrentChange{}
 {
   ui->setupUi(this);
 
-  setupPageSelector();
+  setupPageSelector(pageToShow);
 
   ui->tbOftenUsedXYZ->setTabPosition(m_cfg.m_tabPosition);
 
   Util::restoreWidgetGeometry(this);
 
   // GUI page
+  ui->cbGuiCheckForUpdates->setChecked(m_cfg.m_checkForUpdates);
   ui->cbGuiDisableAnimations->setChecked(m_cfg.m_disableAnimations);
   ui->cbGuiShowToolSelector->setChecked(m_cfg.m_showToolSelector);
   ui->cbGuiWarnBeforeClosingModifiedTabs->setChecked(m_cfg.m_warnBeforeClosingModifiedTabs);
@@ -45,7 +51,6 @@ PreferencesDialog::PreferencesDialog(QWidget *parent)
   ui->cbGuiWarnBeforeOverwriting->setChecked(m_cfg.m_warnBeforeOverwriting);
   ui->cbGuiShowMoveUpDownButtons->setChecked(m_cfg.m_showMoveUpDownButtons);
   setupFont();
-  setupOnlineCheck();
   setupInterfaceLanguage();
   setupTabPositions();
   setupWhenToSetDefaultLanguage();
@@ -74,7 +79,7 @@ PreferencesDialog::PreferencesDialog(QWidget *parent)
   ui->cbMDefaultAudioTrackLanguage->setAdditionalItems(m_cfg.m_defaultAudioTrackLanguage).setup().setCurrentByData(m_cfg.m_defaultAudioTrackLanguage);
   ui->cbMDefaultVideoTrackLanguage->setAdditionalItems(m_cfg.m_defaultVideoTrackLanguage).setup().setCurrentByData(m_cfg.m_defaultVideoTrackLanguage);
   ui->cbMDefaultSubtitleTrackLanguage->setAdditionalItems(m_cfg.m_defaultSubtitleTrackLanguage).setup().setCurrentByData(m_cfg.m_defaultSubtitleTrackLanguage);
-  ui->cbMDefaultSubtitleCharset->setAdditionalItems(m_cfg.m_defaultSubtitleCharset).setup(true, QY("– no selection by default –")).setCurrentByData(m_cfg.m_defaultSubtitleCharset);
+  ui->cbMDefaultSubtitleCharset->setAdditionalItems(m_cfg.m_defaultSubtitleCharset).setup(true, QY("– No selection by default –")).setCurrentByData(m_cfg.m_defaultSubtitleCharset);
   ui->leMDefaultAdditionalCommandLineOptions->setText(m_cfg.m_defaultAdditionalMergeOptions);
   ui->cbMProbeRangePercentage->setValue(m_cfg.m_probeRangePercentage);
 
@@ -86,10 +91,11 @@ PreferencesDialog::PreferencesDialog(QWidget *parent)
   setupTrackPropertiesLayout();
 
   // Chapter editor page
-  ui->leCENameTemplate->setText(m_cfg.m_chapterNameTemplate);
   ui->cbCEDropLastFromBlurayPlaylist->setChecked(m_cfg.m_dropLastChapterFromBlurayPlaylist);
+  ui->cbCETextFileCharacterSet->setAdditionalItems(m_cfg.m_ceTextFileCharacterSet).setup(true, QY("Always ask the user")).setCurrentByData(m_cfg.m_ceTextFileCharacterSet);
+  ui->leCENameTemplate->setText(m_cfg.m_chapterNameTemplate);
   ui->cbCEDefaultLanguage->setAdditionalItems(m_cfg.m_defaultChapterLanguage).setup().setCurrentByData(m_cfg.m_defaultChapterLanguage);
-  ui->cbCEDefaultCountry->setAdditionalItems(m_cfg.m_defaultChapterCountry).setup(true, QY("– no selection by default –")).setCurrentByData(m_cfg.m_defaultChapterCountry);
+  ui->cbCEDefaultCountry->setAdditionalItems(m_cfg.m_defaultChapterCountry).setup(true, QY("– No selection by default –")).setCurrentByData(m_cfg.m_defaultChapterCountry);
 
   // Header editor page
   setupHeaderEditorDroppedFilesPolicy();
@@ -112,10 +118,21 @@ PreferencesDialog::uiLocaleChanged()
   return m_previousUiLocale != m_cfg.m_uiLocale;
 }
 
+bool
+PreferencesDialog::probeRangePercentageChanged()
+  const {
+  return m_previousProbeRangePercentage != m_cfg.m_probeRangePercentage;
+}
+
 void
 PreferencesDialog::pageSelectionChanged(QModelIndex const &current) {
   if (!current.isValid())
     return;
+
+  if (m_ignoreNextCurrentChange) {
+    m_ignoreNextCurrentChange = false;
+    return;
+  }
 
   auto page = qobject_cast<QStandardItemModel *>(ui->pageSelector->model())
     ->itemFromIndex(current.sibling(current.row(), 0))
@@ -124,17 +141,30 @@ PreferencesDialog::pageSelectionChanged(QModelIndex const &current) {
   ui->pages->setCurrentIndex(page);
 }
 
+QModelIndex
+PreferencesDialog::modelIndexForPage(int page) {
+  auto &model  = *qobject_cast<QStandardItemModel *>(ui->pageSelector->model());
+  auto pageIdx = Util::findIndex(model, [page, &model](QModelIndex const &idxToTest) {
+    return model.itemFromIndex(idxToTest)->data().value<int>() == page;
+  });
+
+  return pageIdx;
+}
+
 void
-PreferencesDialog::setupPageSelector() {
+PreferencesDialog::setupPageSelector(Page pageToShow) {
   m_cfg.handleSplitterSizes(ui->pagesSplitter);
 
-  auto model = new QStandardItemModel{};
+  auto pageIndex = 0;
+  auto model     = new QStandardItemModel{};
   ui->pageSelector->setModel(model);
 
-  auto addItem = [model](int page, QStandardItem *parent, QString const &text, QString const &icon = QString{}) -> QStandardItem * {
+  auto addItem = [this, model, &pageIndex](Page pageType, QStandardItem *parent, QString const &text, QString const &icon = QString{}) -> QStandardItem * {
     auto item = new QStandardItem{text};
 
-    item->setData(page);
+    item->setData(pageIndex);
+    m_pageIndexes[pageType] = pageIndex++;
+
     if (!icon.isEmpty())
       item->setIcon(QIcon{Q(":/icons/16x16/%1.png").arg(icon)});
 
@@ -146,26 +176,24 @@ PreferencesDialog::setupPageSelector() {
     return item;
   };
 
-  auto page      = 0;
-  auto pGui      = addItem(page++, nullptr, QY("GUI"),               "mkvtoolnix-gui");
-                   addItem(page++, pGui,    QY("Often used selections"));
-  auto pMerge    = addItem(page++, nullptr, QY("Merge tool"),        "merge");
-                   addItem(page++, pMerge,  QY("Default values"));
-                   addItem(page++, pMerge,  QY("Output"));
-                   addItem(page++, pMerge,  QY("Enabling tracks"));
-                   addItem(page++, pMerge,  QY("Playlists"));
-                   addItem(page++, nullptr, QY("Header editor"),     "document-edit");
-                   addItem(page++, nullptr, QY("Chapter editor"),    "story-editor");
-  auto pJobs     = addItem(page++, nullptr, QY("Jobs & job queue"),  "view-task");
-                   addItem(page++, pJobs,   QY("Executing programs"));
+  auto pGui      = addItem(Page::Gui,                 nullptr, QY("GUI"),                   "mkvtoolnix-gui");
+                   addItem(Page::OftenUsedSelections, pGui,    QY("Often used selections"));
+  auto pMerge    = addItem(Page::Merge,               nullptr, QY("Multiplexer"),           "merge");
+                   addItem(Page::DefaultValues,       pMerge,  QY("Default values"));
+                   addItem(Page::Output,              pMerge,  QY("Output"));
+                   addItem(Page::EnablingTracks,      pMerge,  QY("Enabling tracks"));
+                   addItem(Page::Playlists,           pMerge,  QY("Playlists"));
+                   addItem(Page::HeaderEditor,        nullptr, QY("Header editor"),         "document-edit");
+                   addItem(Page::ChapterEditor,       nullptr, QY("Chapter editor"),        "story-editor");
+  auto pJobs     = addItem(Page::Jobs,                nullptr, QY("Jobs & job queue"),      "view-task");
+                   addItem(Page::RunPrograms,         pJobs,   QY("Executing actions"));
 
   for (auto row = 0, numRows = model->rowCount(); row < numRows; ++row)
     ui->pageSelector->setExpanded(model->index(row, 0), true);
 
   ui->pageSelector->setMinimumSize(ui->pageSelector->minimumSizeHint());
 
-  auto selection = QItemSelection{model->index(0, 0), model->index(0, 0)};
-  ui->pageSelector->selectionModel()->select(selection, QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Current);
+  showPage(pageToShow);
 
   connect(ui->pageSelector->selectionModel(), &QItemSelectionModel::currentChanged, this, &PreferencesDialog::pageSelectionChanged);
 }
@@ -175,33 +203,33 @@ PreferencesDialog::setupToolTips() {
   // GUI page
   Util::setToolTip(ui->cbGuiCheckForUpdates,
                    Q("%1 %2 %3")
-                   .arg(QY("If enabled the program will check online whether or not a new release of MKVToolNix is available on the home page."))
+                   .arg(QY("If enabled, the program will check online whether or not a new release of MKVToolNix is available on the home page."))
                    .arg(QY("This is done at startup and at most once within 24 hours."))
                    .arg(QY("No information is transmitted to the server.")));
 
-  Util::setToolTip(ui->cbGuiDisableAnimations, QY("If checked several short animations used throughout the program as visual clues for the user will be disabled."));
+  Util::setToolTip(ui->cbGuiDisableAnimations, QY("If checked, several short animations used throughout the program as visual clues for the user will be disabled."));
   Util::setToolTip(ui->cbGuiWarnBeforeClosingModifiedTabs,
                    Q("%1 %2")
-                   .arg(QY("If checked the program will ask for confirmation before closing or reloading tabs that have been modified."))
+                   .arg(QY("If checked, the program will ask for confirmation before closing or reloading tabs that have been modified."))
                    .arg(QY("This is also done when quitting the application.")));
   Util::setToolTip(ui->cbGuiWarnBeforeAbortingJobs,
                    Q("%1 %2")
-                   .arg(QY("If checked the program will ask for confirmation before aborting a running job."))
+                   .arg(QY("If checked, the program will ask for confirmation before aborting a running job."))
                    .arg(QY("This happens when clicking the \"abort job\" button in a \"job output\" tab and when quitting the application.")));
 
   Util::setToolTip(ui->cbGuiShowMoveUpDownButtons,
                    Q("%1 %2")
                    .arg(QY("Normally selected entries in list view can be moved around via drag & drop and with keyboard shortcuts (Ctrl+Up, Ctrl+Down)."))
-                   .arg(QY("If checked additional buttons for moving selected entries up and down will be shown next to several list views.")));
+                   .arg(QY("If checked, additional buttons for moving selected entries up and down will be shown next to several list views.")));
 
-  Util::setToolTip(ui->cbGuiWarnBeforeOverwriting, QY("If enabled the program will ask for confirmation before overwriting files and jobs."));
+  Util::setToolTip(ui->cbGuiWarnBeforeOverwriting, QY("If enabled, the program will ask for confirmation before overwriting files and jobs."));
 
-  Util::setToolTip(ui->cbGuiUseDefaultJobDescription, QY("If disabled the GUI will let you enter a description for a job when adding it to the queue."));
-  Util::setToolTip(ui->cbGuiShowOutputOfAllJobs,      QY("If enabled the first tab in the \"job output\" tool will not be cleared when a new job starts."));
-  Util::setToolTip(ui->cbGuiSwitchToJobOutputAfterStarting, QY("If enabled the GUI will automatically switch to the job output tool whenever you start a job (e.g. by pressing \"start muxing\")."));
-  Util::setToolTip(ui->cbGuiResetJobWarningErrorCountersOnExit, QY("If enabled the warning and error counters of all jobs and the global counters in the status bar will be reset to 0 when the program exits."));
-  Util::setToolTip(ui->cbGuiRemoveOldJobs,                      QY("If enabled the GUI will remove completed jobs older than the configured number of days no matter their status on exit."));
-  Util::setToolTip(ui->sbGuiRemoveOldJobsDays,                  QY("If enabled the GUI will remove completed jobs older than the configured number of days no matter their status on exit."));
+  Util::setToolTip(ui->cbGuiUseDefaultJobDescription, QY("If disabled, the GUI will let you enter a description for a job when adding it to the queue."));
+  Util::setToolTip(ui->cbGuiShowOutputOfAllJobs,      QY("If enabled, the first tab in the \"job output\" tool will not be cleared when a new job starts."));
+  Util::setToolTip(ui->cbGuiSwitchToJobOutputAfterStarting,     QY("If enabled, the GUI will automatically switch to the job output tool whenever you start a job (e.g. by pressing \"start multiplexing\")."));
+  Util::setToolTip(ui->cbGuiResetJobWarningErrorCountersOnExit, QY("If enabled, the warning and error counters of all jobs and the global counters in the status bar will be reset to 0 when the program exits."));
+  Util::setToolTip(ui->cbGuiRemoveOldJobs,                      QY("If enabled, the GUI will remove completed jobs older than the configured number of days no matter their status on exit."));
+  Util::setToolTip(ui->sbGuiRemoveOldJobsDays,                  QY("If enabled, the GUI will remove completed jobs older than the configured number of days no matter their status on exit."));
 
   Util::setToolTip(ui->cbGuiRemoveJobs,
                    Q("%1 %2")
@@ -214,22 +242,27 @@ PreferencesDialog::setupToolTips() {
   Util::setToolTip(ui->cbCEDropLastFromBlurayPlaylist,
                    Q("%1 %2")
                    .arg(QY("Blu-ray discs often contain a chapter entry very close to the end of the movie."))
-                   .arg(QY("If enabled the last entry will be skipped when loading chapters from such playlists in the chapter editor if it is located within five seconds of the end of the movie.")));
+                   .arg(QY("If enabled, the last entry will be skipped when loading chapters from such playlists in the chapter editor if it is located within five seconds of the end of the movie.")));
+  Util::setToolTip(ui->cbCETextFileCharacterSet,
+                   Q("%1 %2 %3")
+                   .arg(QY("The chapter editor needs to know the character set a text chapter file uses in order to display all characters properly."))
+                   .arg(QY("By default it always asks the user which character set to use when opening a file for which it cannot be recognized automatically."))
+                   .arg(QY("If a character set is selected here, it will be used instead of asking the user.")));
 
   // Merge page
   Util::setToolTip(ui->cbMAutoSetFileTitle,
                    Q("<p>%1 %2</p><p>%3</p>")
                    .arg(QYH("Certain file formats have 'title' property."))
-                   .arg(QYH("When the user adds a file containing such a title then the program will copy the title into the \"file title\" input box if this option is enabled."))
+                   .arg(QYH("When the user adds a file containing such a title, the program will copy the title into the \"file title\" input box if this option is enabled."))
                    .arg(QYH("Note that even if the option is disabled mkvmerge will copy a source file's title property unless a title is manually set by the user.")));
-  Util::setToolTip(ui->cbMAutoClearFileTitle, QY("If this option is enabled the GUI will always clear the \"file title\" input box whenever the last source file is removed."));
+  Util::setToolTip(ui->cbMAutoClearFileTitle, QY("If this option is enabled, the GUI will always clear the \"file title\" input box whenever the last source file is removed."));
 
   Util::setToolTip(ui->cbMSetAudioDelayFromFileName,
                    Q("%1 %2")
                    .arg(QY("When a file is added its name is scanned."))
-                   .arg(QY("If it contains the word 'DELAY' followed by a number then this number is automatically put into the 'delay' input field for any audio track found in the file.")));
+                   .arg(QY("If it contains the word 'DELAY' followed by a number, this number is automatically put into the 'delay' input field for any audio track found in the file.")));
 
-  Util::setToolTip(ui->cbMDisableDefaultTrackForSubtitles, QY("If enabled all subtitle tracks will have their \"default track\" flag set to \"no\" when they're added."));
+  Util::setToolTip(ui->cbMDisableDefaultTrackForSubtitles, QY("If enabled, all subtitle tracks will have their \"default track\" flag set to \"no\" when they're added."));
 
   Util::setToolTip(ui->cbMDisableCompressionForAllTrackTypes,
                    Q("%1 %2")
@@ -240,11 +273,11 @@ PreferencesDialog::setupToolTips() {
                    Q("%1 %2 %3")
                    .arg(QY("File types such as MPEG program and transport streams (.vob, .m2ts) require parsing a certain amount of data in order to detect all tracks contained in the file."))
                    .arg(Q(YF("This amount is 0.3% of the source file's size or 10 MB, whichever is higher.")))
-                   .arg(QY("If tracks are known to be present but not found then the percentage to probe can be changed here.")));
+                   .arg(QY("If tracks are known to be present but not found, the percentage to probe can be changed here.")));
 
   Util::setToolTip(ui->cbMAlwaysShowOutputFileControls,
                    Q("%1 %2")
-                   .arg(QY("If enabled the output file name controls will always be visible no matter which tab is currently shown."))
+                   .arg(QY("If enabled, the destination file name controls will always be visible no matter which tab is currently shown."))
                    .arg(QY("Otherwise they're shown on the 'output' tab.")));
 
   auto controls = QWidgetList{} << ui->rbMTrackPropertiesLayoutHorizontalScrollArea << ui->rbMTrackPropertiesLayoutHorizontalTwoColumns << ui->rbMTrackPropertiesLayoutVerticalTabWidget;
@@ -257,18 +290,19 @@ PreferencesDialog::setupToolTips() {
                      .arg(QYH("The horizontal layout with two fixed columns results in a wider window while the vertical tab widget layout results in a higher window.")));
 
   Util::setToolTip(ui->cbMClearMergeSettings,
-                   Q("<p>%1</p><ol><li>%2 %3</li><li>%4 %5</li></ol>")
-                   .arg(QYH("The GUI can help you start your next merge settings after having started a job or having added a one to the job queue."))
-                   .arg(QYH("With \"create new settings\" a new set of merge settings will be added."))
-                   .arg(QYH("The current merge settings will be closed."))
-                   .arg(QYH("With \"remove input files\" all input files will be removed."))
-                   .arg(QYH("Most of the other settings on the output tab will be kept intact, though.")));
+                   Q("<p>%1</p><ol><li>%2 %3</li><li>%4 %5</li><li>%6</li></ol>")
+                   .arg(QYH("The GUI can help you start your next multiplex settings after having started a job or having added a one to the job queue."))
+                   .arg(QYH("With \"create new settings\" a new set of multiplex settings will be added."))
+                   .arg(QYH("The current multiplex settings will be closed."))
+                   .arg(QYH("With \"remove source files\" all source files will be removed."))
+                   .arg(QYH("Most of the other settings on the output tab will be kept intact, though."))
+                   .arg(QYH("With \"close current settings\" the current multiplex settings will be closed without opening new ones.")));
 
   Util::setToolTip(ui->cbMAddingAppendingFilesPolicy,
                    Q("%1 %2 %3")
-                   .arg(QY("When the user drags & drops files from an external application onto the merge tool the GUI can take different actions."))
-                   .arg(QY("The default is to always add all the files to the current merge settings."))
-                   .arg(QY("The GUI can also ask the user what to do each time, e.g. appending them instead of adding them, or creating new merge settings and adding them to those.")));
+                   .arg(QY("When the user drags & drops files from an external application onto the multiplex tool the GUI can take different actions."))
+                   .arg(QY("The default is to always add all the files to the current multiplex settings."))
+                   .arg(QY("The GUI can also ask the user what to do each time, e.g. appending them instead of adding them, or creating new multiplex settings and adding them to those.")));
 
   Util::setToolTip(ui->cbMDefaultAudioTrackLanguage,
                    Q("<p>%1 %2</p><p>%3 %4</p>")
@@ -289,9 +323,9 @@ PreferencesDialog::setupToolTips() {
                    .arg(QYH("The language selected here is used for subtitle tracks for which their source file contains no such property."))
                    .arg(QYH("Depending on the setting below this language can also be used if the language in the source file is 'undetermined' ('und').")));
 
-  Util::setToolTip(ui->cbMDefaultSubtitleCharset, QY("If a character set is selected here then the program will automatically set the character set input to this value for newly added text subtitle tracks."));
+  Util::setToolTip(ui->cbMDefaultSubtitleCharset, QY("If a character set is selected here, the program will automatically set the character set input to this value for newly added text subtitle tracks."));
 
-  Util::setToolTip(ui->leMDefaultAdditionalCommandLineOptions, QY("The options entered here are set for all new merge jobs by default."));
+  Util::setToolTip(ui->leMDefaultAdditionalCommandLineOptions, QY("The options entered here are set for all new multiplex jobs by default."));
 
   Util::setToolTip(ui->cbMScanPlaylistsPolicy,
                    Q("<p>%1 %2</p><p>%3</p>")
@@ -304,47 +338,52 @@ PreferencesDialog::setupToolTips() {
 
   Util::setToolTip(ui->cbMAutoSetOutputFileName,
                    Q("%1 %2")
-                   .arg(QY("If this option is enabled and if there is currently no output file name set then the program will set one for you when you add an input file."))
-                   .arg(QY("The generated output file name has the same base name as the input file name but with an extension based on the track types present in the file.")));
+                   .arg(QY("If this option is enabled and if there is currently no destination file name set, the program will set one for you when you add a source file."))
+                   .arg(QY("The generated destination file name has the same base name as the source file name but with an extension based on the track types present in the file.")));
+
+  Util::setToolTip(ui->cbMAutoDestinationOnlyForVideoFiles,
+                   Q("%1 %2")
+                   .arg(QY("If this option is enabled, only source files containing video tracks will be used for setting the destination file name."))
+                   .arg(QY("Other files are ignored when they're added.")));
 
   Util::setToolTip(ui->cbMUniqueOutputFileNames,
                    Q("%1 %2")
-                   .arg(QY("If checked the program makes sure the suggested output file name is unique by adding a number (e.g. ' (1)') to the end of the file name."))
-                   .arg(QY("This is done only if there is already a file whose name matches the unmodified output file name.")));
-  Util::setToolTip(ui->cbMAutoClearOutputFileName, QY("If this option is enabled the GUI will always clear the \"output file name\" input box whenever the last source file is removed."));
+                   .arg(QY("If checked, the program makes sure the suggested destination file name is unique by adding a number (e.g. ' (1)') to the end of the file name."))
+                   .arg(QY("This is done only if there is already a file whose name matches the unmodified destination file name.")));
+  Util::setToolTip(ui->cbMAutoClearOutputFileName, QY("If this option is enabled, the GUI will always clear the \"destination file name\" input box whenever the last source file is removed."));
 
   Util::setToolTip(ui->cbMEnableMuxingTracksByLanguage,
                    Q("<p>%1 %2 %3</p><p>%4</p>")
-                   .arg(QYH("When adding source files all tracks are normally set to be muxed into the output file."))
-                   .arg(QYH("If this option is enabled then only those tracks will be set to be muxed whose language is selected below."))
+                   .arg(QYH("When adding source files all tracks are normally set to be copied into the destination file."))
+                   .arg(QYH("If this option is enabled, only those tracks will be set to be copied whose language is selected below."))
                    .arg(QYH("You can exempt certain track types from this restriction by checking the corresponding check box below, e.g. for video tracks."))
                    .arg(QYH("Note that the language \"Undetermined (und)\" is assumed for tracks for which no language is known (e.g. those read from SRT subtitle files).")));
-  Util::setToolTip(ui->cbMEnableMuxingAllVideoTracks,    QY("If enabled then tracks of this type will always be set to be muxed regardless of their language."));
-  Util::setToolTip(ui->cbMEnableMuxingAllAudioTracks,    QY("If enabled then tracks of this type will always be set to be muxed regardless of their language."));
-  Util::setToolTip(ui->cbMEnableMuxingAllSubtitleTracks, QY("If enabled then tracks of this type will always be set to be muxed regardless of their language."));
-  ui->tbMEnableMuxingTracksByLanguage->setToolTips(QY("Tracks with a language in this list will be set not to be muxed by default."),
-                                                   QY("Only tracks with a language in this list will be set to be muxed by default."));
+  Util::setToolTip(ui->cbMEnableMuxingAllVideoTracks,    QY("If enabled, tracks of this type will always be set to be copied regardless of their language."));
+  Util::setToolTip(ui->cbMEnableMuxingAllAudioTracks,    QY("If enabled, tracks of this type will always be set to be copied regardless of their language."));
+  Util::setToolTip(ui->cbMEnableMuxingAllSubtitleTracks, QY("If enabled, tracks of this type will always be set to be copied regardless of their language."));
+  ui->tbMEnableMuxingTracksByLanguage->setToolTips(QY("Tracks with a language in this list will be set not to be copied by default."),
+                                                   QY("Only tracks with a language in this list will be set to be copied by default."));
 
   // Often used XYZ page
-  ui->tbOftenUsedLanguages->setToolTips(QY("The languages selected here will be shown at the top of all the language drop-down boxes in the program."),
-                                        QY("The languages selected here will be shown at the top of all the language drop-down boxes in the program."));
+  ui->tbOftenUsedLanguages->setToolTips(QY("The languages in the 'selected' list on the right will be shown at the top of all the language drop-down boxes in the program."),
+                                        QY("The languages in the 'selected' list on the right will be shown at the top of all the language drop-down boxes in the program."));
   Util::setToolTip(ui->cbOftenUsedLanguagesOnly,
                    Q("%1 %2")
-                   .arg(QYH("If checked only the list of often used entries will be included in the selections in the program."))
+                   .arg(QYH("If checked, only the list of often used entries will be included in the selections in the program."))
                    .arg(QYH("Otherwise the often used entries will be included first and the full list of all entries afterwards.")));
 
-  ui->tbOftenUsedCountries->setToolTips(QY("The countries selected here will be shown at the top of all the country drop-down boxes in the program."),
-                                        QY("The countries selected here will be shown at the top of all the country drop-down boxes in the program."));
+  ui->tbOftenUsedCountries->setToolTips(QY("The countries in the 'selected' list on the right will be shown at the top of all the country drop-down boxes in the program."),
+                                        QY("The countries in the 'selected' list on the right will be shown at the top of all the country drop-down boxes in the program."));
   Util::setToolTip(ui->cbOftenUsedCountriesOnly,
                    Q("%1 %2")
-                   .arg(QYH("If checked only the list of often used entries will be included in the selections in the program."))
+                   .arg(QYH("If checked, only the list of often used entries will be included in the selections in the program."))
                    .arg(QYH("Otherwise the often used entries will be included first and the full list of all entries afterwards.")));
 
-  ui->tbOftenUsedCharacterSets->setToolTips(QY("The character sets selected here will be shown at the top of all the character set drop-down boxes in the program."),
-                                            QY("The character sets selected here will be shown at the top of all the character set drop-down boxes in the program."));
+  ui->tbOftenUsedCharacterSets->setToolTips(QY("The character sets in the 'selected' list on the right will be shown at the top of all the character set drop-down boxes in the program."),
+                                            QY("The character sets in the 'selected' list on the right will be shown at the top of all the character set drop-down boxes in the program."));
   Util::setToolTip(ui->cbOftenUsedCharacterSetsOnly,
                    Q("%1 %2")
-                   .arg(QYH("If checked only the list of often used entries will be included in the selections in the program."))
+                   .arg(QYH("If checked, only the list of often used entries will be included in the selections in the program."))
                    .arg(QYH("Otherwise the often used entries will be included first and the full list of all entries afterwards.")));
 
   // Header editor  page
@@ -384,14 +423,6 @@ PreferencesDialog::setupConnections() {
   connect(ui->tbOftenUsedLanguages,                       &Util::SideBySideMultiSelect::listsChanged,                    this,                                 &PreferencesDialog::enableOftendUsedLanguagesOnly);
   connect(ui->tbOftenUsedCountries,                       &Util::SideBySideMultiSelect::listsChanged,                    this,                                 &PreferencesDialog::enableOftendUsedCountriesOnly);
   connect(ui->tbOftenUsedCharacterSets,                   &Util::SideBySideMultiSelect::listsChanged,                    this,                                 &PreferencesDialog::enableOftendUsedCharacterSetsOnly);
-}
-
-void
-PreferencesDialog::setupOnlineCheck() {
-  ui->cbGuiCheckForUpdates->setChecked(m_cfg.m_checkForUpdates);
-#if !defined(HAVE_CURL_EASY_H)
-  ui->cbGuiCheckForUpdates->setVisible(false);
-#endif  // HAVE_CURL_EASY_H
 }
 
 void
@@ -451,12 +482,12 @@ PreferencesDialog::setupCommonCharacterSets() {
 void
 PreferencesDialog::setupProcessPriority() {
 #if defined(SYS_WINDOWS)
-  ui->cbMProcessPriority->addItem(QY("highest"), static_cast<int>(Util::Settings::HighestPriority)); // value 4, index 0
-  ui->cbMProcessPriority->addItem(QY("higher"),  static_cast<int>(Util::Settings::HighPriority));    // value 3, index 1
+  ui->cbMProcessPriority->addItem(QY("Highest priority"), static_cast<int>(Util::Settings::HighestPriority)); // value 4, index 0
+  ui->cbMProcessPriority->addItem(QY("Higher priority"),  static_cast<int>(Util::Settings::HighPriority));    // value 3, index 1
 #endif
-  ui->cbMProcessPriority->addItem(QY("normal"),  static_cast<int>(Util::Settings::NormalPriority));  // value 2, index 2/0
-  ui->cbMProcessPriority->addItem(QY("lower"),   static_cast<int>(Util::Settings::LowPriority));     // value 1, index 3/1
-  ui->cbMProcessPriority->addItem(QY("lowest"),  static_cast<int>(Util::Settings::LowestPriority));  // value 0, index 4/2
+  ui->cbMProcessPriority->addItem(QY("Normal priority"),  static_cast<int>(Util::Settings::NormalPriority));  // value 2, index 2/0
+  ui->cbMProcessPriority->addItem(QY("Lower priority"),   static_cast<int>(Util::Settings::LowPriority));     // value 1, index 3/1
+  ui->cbMProcessPriority->addItem(QY("Lowest priority"),  static_cast<int>(Util::Settings::LowestPriority));  // value 0, index 4/2
 
   auto numPrios = ui->cbMProcessPriority->count();
   auto selected = 4 - static_cast<int>(m_cfg.m_priority) - (5 - numPrios);
@@ -486,6 +517,7 @@ PreferencesDialog::setupOutputFileNamePolicy() {
                  :                                                                              ui->rbMAutoSetSameDirectory;
 
   ui->cbMAutoSetOutputFileName->setChecked(isChecked);
+  ui->cbMAutoDestinationOnlyForVideoFiles->setChecked(m_cfg.m_autoDestinationOnlyForVideoFiles);
   rbToCheck->setChecked(true);
   ui->leMAutoSetRelativeDirectory->setText(QDir::toNativeSeparators(m_cfg.m_relativeOutputDir.path()));
   ui->leMAutoSetFixedDirectory->setText(QDir::toNativeSeparators(m_cfg.m_fixedOutputDir.path()));
@@ -512,10 +544,10 @@ PreferencesDialog::setupEnableMuxingTracksByLanguage() {
 
 void
 PreferencesDialog::setupMergeAddingAppendingFilesPolicy() {
-  ui->cbMAddingAppendingFilesPolicy->addItem(QY("ask the user"),                                               static_cast<int>(Util::Settings::MergeAddingAppendingFilesPolicy::Ask));
-  ui->cbMAddingAppendingFilesPolicy->addItem(QY("add all files to the current merge settings"),                static_cast<int>(Util::Settings::MergeAddingAppendingFilesPolicy::Add));
-  ui->cbMAddingAppendingFilesPolicy->addItem(QY("create one new merge settings tab and add all files there"),  static_cast<int>(Util::Settings::MergeAddingAppendingFilesPolicy::AddToNew));
-  ui->cbMAddingAppendingFilesPolicy->addItem(QY("create one new merge settings tab for each file"),            static_cast<int>(Util::Settings::MergeAddingAppendingFilesPolicy::AddEachToNew));
+  ui->cbMAddingAppendingFilesPolicy->addItem(QY("Always ask the user"),                                           static_cast<int>(Util::Settings::MergeAddingAppendingFilesPolicy::Ask));
+  ui->cbMAddingAppendingFilesPolicy->addItem(QY("Add all files to the current multiplex settings"),               static_cast<int>(Util::Settings::MergeAddingAppendingFilesPolicy::Add));
+  ui->cbMAddingAppendingFilesPolicy->addItem(QY("Create one new multiplex settings tab and add all files there"), static_cast<int>(Util::Settings::MergeAddingAppendingFilesPolicy::AddToNew));
+  ui->cbMAddingAppendingFilesPolicy->addItem(QY("Create one new multiplex settings tab for each file"),           static_cast<int>(Util::Settings::MergeAddingAppendingFilesPolicy::AddEachToNew));
 
   Util::setComboBoxIndexIf(ui->cbMAddingAppendingFilesPolicy, [this](QString const &, QVariant const &data) {
     return data.isValid() && (static_cast<Util::Settings::MergeAddingAppendingFilesPolicy>(data.toInt()) == m_cfg.m_mergeAddingAppendingFilesPolicy);
@@ -526,9 +558,9 @@ PreferencesDialog::setupMergeAddingAppendingFilesPolicy() {
 
 void
 PreferencesDialog::setupHeaderEditorDroppedFilesPolicy() {
-  ui->cbHEDroppedFilesPolicy->addItem(QY("ask the user"),                                        static_cast<int>(Util::Settings::HeaderEditorDroppedFilesPolicy::Ask));
-  ui->cbHEDroppedFilesPolicy->addItem(QY("open all files as tabs in the header editor"),         static_cast<int>(Util::Settings::HeaderEditorDroppedFilesPolicy::Open));
-  ui->cbHEDroppedFilesPolicy->addItem(QY("add all files as new attachments to the current tab"), static_cast<int>(Util::Settings::HeaderEditorDroppedFilesPolicy::AddAttachments));
+  ui->cbHEDroppedFilesPolicy->addItem(QY("Always ask the user"),                                 static_cast<int>(Util::Settings::HeaderEditorDroppedFilesPolicy::Ask));
+  ui->cbHEDroppedFilesPolicy->addItem(QY("Open all files as tabs in the header editor"),         static_cast<int>(Util::Settings::HeaderEditorDroppedFilesPolicy::Open));
+  ui->cbHEDroppedFilesPolicy->addItem(QY("Add all files as new attachments to the current tab"), static_cast<int>(Util::Settings::HeaderEditorDroppedFilesPolicy::AddAttachments));
 
   Util::setComboBoxIndexIf(ui->cbHEDroppedFilesPolicy, [this](QString const &, QVariant const &data) {
     return data.isValid() && (static_cast<Util::Settings::HeaderEditorDroppedFilesPolicy>(data.toInt()) == m_cfg.m_headerEditorDroppedFilesPolicy);
@@ -549,10 +581,10 @@ PreferencesDialog::setupTrackPropertiesLayout() {
 void
 PreferencesDialog::setupTabPositions() {
   ui->cbGuiTabPositions->clear();
-  ui->cbGuiTabPositions->addItem(QY("top"),    static_cast<int>(QTabWidget::North));
-  ui->cbGuiTabPositions->addItem(QY("bottom"), static_cast<int>(QTabWidget::South));
-  ui->cbGuiTabPositions->addItem(QY("left"),   static_cast<int>(QTabWidget::West));
-  ui->cbGuiTabPositions->addItem(QY("right"),  static_cast<int>(QTabWidget::East));
+  ui->cbGuiTabPositions->addItem(QY("Top"),    static_cast<int>(QTabWidget::North));
+  ui->cbGuiTabPositions->addItem(QY("Bottom"), static_cast<int>(QTabWidget::South));
+  ui->cbGuiTabPositions->addItem(QY("Left"),   static_cast<int>(QTabWidget::West));
+  ui->cbGuiTabPositions->addItem(QY("Right"),  static_cast<int>(QTabWidget::East));
 
   Util::setComboBoxIndexIf(ui->cbGuiTabPositions, [this](QString const &, QVariant const &data) {
     return data.toInt() == static_cast<int>(m_cfg.m_tabPosition);
@@ -562,8 +594,8 @@ PreferencesDialog::setupTabPositions() {
 void
 PreferencesDialog::setupWhenToSetDefaultLanguage() {
   ui->cbMWhenToSetDefaultLanguage->clear();
-  ui->cbMWhenToSetDefaultLanguage->addItem(QY("only if the source doesn't contain a language"),  static_cast<int>(Util::Settings::SetDefaultLanguagePolicy::OnlyIfAbsent));
-  ui->cbMWhenToSetDefaultLanguage->addItem(QY("also if the language is 'undetermined' ('und')"), static_cast<int>(Util::Settings::SetDefaultLanguagePolicy::IfAbsentOrUndetermined));
+  ui->cbMWhenToSetDefaultLanguage->addItem(QY("Only if the source doesn't contain a language"),  static_cast<int>(Util::Settings::SetDefaultLanguagePolicy::OnlyIfAbsent));
+  ui->cbMWhenToSetDefaultLanguage->addItem(QY("Also if the language is 'undetermined' ('und')"), static_cast<int>(Util::Settings::SetDefaultLanguagePolicy::IfAbsentOrUndetermined));
 
   Util::setComboBoxIndexIf(ui->cbMWhenToSetDefaultLanguage, [this](QString const &, QVariant const &data) {
     return data.toInt() == static_cast<int>(m_cfg.m_whenToSetDefaultLanguage);
@@ -578,9 +610,9 @@ PreferencesDialog::setupJobsRunPrograms() {
     auto widget = new PrefsRunProgramWidget{ui->twJobsPrograms, *runProgramConfig};
     ui->twJobsPrograms->addTab(widget, {});
 
-    setTabTitleForRunProgramExecutable(ui->twJobsPrograms->count() - 1, runProgramConfig->m_commandLine.value(0));
+    setTabTitleForRunProgramWidget(ui->twJobsPrograms->count() - 1, runProgramConfig->name());
 
-    connect(widget, &PrefsRunProgramWidget::executableChanged, this, &PreferencesDialog::setSendersTabTitleForRunProgramExecutable);
+    connect(widget, &PrefsRunProgramWidget::titleChanged, this, &PreferencesDialog::setSendersTabTitleForRunProgramWidget);
   }
 
   if (!m_cfg.m_runProgramConfigurations.isEmpty())
@@ -621,6 +653,7 @@ PreferencesDialog::save() {
   m_cfg.m_removeOldJobsDays                  = ui->sbGuiRemoveOldJobsDays->value();
 
   m_cfg.m_chapterNameTemplate                = ui->leCENameTemplate->text();
+  m_cfg.m_ceTextFileCharacterSet             = ui->cbCETextFileCharacterSet->currentData().toString();
   m_cfg.m_defaultChapterLanguage             = ui->cbCEDefaultLanguage->currentData().toString();
   m_cfg.m_defaultChapterCountry              = ui->cbCEDefaultCountry->currentData().toString();
   m_cfg.m_dropLastChapterFromBlurayPlaylist  = ui->cbCEDropLastFromBlurayPlaylist->isChecked();
@@ -654,6 +687,7 @@ PreferencesDialog::save() {
                                              : ui->rbMAutoSetFixedDirectory->isChecked()    ? Util::Settings::ToFixedDirectory
                                              : ui->rbMAutoSetPreviousDirectory->isChecked() ? Util::Settings::ToPreviousDirectory
                                              :                                                Util::Settings::ToSameAsFirstInputFile;
+  m_cfg.m_autoDestinationOnlyForVideoFiles   = ui->cbMAutoDestinationOnlyForVideoFiles->isChecked();
   m_cfg.m_relativeOutputDir                  = ui->leMAutoSetRelativeDirectory->text();
   m_cfg.m_fixedOutputDir                     = ui->leMAutoSetFixedDirectory->text();
   m_cfg.m_uniqueOutputFileNames              = ui->cbMUniqueOutputFileNames->isChecked();
@@ -683,7 +717,7 @@ PreferencesDialog::save() {
     auto widget = static_cast<PrefsRunProgramWidget *>(ui->twJobsPrograms->widget(idx));
     auto cfg    = widget->config();
 
-    if (cfg->isValid())
+    if (!cfg->m_active || cfg->isValid())
       m_cfg.m_runProgramConfigurations << cfg;
   }
 
@@ -711,14 +745,14 @@ PreferencesDialog::enableOutputFileNameControls() {
   bool relativeSelected = ui->rbMAutoSetRelativeDirectory->isChecked();
   bool fixedSelected    = ui->rbMAutoSetFixedDirectory->isChecked();
 
-  Util::enableWidgets(QList<QWidget *>{} << ui->rbMAutoSetSameDirectory  << ui->rbMAutoSetPreviousDirectory << ui->rbMAutoSetRelativeDirectory << ui->rbMAutoSetFixedDirectory << ui->cbMUniqueOutputFileNames, isChecked);
+  Util::enableWidgets(QList<QWidget *>{} << ui->gbDestinationDirectory   << ui->cbMUniqueOutputFileNames << ui->cbMAutoDestinationOnlyForVideoFiles, isChecked);
   Util::enableWidgets(QList<QWidget *>{} << ui->leMAutoSetFixedDirectory << ui->pbMBrowseAutoSetFixedDirectory, isChecked && fixedSelected);
   ui->leMAutoSetRelativeDirectory->setEnabled(isChecked && relativeSelected);
 }
 
 void
 PreferencesDialog::browseFixedOutputDirectory() {
-  auto dir = Util::getExistingDirectory(this, QY("Select output directory"), ui->leMAutoSetFixedDirectory->text());
+  auto dir = Util::getExistingDirectory(this, QY("Select destination directory"), ui->leMAutoSetFixedDirectory->text());
   if (!dir.isEmpty())
     ui->leMAutoSetFixedDirectory->setText(dir);
 }
@@ -734,12 +768,12 @@ PreferencesDialog::editDefaultAdditionalCommandLineOptions() {
 void
 PreferencesDialog::addProgramToExecute() {
   auto programWidget = new PrefsRunProgramWidget{this, {}};
-  ui->twJobsPrograms->addTab(programWidget, QY("<no program selected yet>"));
+  ui->twJobsPrograms->addTab(programWidget, programWidget->config()->name());
   ui->twJobsPrograms->setCurrentIndex(ui->twJobsPrograms->count() - 1);
 
   ui->swJobsPrograms->setCurrentIndex(1);
 
-  connect(programWidget, &PrefsRunProgramWidget::executableChanged, this, &PreferencesDialog::setSendersTabTitleForRunProgramExecutable);
+  connect(programWidget, &PrefsRunProgramWidget::titleChanged, this, &PreferencesDialog::setSendersTabTitleForRunProgramWidget);
 }
 
 void
@@ -759,18 +793,20 @@ PreferencesDialog::removeProgramToExecute(int index) {
 }
 
 void
-PreferencesDialog::setSendersTabTitleForRunProgramExecutable(QString const &executable) {
-  setTabTitleForRunProgramExecutable(ui->twJobsPrograms->indexOf(qobject_cast<PrefsRunProgramWidget *>(sender())), executable);
+PreferencesDialog::setSendersTabTitleForRunProgramWidget() {
+  auto widget = qobject_cast<PrefsRunProgramWidget *>(sender());
+  auto title  = widget->config()->name();
+
+  setTabTitleForRunProgramWidget(ui->twJobsPrograms->indexOf(widget), title);
 }
 
 void
-PreferencesDialog::setTabTitleForRunProgramExecutable(int tabIdx,
-                                                      QString const &executable) {
+PreferencesDialog::setTabTitleForRunProgramWidget(int tabIdx,
+                                                  QString const &title) {
   if ((tabIdx < 0) || (tabIdx >= ui->twJobsPrograms->count()))
     return;
 
-  auto name = executable.isEmpty() ? QY("<no program selected yet>") : QFileInfo{executable}.fileName();
-  ui->twJobsPrograms->setTabText(tabIdx, name);
+  ui->twJobsPrograms->setTabText(tabIdx, title);
 }
 
 void
@@ -782,6 +818,48 @@ void
 PreferencesDialog::adjustRemoveOldJobsControls() {
   ui->sbGuiRemoveOldJobsDays->setEnabled(ui->cbGuiRemoveOldJobs->isChecked());
   ui->sbGuiRemoveOldJobsDays->setSuffix(QNY(" day", " days", ui->sbGuiRemoveOldJobsDays->value()));
+}
+
+void
+PreferencesDialog::showPage(Page page) {
+  auto pageIndex      = m_pageIndexes[page];
+  auto pageModelIndex = modelIndexForPage(pageIndex);
+
+  if (!pageModelIndex.isValid())
+    return;
+
+  m_ignoreNextCurrentChange = true;
+  auto selection            = QItemSelection{pageModelIndex, pageModelIndex};
+
+  ui->pageSelector->selectionModel()->select(selection, QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Current);
+  ui->pages->setCurrentIndex(pageIndex);
+}
+
+void
+PreferencesDialog::accept() {
+  for (auto tabIdx = 0, numTabs = ui->twJobsPrograms->count(); tabIdx < numTabs; ++tabIdx) {
+    auto tab   = qobject_cast<PrefsRunProgramWidget *>(ui->twJobsPrograms->widget(tabIdx));
+    auto error = tab->validate();
+
+    if (error.isEmpty())
+      continue;
+
+    showPage(Page::RunPrograms);
+    ui->twJobsPrograms->setCurrentIndex(tabIdx);
+
+    Util::MessageBox::critical(this)
+      ->title(QY("Invalid settings"))
+      .text(Q("<p>%1 %2</p>"
+              "<p>%3</p>")
+            .arg(QY("This configuration is currently invalid.").toHtmlEscaped())
+            .arg(error.toHtmlEscaped())
+            .arg(QY("Either fix the error or remove the configuration before closing the preferences dialog.").toHtmlEscaped()))
+      .exec();
+
+    return;
+  }
+
+  QDialog::accept();
 }
 
 }}

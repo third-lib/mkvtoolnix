@@ -19,9 +19,52 @@
 #include "merge/generic_reader.h"
 #include "merge/input_x.h"
 #include "merge/output_control.h"
-#include "nlohmann-json/src/json.hpp"
 
 static int64_rational_c s_probe_range_percentage{3, 10}; // 0.3%
+
+static std::string
+format_json_value(nlohmann::json const &value) {
+  return value.is_number()  ? to_string(value.get<uint64_t>())
+       : value.is_boolean() ? std::string{value.get<bool>() ? "1" : "0"}
+       :                      value.get<std::string>();
+}
+
+static std::string
+format_key_and_json_value(std::string const &key,
+                          nlohmann::json const &value) {
+  return (boost::format{"%1%:%2%"} % escape(key) % escape(format_json_value(value))).str();
+}
+
+static std::string
+format_verbose_info(mtx::id::verbose_info_t const &info) {
+  auto formatted = std::vector<std::string>{};
+  auto sub_fmt   = boost::format("%1%.%2%.%3%");
+
+  for (auto const &pair : info) {
+    if (pair.second.is_array()) {
+      auto idx = 0u;
+
+      for (auto it = pair.second.begin(), end = pair.second.end(); it != end; ++it) {
+        if (it->is_object()) {
+          for (auto sub_it = it->begin(), sub_end = it->end(); sub_it != sub_end; ++sub_it)
+            formatted.emplace_back(format_key_and_json_value((sub_fmt % pair.first % idx % sub_it.key()).str(), sub_it.value()));
+
+          ++idx;
+
+        } else
+          formatted.emplace_back(format_key_and_json_value(pair.first, *it));
+      }
+
+    } else
+      formatted.emplace_back(format_key_and_json_value(pair.first, pair.second));
+  }
+
+  brng::sort(formatted);
+
+  return boost::join(formatted, " ");
+}
+
+// ----------------------------------------------------------------------
 
 template<typename T>
 void
@@ -37,12 +80,12 @@ generic_reader_c::generic_reader_c(const track_info_c &ti,
   , m_in{in}
   , m_size{static_cast<uint64_t>(in->get_size())}
   , m_ptzr_first_packet{}
-  , m_max_timecode_seen{}
+  , m_max_timestamp_seen{}
   , m_appending{}
   , m_num_video_tracks{}
   , m_num_audio_tracks{}
   , m_num_subtitle_tracks{}
-  , m_reference_timecode_tolerance{}
+  , m_reference_timestamp_tolerance{}
 {
   add_all_requested_track_ids(*this, m_ti.m_atracks.m_items);
   add_all_requested_track_ids(*this, m_ti.m_vtracks.m_items);
@@ -51,7 +94,7 @@ generic_reader_c::generic_reader_c(const track_info_c &ti,
   add_all_requested_track_ids(*this, m_ti.m_track_tags.m_items);
   add_all_requested_track_ids(*this, m_ti.m_all_fourccs);
   add_all_requested_track_ids(*this, m_ti.m_display_properties);
-  add_all_requested_track_ids(*this, m_ti.m_timecode_syncs);
+  add_all_requested_track_ids(*this, m_ti.m_timestamp_syncs);
   add_all_requested_track_ids(*this, m_ti.m_cue_creations);
   add_all_requested_track_ids(*this, m_ti.m_default_track_flags);
   add_all_requested_track_ids(*this, m_ti.m_fix_bitstream_frame_rate_flags);
@@ -61,7 +104,7 @@ generic_reader_c::generic_reader_c(const track_info_c &ti,
   add_all_requested_track_ids(*this, m_ti.m_all_aac_is_sbr);
   add_all_requested_track_ids(*this, m_ti.m_compression_list);
   add_all_requested_track_ids(*this, m_ti.m_track_names);
-  add_all_requested_track_ids(*this, m_ti.m_all_ext_timecodes);
+  add_all_requested_track_ids(*this, m_ti.m_all_ext_timestamps);
   add_all_requested_track_ids(*this, m_ti.m_pixel_crop_list);
   add_all_requested_track_ids(*this, m_ti.m_reduce_to_core);
 }
@@ -74,22 +117,22 @@ generic_reader_c::~generic_reader_c() {
 }
 
 void
-generic_reader_c::set_timecode_restrictions(timestamp_c const &min,
-                                            timestamp_c const &max) {
-  m_restricted_timecodes_min = min;
-  m_restricted_timecodes_max = max;
+generic_reader_c::set_timestamp_restrictions(timestamp_c const &min,
+                                             timestamp_c const &max) {
+  m_restricted_timestamps_min = min;
+  m_restricted_timestamps_max = max;
 }
 
 timestamp_c const &
-generic_reader_c::get_timecode_restriction_min()
+generic_reader_c::get_timestamp_restriction_min()
   const {
-  return m_restricted_timecodes_min;
+  return m_restricted_timestamps_min;
 }
 
 timestamp_c const &
-generic_reader_c::get_timecode_restriction_max()
+generic_reader_c::get_timestamp_restriction_max()
   const {
-  return m_restricted_timecodes_max;
+  return m_restricted_timestamps_max;
 }
 
 void
@@ -102,13 +145,14 @@ generic_reader_c::read_all() {
 bool
 generic_reader_c::demuxing_requested(char type,
                                      int64_t id,
-                                     std::string const &language) {
-  item_selector_c<bool> *tracks = 'v' == type ? &m_ti.m_vtracks
-                                : 'a' == type ? &m_ti.m_atracks
-                                : 's' == type ? &m_ti.m_stracks
-                                : 'b' == type ? &m_ti.m_btracks
-                                : 'T' == type ? &m_ti.m_track_tags
-                                :               nullptr;
+                                     boost::optional<std::string> const &language)
+  const {
+  auto const *tracks = 'v' == type ? &m_ti.m_vtracks
+                     : 'a' == type ? &m_ti.m_atracks
+                     : 's' == type ? &m_ti.m_stracks
+                     : 'b' == type ? &m_ti.m_btracks
+                     : 'T' == type ? &m_ti.m_track_tags
+                     :               nullptr;
 
   if (!tracks)
     mxerror(boost::format("generic_reader_c::demuxing_requested: %2%") % (boost::format(Y("Invalid track type %1%.")) % type));
@@ -162,11 +206,11 @@ generic_reader_c::find_packetizer_by_id(int64_t id)
 }
 
 void
-generic_reader_c::set_timecode_offset(int64_t offset) {
-  m_max_timecode_seen = offset;
+generic_reader_c::set_timestamp_offset(int64_t offset) {
+  m_max_timestamp_seen = offset;
 
   for (auto ptzr : m_reader_packetizers)
-    ptzr->m_correction_timecode_offset = offset;
+    ptzr->m_correction_timestamp_offset = offset;
 }
 
 void
@@ -256,16 +300,16 @@ generic_reader_c::flush_packetizers() {
 translatable_string_c
 generic_reader_c::get_format_name()
   const {
-  return file_type_t::get_name(get_format_type());
+  return mtx::file_type_t::get_name(get_format_type());
 }
 
 void
 generic_reader_c::id_result_container(mtx::id::verbose_info_t const &verbose_info) {
   auto type                           = get_format_type();
-  m_id_results_container.info         = file_type_t::get_name(type).get_translated();
+  m_id_results_container.info         = mtx::file_type_t::get_name(type).get_translated();
   m_id_results_container.verbose_info = verbose_info;
-  m_id_results_container.verbose_info.emplace_back("container_type",         static_cast<int>(type));
-  m_id_results_container.verbose_info.emplace_back("is_providing_timecodes", is_providing_timecodes());
+  m_id_results_container.verbose_info.emplace_back("container_type",          static_cast<int>(type));
+  m_id_results_container.verbose_info.emplace_back("is_providing_timestamps", is_providing_timestamps());
 }
 
 void
@@ -316,30 +360,6 @@ void
 generic_reader_c::display_identification_results_as_text() {
   auto identify_verbose    = mtx::included_in(g_identification_output_format, identification_output_format_e::verbose_text, identification_output_format_e::gui);
   auto identify_for_gui    = identification_output_format_e::gui == g_identification_output_format;
-
-  auto format_verbose_info = [this](mtx::id::verbose_info_t const &info) -> std::string {
-    auto formatted = std::vector<std::string>{};
-    auto formatter = boost::format{"%1%:%2%"};
-
-    for (auto const &pair : info) {
-      if (pair.second.is_array()) {
-        for (auto it = pair.second.begin(), end = pair.second.end(); it != end; ++it)
-          formatted.emplace_back((formatter % escape(pair.first) % escape(it->get<std::string>())).str());
-
-        continue;
-      }
-
-      auto value = pair.second.is_number()  ? to_string(pair.second.get<uint64_t>())
-                 : pair.second.is_boolean() ? std::string{pair.second.get<bool>() ? "1" : "0"}
-                 :                            pair.second.get<std::string>();
-
-      formatted.emplace_back((formatter % escape(pair.first) % escape(value)).str());
-    }
-
-    brng::sort(formatted);
-
-    return boost::join(formatted, " ");
-  };
 
   std::string format_file, format_track, format_attachment, format_att_description, format_att_file_name;
 
@@ -505,9 +525,11 @@ generic_reader_c::get_progress() {
 }
 
 mm_io_c *
-generic_reader_c::get_underlying_input()
+generic_reader_c::get_underlying_input(mm_io_c *actual_in)
   const {
-  mm_io_c *actual_in = m_in.get();
+  if (!actual_in)
+    actual_in = m_in.get();
+
   while (dynamic_cast<mm_proxy_io_c *>(actual_in))
     actual_in = static_cast<mm_proxy_io_c *>(actual_in)->get_proxied();
   return actual_in;

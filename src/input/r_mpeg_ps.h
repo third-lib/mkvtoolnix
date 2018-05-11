@@ -11,12 +11,11 @@
    Written by Moritz Bunkus <moritz@bunkus.org>.
 */
 
-#ifndef MTX_INPUT_R_MPEG_PS_H
-#define MTX_INPUT_R_MPEG_PS_H
+#pragma once
 
 #include "common/common_pch.h"
 
-#include "common/bit_cursor.h"
+#include "common/bit_reader.h"
 #include "common/codec.h"
 #include "common/debugging.h"
 #include "common/dts.h"
@@ -112,8 +111,8 @@ struct mpeg_ps_track_t {
   int sort_key;
   codec_c codec;
 
-  bool provide_timecodes;
-  int64_t timecode_offset, timecode_b_frame_offset;
+  bool provide_timestamps;
+  int64_t timestamp_offset, timestamp_b_frame_offset;
 
   bool v_interlaced;
   int v_version, v_width, v_height, v_dwidth, v_dheight;
@@ -127,7 +126,7 @@ struct mpeg_ps_track_t {
   unsigned char *buffer;
   unsigned int buffer_usage, buffer_size;
 
-  multiple_timecodes_packet_extension_c *multiple_timecodes_packet_extension;
+  multiple_timestamps_packet_extension_c *multiple_timestamps_packet_extension;
 
   unsigned int skip_packet_data_bytes;
 
@@ -135,9 +134,9 @@ struct mpeg_ps_track_t {
     ptzr(-1),
     type(0),
     sort_key(0),
-    provide_timecodes(false),
-    timecode_offset(std::numeric_limits<int64_t>::max()),
-    timecode_b_frame_offset{0},
+    provide_timestamps(false),
+    timestamp_offset(std::numeric_limits<int64_t>::max()),
+    timestamp_b_frame_offset{0},
     v_interlaced(false),
     v_version(0),
     v_width(0),
@@ -155,7 +154,7 @@ struct mpeg_ps_track_t {
     buffer(nullptr),
     buffer_usage(0),
     buffer_size(0),
-    multiple_timecodes_packet_extension(new multiple_timecodes_packet_extension_c)
+    multiple_timestamps_packet_extension(new multiple_timestamps_packet_extension_c)
     , skip_packet_data_bytes{}
   {
   };
@@ -179,7 +178,7 @@ struct mpeg_ps_track_t {
   ~mpeg_ps_track_t() {
     safefree(raw_seq_hdr);
     safefree(buffer);
-    delete multiple_timecodes_packet_extension;
+    delete multiple_timestamps_packet_extension;
   }
 };
 using mpeg_ps_track_ptr = std::shared_ptr<mpeg_ps_track_t>;
@@ -192,7 +191,7 @@ operator <(mpeg_ps_track_ptr const &a,
 
 class mpeg_ps_reader_c: public generic_reader_c {
 private:
-  int64_t global_timecode_offset;
+  int64_t global_timestamp_offset;
 
   std::map<int, int> id2idx;
   std::map<int, bool> blacklisted_ids;
@@ -206,14 +205,14 @@ private:
 
   uint64_t m_probe_range;
 
-  debugging_option_c m_debug_timecodes;
+  debugging_option_c m_debug_timestamps, m_debug_headers, m_debug_packets, m_debug_resync;
 
 public:
   mpeg_ps_reader_c(const track_info_c &ti, const mm_io_cptr &in);
   virtual ~mpeg_ps_reader_c();
 
-  virtual file_type_e get_format_type() const {
-    return FILE_TYPE_MPEG_PS;
+  virtual mtx::file_type_e get_format_type() const {
+    return mtx::file_type_e::mpeg_ps;
   }
 
   virtual void read_headers();
@@ -225,7 +224,7 @@ public:
 
   virtual void found_new_stream(mpeg_ps_id_t id);
 
-  virtual bool read_timestamp(bit_reader_c &bc, int64_t &timestamp);
+  virtual bool read_timestamp(mtx::bits::reader_c &bc, int64_t &timestamp);
   virtual bool read_timestamp(int c, int64_t &timestamp);
   virtual mpeg_ps_packet_c parse_packet(mpeg_ps_id_t id, bool read_data = true);
   virtual bool find_next_packet(mpeg_ps_id_t &id, int64_t max_file_pos = -1);
@@ -248,7 +247,5 @@ private:
   virtual bool resync_stream(uint32_t &header);
   virtual file_status_e finish();
   void sort_tracks();
-  void calculate_global_timecode_offset();
+  void calculate_global_timestamp_offset();
 };
-
-#endif // MTX_INPUT_R_MPEG_PS_H

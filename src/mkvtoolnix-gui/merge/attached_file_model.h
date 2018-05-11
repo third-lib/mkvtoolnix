@@ -1,5 +1,4 @@
-#ifndef MTX_MKVTOOLNIX_GUI_MERGE_ATTACHED_FILE_MODEL_H
-#define MTX_MKVTOOLNIX_GUI_MERGE_ATTACHED_FILE_MODEL_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -24,9 +23,9 @@ protected:
   static int const MIMETypeColumn    = 1;
   static int const MuxThisColumn     = 2;
   static int const DescriptionColumn = 3;
-  static int const SizeColumn        = 4;
-  static int const SourceFileColumn  = 5;
-  static int const SourceDirColumn   = 6;
+  static int const SourceFileColumn  = 4;
+  static int const SourceDirColumn   = 5;
+  static int const SizeColumn        = 6;
   static int const NumberOfColumns   = 7;
 
 public:
@@ -53,5 +52,3 @@ protected:
 };
 
 }}}
-
-#endif  // MTX_MKVTOOLNIX_GUI_MERGE_ATTACHED_FILE_MODEL_H

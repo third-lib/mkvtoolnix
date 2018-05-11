@@ -5,7 +5,6 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QMenu>
-#include <QMessageBox>
 #include <QMimeData>
 
 #include "common/qt.h"
@@ -17,7 +16,6 @@
 #include "mkvtoolnix-gui/main_window/main_window.h"
 #include "mkvtoolnix-gui/merge/mux_config.h"
 #include "mkvtoolnix-gui/util/file_dialog.h"
-#include "mkvtoolnix-gui/util/message_box.h"
 #include "mkvtoolnix-gui/util/settings.h"
 #include "mkvtoolnix-gui/util/string.h"
 #include "mkvtoolnix-gui/util/widget.h"
@@ -35,6 +33,8 @@ Tool::Tool(QWidget *parent,
 {
   // Setup UI controls.
   ui->setupUi(this);
+
+  MainWindow::get()->registerSubWindowWidget(*this, *ui->editors);
 }
 
 Tool::~Tool() {
@@ -58,12 +58,15 @@ Tool::setupActions() {
 
   connect(mwUi->actionHeaderEditorOpen,     &QAction::triggered,             this, &Tool::selectFileToOpen);
   connect(mwUi->actionHeaderEditorSave,     &QAction::triggered,             this, &Tool::save);
+  connect(mwUi->actionHeaderEditorSaveAll,  &QAction::triggered,             this, &Tool::saveAllTabs);
   connect(mwUi->actionHeaderEditorValidate, &QAction::triggered,             this, &Tool::validate);
   connect(mwUi->actionHeaderEditorReload,   &QAction::triggered,             this, &Tool::reload);
   connect(mwUi->actionHeaderEditorClose,    &QAction::triggered,             this, &Tool::closeCurrentTab);
+  connect(mwUi->actionHeaderEditorCloseAll, &QAction::triggered,             this, &Tool::closeAllTabs);
 
   connect(ui->openFileButton,               &QPushButton::clicked,           this, &Tool::selectFileToOpen);
 
+  connect(m_headerEditorMenu,               &QMenu::aboutToShow,             this, &Tool::enableMenuActions);
   connect(mw,                               &MainWindow::preferencesChanged, this, &Tool::setupTabPositions);
   connect(mw,                               &MainWindow::preferencesChanged, this, &Tool::retranslateUi);
 
@@ -73,14 +76,27 @@ Tool::setupActions() {
 void
 Tool::showHeaderEditorsWidget() {
   auto hasTabs = !!ui->editors->count();
-  auto mwUi    = MainWindow::getUi();
 
   ui->stack->setCurrentWidget(hasTabs ? ui->editorsPage : ui->noFilesPage);
+
+  enableMenuActions();
+}
+
+void
+Tool::enableMenuActions() {
+  auto hasTabs = !!ui->editors->count();
+  auto mwUi    = MainWindow::getUi();
 
   mwUi->actionHeaderEditorSave->setEnabled(hasTabs);
   mwUi->actionHeaderEditorReload->setEnabled(hasTabs);
   mwUi->actionHeaderEditorValidate->setEnabled(hasTabs);
   mwUi->actionHeaderEditorClose->setEnabled(hasTabs);
+  mwUi->menuHeaderEditorAll->setEnabled(hasTabs);
+  mwUi->actionHeaderEditorSaveAll->setEnabled(hasTabs);
+  mwUi->actionHeaderEditorCloseAll->setEnabled(hasTabs);
+  mwUi->menuHeaderEditorAll->setEnabled(hasTabs);
+  mwUi->actionHeaderEditorSaveAll->setEnabled(hasTabs);
+  mwUi->actionHeaderEditorCloseAll->setEnabled(hasTabs);
 }
 
 void
@@ -164,21 +180,8 @@ Tool::save() {
 void
 Tool::reload() {
   auto tab = currentTab();
-  if (!tab)
-    return;
-
-  if (Util::Settings::get().m_warnBeforeClosingModifiedTabs && tab->hasBeenModified()) {
-    auto answer = Util::MessageBox::question(this)
-      ->title(QY("Reload modified file"))
-      .text(QY("The file \"%1\" has been modified. Do you really want to reload it? All changes will be lost.").arg(QFileInfo{tab->fileName()}.fileName()))
-      .buttonLabel(QMessageBox::Yes, QY("&Reload file"))
-      .buttonLabel(QMessageBox::No,  QY("Cancel"))
-      .exec();
-    if (answer != QMessageBox::Yes)
-      return;
-  }
-
-  tab->load();
+  if (tab && tab->isClosingOrReloadingOkIfModified(Tab::ModifiedConfirmationMode::Reloading))
+    tab->load();
 }
 
 void
@@ -188,25 +191,15 @@ Tool::validate() {
     tab->validate();
 }
 
+
 bool
 Tool::closeTab(int index) {
   if ((0  > index) || (ui->editors->count() <= index))
     return false;
 
   auto tab = static_cast<Tab *>(ui->editors->widget(index));
-
-  if (Util::Settings::get().m_warnBeforeClosingModifiedTabs && tab->hasBeenModified()) {
-    MainWindow::get()->switchToTool(this);
-    ui->editors->setCurrentIndex(index);
-    auto answer = Util::MessageBox::question(this)
-      ->title(QY("Close modified file"))
-      .text(QY("The file \"%1\" has been modified. Do you really want to close? All changes will be lost.").arg(QFileInfo{tab->fileName()}.fileName()))
-      .buttonLabel(QMessageBox::Yes, QY("&Close file"))
-      .buttonLabel(QMessageBox::No,  QY("Cancel"))
-      .exec();
-    if (answer != QMessageBox::Yes)
-      return false;
-  }
+  if (!tab->isClosingOrReloadingOkIfModified(Tab::ModifiedConfirmationMode::Closing))
+    return false;
 
   ui->editors->removeTab(index);
   delete tab;
@@ -234,6 +227,11 @@ Tool::closeSendingTab() {
   }
 }
 
+void
+Tool::saveAllTabs() {
+  forEachTab([](auto &tab) { tab.save(); });
+}
+
 bool
 Tool::closeAllTabs() {
   for (auto index = ui->editors->count(); index > 0; --index)
@@ -251,6 +249,32 @@ Tool::currentTab() {
 void
 Tool::setupTabPositions() {
   ui->editors->setTabPosition(Util::Settings::get().m_tabPosition);
+}
+
+void
+Tool::forEachTab(std::function<void(Tab &)> const &worker) {
+  auto currentIndex = ui->editors->currentIndex();
+
+  for (auto index = 0, numTabs = ui->editors->count(); index < numTabs; ++index) {
+    ui->editors->setCurrentIndex(index);
+    worker(dynamic_cast<Tab &>(*ui->editors->widget(index)));
+  }
+
+  ui->editors->setCurrentIndex(currentIndex);
+}
+
+void
+Tool::showTab(Tab &tab) {
+  ui->editors->setCurrentWidget(&tab);
+}
+
+std::pair<QString, QString>
+Tool::nextPreviousWindowActionTexts()
+  const {
+  return {
+    QY("&Next header editor tab"),
+    QY("&Previous header editor tab"),
+  };
 }
 
 }}}

@@ -11,14 +11,13 @@
    Written by Moritz Bunkus <moritz@bunkus.org>.
 */
 
-#ifndef MTX_COMMON_AAC_X_H
-#define MTX_COMMON_AAC_X_H
+#pragma once
 
 #include "common/common_pch.h"
 
 #include "common/error.h"
 
-namespace aac {
+namespace mtx { namespace aac {
 
 class unsupported_feature_x: public mtx::exception {
 private:
@@ -40,6 +39,4 @@ public:
 };
 
 
-} // namespace aac
-
-#endif // MTX_COMMON_AAC_X_H
+}} // namespace mtx::aac

@@ -11,8 +11,7 @@
    Written by Moritz Bunkus <moritz@bunkus.org>.
 */
 
-#ifndef MTX_R_OGM_H
-#define MTX_R_OGM_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -88,8 +87,8 @@ public:
   ogm_reader_c(const track_info_c &ti, const mm_io_cptr &in);
   virtual ~ogm_reader_c();
 
-  virtual file_type_e get_format_type() const {
-    return FILE_TYPE_OGM;
+  virtual mtx::file_type_e get_format_type() const {
+    return mtx::file_type_e::ogm;
   }
 
   virtual void read_headers();
@@ -113,5 +112,3 @@ private:
   virtual void process_header_packets(ogm_demuxer_cptr dmx);
   virtual void handle_stream_comments();
 };
-
-#endif  // MTX_R_OGM_H

@@ -42,7 +42,7 @@ parse_args(std::vector<std::string> &args) {
       show_version();
 
     else if (!file_name.empty())
-      mxerror(Y("More than one input file given\n"));
+      mxerror(Y("More than one source file given.\n"));
 
     else
       file_name = arg;
@@ -57,7 +57,7 @@ parse_args(std::vector<std::string> &args) {
 static void
 parse_file(const std::string &file_name) {
   auto in     = mm_file_io_c{file_name};
-  auto parser = mtx::mpls::parser_c{};
+  auto parser = mtx::bluray::mpls::parser_c{};
 
   if (!parser.parse(&in))
     mxerror("MPLS file could not be parsed.\n");
@@ -70,8 +70,8 @@ main(int argc,
      char **argv) {
   mtx_common_init("mpls_dump", argv[0]);
 
-  auto args = command_line_utf8(argc, argv);
-  while (handle_common_cli_args(args, "-r"))
+  auto args = mtx::cli::args_in_utf8(argc, argv);
+  while (mtx::cli::handle_common_args(args, "-r"))
     ;
 
   auto file_name = parse_args(args);

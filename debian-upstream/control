@@ -6,14 +6,16 @@ Homepage: https://mkvtoolnix.download/
 Standards-Version: 3.9.5
 Build-Depends:
  debhelper (>= 9),
- ruby (>= 1.9) | ruby1.9 | ruby1.9.1 | ruby1.9.3,
+ rake (>= 10),
  libbz2-dev, liblzo2-dev, zlib1g-dev, libmagic-dev,
  libflac-dev, libogg-dev, libvorbis-dev,
- libcurl4-gnutls-dev | libcurl4-openssl-dev,
  libboost-dev (>= 1.46), libboost-filesystem-dev (>= 1.46),
  libboost-regex-dev (>= 1.46), libboost-date-time-dev (>= 1.46),
  libboost-system-dev (>= 1.46), qtbase5-dev, qtbase5-dev-tools,
- pkg-config
+ qtmultimedia5-dev,
+ base-files (<< 9.6) | nlohmann-json-dev (>= 2),
+ pkg-config, po4a, docbook-xsl, xsltproc,
+ libgtest-dev
 
 Package: mkvtoolnix
 Architecture: any

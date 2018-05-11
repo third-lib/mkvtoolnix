@@ -158,9 +158,24 @@ mm_file_io_c::prepare_path(const std::string &path) {
 memory_cptr
 mm_file_io_c::slurp(std::string const &file_name) {
   mm_file_io_c in(file_name, MODE_READ);
-  auto content = memory_c::alloc(in.get_size());
-  if (in.get_size() != in.read(content, in.get_size()))
-    throw mtx::mm_io::end_of_file_x{mtx::mm_io::make_error_code()};
+
+  // Don't try to retrieve the file size in order to enable reading
+  // from pseudo file systems such as /proc on Linux.
+  auto const chunk_size = 10 * 1024;
+  auto content          = memory_c::alloc(chunk_size);
+  auto total_size_read  = 0;
+
+  while (true) {
+    auto num_read    = in.read(content->get_buffer() + total_size_read, chunk_size);
+    total_size_read += num_read;
+
+    if (num_read != chunk_size) {
+      content->resize(total_size_read);
+      break;
+    }
+
+    content->resize(content->get_size() + chunk_size);
+  }
 
   return content;
 }
@@ -971,6 +986,18 @@ mm_text_io_c::has_byte_order_marker(const std::string &string) {
   return detect_byte_order_marker(reinterpret_cast<const unsigned char *>(string.c_str()), string.length(), byte_order, bom_length);
 }
 
+boost::optional<std::string>
+mm_text_io_c::get_encoding(byte_order_e byte_order) {
+  if (BO_NONE == byte_order)
+    return {};
+
+  return BO_UTF8     == byte_order ? std::string{"UTF-8"}
+       : BO_UTF16_LE == byte_order ? std::string{"UTF-16LE"}
+       : BO_UTF16_BE == byte_order ? std::string{"UTF-16BE"}
+       : BO_UTF32_LE == byte_order ? std::string{"UTF-32LE"}
+       :                             std::string{"UTF-32BE"};
+}
+
 // 1 byte: 0xxxxxxx,
 // 2 bytes: 110xxxxx 10xxxxxx,
 // 3 bytes: 1110xxxx 10xxxxxx 10xxxxxx
@@ -1059,13 +1086,15 @@ mm_text_io_c::getline(boost::optional<std::size_t> max_chars) {
   while (1) {
     memset(utf8char, 0, 9);
 
-    int len = read_next_char(utf8char);
+    auto previous_pos = getFilePointer();
+    auto len          = read_next_char(utf8char);
+
     if (0 == len)
       return s;
 
     if ((1 == len) && (utf8char[0] == '\r')) {
       if (previous_was_carriage_return && !m_uses_newlines) {
-        setFilePointer(-1, seek_current);
+        setFilePointer(previous_pos);
         return s;
       }
 
@@ -1077,7 +1106,7 @@ mm_text_io_c::getline(boost::optional<std::size_t> max_chars) {
       return s;
 
     if (previous_was_carriage_return) {
-      setFilePointer(-len, seek_current);
+      setFilePointer(previous_pos);
       return s;
     }
 

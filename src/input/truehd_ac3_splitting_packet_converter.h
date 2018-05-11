@@ -11,8 +11,7 @@
    Written by Moritz Bunkus <moritz@bunkus.org>.
 */
 
-#ifndef MTX_INPUT_TRUEHD_AC3_SPLITTING_PACKET_CONVERTER_H
-#define MTX_INPUT_TRUEHD_AC3_SPLITTING_PACKET_CONVERTER_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -23,7 +22,7 @@ class truehd_ac3_splitting_packet_converter_c: public packet_converter_c {
 protected:
   truehd_parser_c m_parser;
   generic_packetizer_c *m_ac3_ptzr;
-  int64_t m_truehd_timecode, m_ac3_timecode;
+  int64_t m_truehd_timestamp, m_ac3_timestamp;
 
 public:
   truehd_ac3_splitting_packet_converter_c(generic_packetizer_c *truehd_ptzr = nullptr, generic_packetizer_c *ac3_ptzr = nullptr);
@@ -38,5 +37,3 @@ protected:
 };
 
 using truehd_ac3_splitting_packet_converter_cptr = std::shared_ptr<truehd_ac3_splitting_packet_converter_c>;
-
-#endif  // MTX_INPUT_TRUEHD_AC3_SPLITTING_PACKET_CONVERTER_H

@@ -1,5 +1,4 @@
-#ifndef MTX_MKVTOOLNIX_GUI_MERGE_MUX_CONFIG_H
-#define MTX_MKVTOOLNIX_GUI_MERGE_MUX_CONFIG_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -54,7 +53,7 @@ public:
     DoNotSplit = 0,
     SplitAfterSize,
     SplitAfterDuration,
-    SplitAfterTimecodes,
+    SplitAfterTimestamps,
     SplitByParts,
     SplitByPartsFrames,
     SplitByFrames,
@@ -115,6 +114,7 @@ public:
   static void loadProperties(Util::ConfigFile &settings, QVariantMap &properties);
   static void debugDumpSpecificTrackList(QList<Track *> const &tracks);
   static QString settingsType();
+  static QString determineFirstInputFileName(QList<SourceFilePtr> const &files);
 };
 
 template<typename T>
@@ -155,5 +155,3 @@ saveSettingsGroup(char const *group,
 }
 
 }}}
-
-#endif  // MTX_MKVTOOLNIX_GUI_MERGE_MUX_CONFIG_H

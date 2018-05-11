@@ -18,7 +18,7 @@
 # include <unistd.h>
 #endif  // HAVE_UNISTD_H
 
-#include "common/bit_cursor.h"
+#include "common/bit_reader.h"
 #include "common/dts.h"
 #include "common/endian.h"
 #include "common/list_utils.h"
@@ -146,7 +146,6 @@ find_header(unsigned char const *buf,
   try {
     return find_header_internal(buf, size, header, allow_no_exss_search);
   } catch (...) {
-    mxwarn(Y("DTS_Header problem: not enough data to read header\n"));
     return -1;
   }
 }
@@ -425,7 +424,7 @@ header_t::decode_core_header(unsigned char const *buf,
                              size_t size,
                              bool allow_no_exss_search) {
   try {
-    auto bc = bit_reader_c{buf, size};
+    auto bc = mtx::bits::reader_c{buf, size};
     bc.skip_bits(32);             // sync word
 
     frametype             = bc.get_bit() ? frametype_e::normal : frametype_e::termination;
@@ -434,10 +433,8 @@ header_t::decode_core_header(unsigned char const *buf,
     num_pcm_sample_blocks = bc.get_bits(7) + 1;
     frame_byte_size       = bc.get_bits(14) + 1;
 
-    if (96 > frame_byte_size) {
-      mxwarn(Y("DTS_Header problem: invalid frame bytes size\n"));
+    if (96 > frame_byte_size)
       return false;
-    }
 
     auto t = bc.get_bits(6);
     if (16 <= t) {
@@ -500,7 +497,6 @@ header_t::decode_core_header(unsigned char const *buf,
         break;
 
       default:
-        mxwarn(Y("DTS_Header problem: invalid source PCM resolution\n"));
         return false;
     }
 
@@ -544,7 +540,7 @@ header_t::decode_core_header(unsigned char const *buf,
 }
 
 void
-header_t::parse_lbr_parameters(bit_reader_c &bc,
+header_t::parse_lbr_parameters(mtx::bits::reader_c &bc,
                                substream_asset_t &asset) {
   asset.lbr_size         = bc.get_bits(14) + 1; // size of LBR component in extension substream
   asset.lbr_sync_present = bc.get_bit();
@@ -553,7 +549,7 @@ header_t::parse_lbr_parameters(bit_reader_c &bc,
 }
 
 void
-header_t::parse_xll_parameters(bit_reader_c &bc,
+header_t::parse_xll_parameters(mtx::bits::reader_c &bc,
                                substream_asset_t &asset) {
   asset.xll_size         = bc.get_bits(substream_size_bits) + 1; // size of XLL data in extension substream
   asset.xll_sync_present = bc.get_bit();                         // XLL sync word presence flag
@@ -571,7 +567,7 @@ header_t::parse_xll_parameters(bit_reader_c &bc,
 }
 
 bool
-header_t::decode_lbr_header(bit_reader_c &bc,
+header_t::decode_lbr_header(mtx::bits::reader_c &bc,
                             substream_asset_t &asset) {
   static const unsigned int s_lbr_sampling_frequencies[16] = {
     8000, 16000, 32000, 0,     0,     22050, 44100, 0,
@@ -593,7 +589,7 @@ header_t::decode_lbr_header(bit_reader_c &bc,
 }
 
 bool
-header_t::decode_xll_header(bit_reader_c &bc,
+header_t::decode_xll_header(mtx::bits::reader_c &bc,
                             substream_asset_t &asset) {
   bc.set_bit_position((asset.xll_offset + asset.xll_sync_offset) * 8);
   if (asset.xll_sync_present && (bc.get_bits(32) != static_cast<uint32_t>(sync_word_e::xll)))
@@ -638,7 +634,7 @@ header_t::decode_xll_header(bit_reader_c &bc,
 }
 
 bool
-header_t::decode_asset(bit_reader_c &bc,
+header_t::decode_asset(mtx::bits::reader_c &bc,
                        substream_asset_t &asset) {
   auto descriptor_pos  = bc.get_bit_position();
   auto descriptor_size = bc.get_bits(9) + 1;
@@ -809,7 +805,7 @@ bool
 header_t::decode_x96_header(unsigned char const *buf,
                              size_t size) {
   try {
-    auto bc = bit_reader_c{buf, size};
+    auto bc = mtx::bits::reader_c{buf, size};
     bc.skip_bits(32);             // sync word
 
     auto x96_size = bc.peek_bits(12) + 1;
@@ -827,7 +823,7 @@ bool
 header_t::decode_exss_header(unsigned char const *buf,
                              size_t size) {
   try {
-    auto bc = bit_reader_c{buf, size};
+    auto bc = mtx::bits::reader_c{buf, size};
     bc.skip_bits(32);             // sync word
     bc.skip_bits(8);              // user defined
     auto substream_index  = bc.get_bits(2);
@@ -852,8 +848,8 @@ header_t::decode_exss_header(unsigned char const *buf,
     if (static_fields_present) {
       reference_clock_code     = bc.get_bits(2);             // reference clock code
       substream_frame_duration = (bc.get_bits(3) + 1) * 512; // substream frame duration
-      if (bc.get_bit())                                      // timecode presence flag
-        bc.skip_bits(32 + 4);                                // timecode data
+      if (bc.get_bit())                                      // timestamp presence flag
+        bc.skip_bits(32 + 4);                                // timestamp data
 
       num_presentations = bc.get_bits(3) + 1;
       num_assets        = bc.get_bits(3) + 1;
@@ -907,9 +903,9 @@ convert_14_to_16_bits(const unsigned short *src,
   // srcwords has to be a multiple of 8!
   // you will get (srcbytes >> 3)*7 destination words!
 
-  const unsigned long l = srcwords >> 3;
+  int const l = srcwords >> 3;
 
-  for (unsigned long b = 0; b < l; b++) {
+  for (int b = 0; b < l; b++) {
     unsigned short src_0 = (src[0] >>  8) | (src[0] << 8);
     unsigned short src_1 = (src[1] >>  8) | (src[1] << 8);
     unsigned short src_2 = (src[2] >>  8) | (src[2] << 8);

@@ -2,14 +2,18 @@
 
 #include <QDateTime>
 #include <QDebug>
+#include <QDir>
 #include <QRegularExpression>
 #include <QString>
 #include <QStringList>
 
 #include "common/extern_data.h"
+#include "common/json.h"
 #include "common/list_utils.h"
 #include "common/qt.h"
 #include "common/strings/editing.h"
+#include "mkvtoolnix-gui/app.h"
+#include "mkvtoolnix-gui/util/json.h"
 #include "mkvtoolnix-gui/util/string.h"
 
 namespace mtx { namespace gui { namespace Util {
@@ -78,7 +82,7 @@ unescapeSplitShellUnix(QString const &source) {
   auto escapeNext       = false;
   auto singleQuoted     = false;
   auto doubleQuoted     = false;
-  auto appendChar       = [&](QChar const &c) {
+  auto appendChar       = [&currentArgument, &arguments](QChar const &c) {
     if (!currentArgument) {
       arguments << Q("");
       currentArgument = &arguments.last();
@@ -199,9 +203,26 @@ unescape(QString const &source,
        :                                   unescapeMkvtoolnix(source);
 }
 
+static QStringList
+escapeJson(QStringList source) {
+  // QStrings can be null in addition to being empty. A NULL string
+  // converts to a null QVariant, which in turn converts to null JSON
+  // object. mkvmerge expects strings, though, so replace all null
+  // strings with empty ones instead.
+
+  for (auto &string : source)
+    if (string.isNull())
+      string = Q("");
+
+  return { Q(mtx::json::dump(variantToNlohmannJson(source), 2)) };
+}
+
 QStringList
 escape(QStringList const &source,
        EscapeMode mode) {
+  if (EscapeJSON == mode)
+    return escapeJson(source);
+
   auto escaped = QStringList{};
   auto first   = true;
 
@@ -263,6 +284,20 @@ QString
 mapToTopLevelCountryCode(QString const &countryCode) {
   auto ccTLD = map_to_cctld(to_utf8(countryCode));
   return ccTLD ? Q(*ccTLD) : countryCode;
+}
+
+QString
+replaceApplicationDirectoryWithMtxVariable(QString string) {
+  auto applicationDirectory = App::applicationDirPath().replace(Q("\\"), Q("/"));
+
+  return string.replace(Q("\\"), Q("/")).replace(applicationDirectory, Q("<MTX_INSTALLATION_DIRECTORY>"), Qt::CaseInsensitive);
+}
+
+QString
+replaceMtxVariableWithApplicationDirectory(QString string) {
+  auto applicationDirectory = QDir::toNativeSeparators(App::applicationDirPath());
+
+  return string.replace(Q("<MTX_INSTALLATION_DIRECTORY>"), applicationDirectory);
 }
 
 }}}

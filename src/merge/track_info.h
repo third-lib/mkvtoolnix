@@ -11,8 +11,7 @@
    Written by Moritz Bunkus <moritz@bunkus.org>.
 */
 
-#ifndef MTX_MERGE_TRACK_INFO_H
-#define MTX_MERGE_TRACK_INFO_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -41,11 +40,11 @@ enum cue_strategy_e {
   CUE_STRATEGY_SPARSE
 };
 
-struct timecode_sync_t {
+struct timestamp_sync_t {
   int64_t displacement;
   double numerator, denominator;
 
-  timecode_sync_t()
+  timestamp_sync_t()
   : displacement(0)
   , numerator(1.0)
   , denominator(1.0)
@@ -248,11 +247,11 @@ public:
   bool m_aspect_ratio_given, m_aspect_ratio_is_factor, m_display_dimensions_given;
   option_source_e m_display_dimensions_source;
 
-  std::map<int64_t, timecode_sync_t> m_timecode_syncs; // As given on the command line
-  timecode_sync_t m_tcsync;                       // For this very track
+  std::map<int64_t, timestamp_sync_t> m_timestamp_syncs; // As given on the command line
+  timestamp_sync_t m_tcsync;                       // For this very track
 
-  std::map<int64_t, bool> m_reset_timecodes_specs;
-  bool m_reset_timecodes;
+  std::map<int64_t, bool> m_reset_timestamps_specs;
+  bool m_reset_timestamps;
 
   std::map<int64_t, cue_strategy_e> m_cue_creations; // As given on the command line
   cue_strategy_e m_cues;          // For this very track
@@ -287,8 +286,8 @@ public:
   std::map<int64_t, std::string> m_track_names; // As given on the command line
   std::string m_track_name;            // For this very track
 
-  std::map<int64_t, std::string> m_all_ext_timecodes; // As given on the command line
-  std::string m_ext_timecodes;         // For this very track
+  std::map<int64_t, std::string> m_all_ext_timestamps; // As given on the command line
+  std::string m_ext_timestamps;         // For this very track
 
   std::map<int64_t, pixel_crop_t> m_pixel_crop_list; // As given on the command line
   option_with_source_c<pixel_crop_t> m_pixel_cropping;  // For this very track
@@ -299,8 +298,8 @@ public:
   std::map<int64_t, uint64_t> m_field_order_list; // As given on the command line
   option_with_source_c<uint64_t> m_field_order;   // For this very track
 
-  std::map<int64_t, int> m_colour_matrix_list; // As given on the command line
-  option_with_source_c<int> m_colour_matrix; // For this very track
+  std::map<int64_t, int> m_colour_matrix_coeff_list; // As given on the command line
+  option_with_source_c<int> m_colour_matrix_coeff; // For this very track
 
   std::map<int64_t, int> m_bits_per_channel_list; // As given on the command line
   option_with_source_c<int> m_bits_per_channel; // For this very track
@@ -341,7 +340,22 @@ public:
   std::map<int64_t, float> m_min_luminance_list; // As given on the command line
   option_with_source_c<float> m_min_luminance; // For this very track
 
-  std::map<int64_t, int64_t> m_default_durations; // As given on the command line
+  std::map<int64_t, uint64_t> m_projection_type_list; // As given on the command line
+  option_with_source_c<uint64_t> m_projection_type; // For this very track
+
+  std::map<int64_t, memory_cptr> m_projection_private_list; // As given on the command line
+  option_with_source_c<memory_cptr> m_projection_private; // For this very track
+
+  std::map<int64_t, double> m_projection_pose_yaw_list; // As given on the command line
+  option_with_source_c<double> m_projection_pose_yaw; // For this very track
+
+  std::map<int64_t, double> m_projection_pose_pitch_list; // As given on the command line
+  option_with_source_c<double> m_projection_pose_pitch; // For this very track
+
+  std::map<int64_t, double> m_projection_pose_roll_list; // As given on the command line
+  option_with_source_c<double> m_projection_pose_roll; // For this very track
+
+  std::map<int64_t, std::pair<int64_t, bool>> m_default_durations; // As given on the command line
   std::map<int64_t, int> m_max_blockadd_ids; // As given on the command line
 
   std::map<int64_t, int> m_nalu_size_lengths;
@@ -389,5 +403,3 @@ get_option_for_track(T const &options,
 
   return default_value;
 }
-
-#endif  // MTX_MERGE_TRACK_INFO_H

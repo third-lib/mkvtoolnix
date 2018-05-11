@@ -9,17 +9,17 @@ set -e
 #
 # SETUP -- adjust these variables if neccessary.
 # You can also override them from the command line:
-# INSTALL_DIR=/opt/mingw ./setup_cross_compilation_env.sh
+# INSTALL_DIR=/opt/mingw ARCHITECTURE=32 ./setup_cross_compilation_env.sh
 #
 
 # This defaults to a 64bit executable. If you need a 32bit executable
 # then change ARCHITECTURE to 32.
-ARCHITECTURE=64
+ARCHITECTURE=${ARCHITECTURE:-64}
 # Installation defaults to ~/mxe.
 INSTALL_DIR=${INSTALL_DIR:-$HOME/mxe}
 # Leave PARALLEL empty if you want the script to use all of your CPU
 # cores.
-PARALLEL=${PARALLEL:-$(( $(awk '/^core id/ { print $4 }' /proc/cpuinfo | sort | tail -n 1) + 2 ))}
+PARALLEL=${PARALLEL:-$(nproc --all)}
 
 #
 # END OF SETUP -- usually no need to change anything else
@@ -32,25 +32,28 @@ else
 fi
 
 SRCDIR=$(pwd)
-LOGFILE=$(mktemp -p '' mkvtoolnix_setup_cross_compilation_env.XXXXXX)
+LOGFILE=${LOGFILE:-$(mktemp -p '' mkvtoolnix_setup_cross_compilation_env.XXXXXX)}
 
 function update_mingw_cross_env {
   if [[ ! -d $INSTALL_DIR ]]; then
     echo Retrieving the M cross environment build scripts >> $LOGFILE
-    git clone https://github.com/mbunkus/mxe $INSTALL_DIR >> $LOGFILE 2>&1
+    git clone https://gitlab.com/mbunkus/mxe $INSTALL_DIR >> $LOGFILE 2>&1
   else
     echo Updating the M cross environment build scripts >> $LOGFILE
     cd $INSTALL_DIR
-    git pull >> $LOGFILE 2>&1
+    git fetch >> $LOGFILE 2>&1 && git reset --hard >> $LOGFILE 2>&1
   fi
 
   cd ${INSTALL_DIR}
   cat > settings.mk <<EOF
-MXE_TARGETS=${HOST}
-JOBS=${PARALLEL}
+MXE_TARGETS = ${HOST}
+MXE_PLUGIN_DIRS += plugins/gcc6
+JOBS = ${PARALLEL}
 
-mkvtoolnix-deps:
-	+make gettext libiconv zlib boost curl file flac lzo ogg pthreads vorbis qtbase qttranslations qtwinextras
+MKVTOOLNIX_DEPENDENCIES=gettext libiconv zlib boost file flac lzo ogg pthreads vorbis
+MKVTOOLNIX_DEPENDENCIES+=qtbase qttranslations qtwinextras
+
+mkvtoolnix-deps: \$(MKVTOOLNIX_DEPENDENCIES)
 EOF
 }
 
@@ -93,11 +96,11 @@ function configure_mkvtoolnix {
 
   echo
   if [ $result -eq 0 ]; then
-    echo 'Configuration went well. Congratulations. You can now run "drake"'
+    echo 'Configuration went well. Congratulations. You can now run "rake"'
     echo 'after adding the mingw cross compiler installation directory to your PATH:'
     echo '  export PATH='${INSTALL_DIR}'/usr/bin:$PATH'
     echo '  hash -r'
-    echo '  ./drake'
+    echo '  rake'
   else
     echo "Configuration failed. Look at ${LOGFILE} as well as"
     echo "at ./config.log for hints as to why."

@@ -21,7 +21,7 @@
 #include "info/options.h"
 
 info_cli_parser_c::info_cli_parser_c(const std::vector<std::string> &args)
-  : cli_parser_c(args)
+  : mtx::cli::parser_c{args}
 {
   verbose = 0;
 }
@@ -35,20 +35,21 @@ info_cli_parser_c::init_parser() {
   add_section_header(YT("Options"));
 
 #if defined(HAVE_QT)
-  OPT("G|no-gui",       set_no_gui,       YT("Do not start the GUI."));
-  OPT("g|gui",          set_gui,          YT("Start the GUI (and open inname if it was given)."));
+  OPT("G|no-gui",        set_no_gui,        YT("Do not start the GUI."));
+  OPT("g|gui",           set_gui,           YT("Start the GUI (and open inname if it was given)."));
 #endif
-  OPT("c|checksum",     set_checksum,     YT("Calculate and display checksums of frame contents."));
-  OPT("C|check-mode",   set_check_mode,   YT("Calculate and display checksums and use verbosity level 4."));
-  OPT("s|summary",      set_summary,      YT("Only show summaries of the contents, not each element."));
-  OPT("t|track-info",   set_track_info,   YT("Show statistics for each track in verbose mode."));
-  OPT("x|hexdump",      set_hexdump,      YT("Show the first 16 bytes of each frame as a hex dump."));
-  OPT("X|full-hexdump", set_full_hexdump, YT("Show all bytes of each frame as a hex dump."));
-  OPT("z|size",         set_size,         YT("Show the size of each element including its header."));
+  OPT("c|checksum",      set_checksum,      YT("Calculate and display checksums of frame contents."));
+  OPT("C|check-mode",    set_check_mode,    YT("Calculate and display checksums and use verbosity level 4."));
+  OPT("s|summary",       set_summary,       YT("Only show summaries of the contents, not each element."));
+  OPT("t|track-info",    set_track_info,    YT("Show statistics for each track in verbose mode."));
+  OPT("x|hexdump",       set_hexdump,       YT("Show the first 16 bytes of each frame as a hex dump."));
+  OPT("X|full-hexdump",  set_full_hexdump,  YT("Show all bytes of each frame as a hex dump."));
+  OPT("p|hex-positions", set_hex_positions, YT("Show positions in hexadecimal."));
+  OPT("z|size",          set_size,          YT("Show the size of each element including its header."));
 
   add_common_options();
 
-  add_hook(cli_parser_c::ht_unknown_option, std::bind(&info_cli_parser_c::set_file_name, this));
+  add_hook(mtx::cli::parser_c::ht_unknown_option, std::bind(&info_cli_parser_c::set_file_name, this));
 }
 
 #undef OPT
@@ -113,9 +114,14 @@ info_cli_parser_c::set_track_info() {
 void
 info_cli_parser_c::set_file_name() {
   if (!m_options.m_file_name.empty())
-    mxerror(Y("Only one input file is allowed.\n"));
+    mxerror(Y("Only one source file is allowed.\n"));
 
   m_options.m_file_name = m_current_arg;
+}
+
+void
+info_cli_parser_c::set_hex_positions() {
+  m_options.m_hex_positions = true;
 }
 
 options_c

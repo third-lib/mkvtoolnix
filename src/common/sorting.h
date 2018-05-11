@@ -11,8 +11,7 @@
    Written by Moritz Bunkus <moritz@bunkus.org>.
 */
 
-#ifndef MTX_COMMON_SORTING_H
-#define MTX_COMMON_SORTING_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -119,8 +118,8 @@ public:
   bool
   operator <(natural_string_c<StrT> const &b)
     const {
-    auto min = std::min(m_parts.size(), b.m_parts.size());
-    for (size_t idx = 0; idx < min; ++idx)
+    auto min = std::min<int>(m_parts.size(), b.m_parts.size());
+    for (int idx = 0; idx < min; ++idx)
       if (m_parts[idx] < b.m_parts[idx])
         return true;
       else if (!(m_parts[idx] == b.m_parts[idx]))
@@ -138,5 +137,3 @@ naturally(IterT first,
 }
 
 }}
-
-#endif  // MTX_COMMON_SORTING_H

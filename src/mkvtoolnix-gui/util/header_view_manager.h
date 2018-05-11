@@ -1,5 +1,4 @@
-#ifndef MTX_MKVTOOLNIX_GUI_UTIL_HEADER_VIEW_MANAGER_H
-#define MTX_MKVTOOLNIX_GUI_UTIL_HEADER_VIEW_MANAGER_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -34,6 +33,7 @@ public:
 protected:
   void restoreHidden(QStringList const &hiddenColumns);
   void restoreVisualIndexes(QStringList const &columnOrder);
+  void restoreSizes(QStringList const &columnSizes);
   QString symbolicColumnName(int logicalIndex);
 
   Q_DECLARE_PRIVATE(HeaderViewManager);
@@ -42,5 +42,3 @@ protected:
 };
 
 }}}
-
-#endif // MTX_MKVTOOLNIX_GUI_UTIL_HEADER_VIEW_MANAGER_H

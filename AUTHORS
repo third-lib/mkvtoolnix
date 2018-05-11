@@ -3,6 +3,7 @@ for MKVToolNix or in alphabetical order:
 
 Almer, James <jamrial@gmail.com>
     * Support for "field order" element in mkvinfo
+    * Support for skipping APE(v2) tags in TTA files
 
 Angelino, Matteo <matteo.maff@gmail.com>
     * Italian translation
@@ -52,6 +53,7 @@ Carvalho, pp <?>
 
 Chen, Chao <tochenchao@gmail.com>
     * Support colour elements for video tracks
+    * Support reading colour elements from "COLR" atoms in MP4 files
     * Support for Apple ProRes video
 
 Chen, Mike <mike.chen82@googlemail.com>
@@ -149,8 +151,11 @@ Maier, Nils <maierman@web.de>
     * Input file buffering
     * Error mode fix on Windows
 
-Mazurczyk, Jan <janmazurczyk@gmail.com>
-    * Polish translation
+Mazurczyk, Jan (remuxer32) <janmazurczyk@gmail.com>
+    * Polish translation of the programs, the man pages and installer entries
+    * MKVToolNix collaborator: editing the Wiki entries, proposing new ideas/improvements to the project, 
+      testing the software, reporting bugs, providing materials (e.g. important sample files), 
+      advising the users & the author
 
 Medina, Sergi <nousernameremain@gmail.com>
     * Spanish translation
@@ -268,6 +273,9 @@ Wu, Dong-Jun <ziyawu@gmail.com>
 Yavuz, Burak <bourock@live.com>
     * Turkish translation
 
+Wang, Hulen <shift0106@hotmail.com>
+    * Chinese Traditional translation
+
 Zenkov, Mihail <mihail.zenkov@gmail.com>
     * Support for reading MP2 audio tracks from OGM files
 
@@ -276,6 +284,9 @@ Zenkov, Mihail <mihail.zenkov@gmail.com>
 
 Прусаков, Евгений <Eugenius_V@mail.ru>
     * Russian translation
+
+?, Daniel <danny3@tutanota.com>
+    * Romanian translation of the programs
 
 ?, ? (Lefungus)
     * Avoid several compiler warnings

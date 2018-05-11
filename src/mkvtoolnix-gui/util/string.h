@@ -1,5 +1,4 @@
-#ifndef MTX_MKVTOOLNIX_GUI_UTIL_STRING_H
-#define MTX_MKVTOOLNIX_GUI_UTIL_STRING_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -12,6 +11,7 @@ namespace mtx { namespace gui { namespace Util {
 
 enum EscapeMode {
   EscapeMkvtoolnix,
+  EscapeJSON,
   EscapeShellUnix,
   EscapeShellCmdExeArgument,
   EscapeShellCmdExeProgram,
@@ -38,6 +38,9 @@ QString itemFlagsToString(Qt::ItemFlags const &flags);
 
 QString mapToTopLevelCountryCode(QString const &countryCode);
 
+QString replaceApplicationDirectoryWithMtxVariable(QString string);
+QString replaceMtxVariableWithApplicationDirectory(QString string);
+
 class DeferredRegularExpression {
 private:
   std::unique_ptr<QRegularExpression> m_re;
@@ -51,5 +54,3 @@ public:
 };
 
 }}}
-
-#endif  // MTX_MKVTOOLNIX_GUI_UTIL_STRING_H

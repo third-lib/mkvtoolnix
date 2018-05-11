@@ -11,8 +11,7 @@
    Written by Moritz Bunkus <moritz@bunkus.org>.
 */
 
-#ifndef MTX_R_SSA_H
-#define MTX_R_SSA_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -23,13 +22,14 @@
 class ssa_reader_c: public generic_reader_c {
 private:
   ssa_parser_cptr m_subs;
+  boost::optional<std::string> m_encoding;
 
 public:
   ssa_reader_c(const track_info_c &ti, const mm_io_cptr &in);
   virtual ~ssa_reader_c();
 
-  virtual file_type_e get_format_type() const {
-    return FILE_TYPE_SSA;
+  virtual mtx::file_type_e get_format_type() const {
+    return mtx::file_type_e::ssa;
   }
 
   virtual void read_headers();
@@ -43,5 +43,3 @@ public:
 
   static int probe_file(mm_text_io_c *in, uint64_t size);
 };
-
-#endif  // MTX_R_SSA_H

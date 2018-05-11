@@ -11,8 +11,7 @@
    Written by Moritz Bunkus <moritz@bunkus.org>.
 */
 
-#ifndef MTX_OUTPUT_P_GENERIC_VIDEO_H
-#define MTX_OUTPUT_P_GENERIC_VIDEO_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -26,7 +25,7 @@ class generic_video_packetizer_c: public generic_packetizer_c {
 protected:
   double m_fps;
   int m_width, m_height, m_frames_output;
-  int64_t m_ref_timecode, m_duration_shift;
+  int64_t m_ref_timestamp, m_duration_shift;
 
 public:
   generic_video_packetizer_c(generic_reader_c *p_reader, track_info_c &p_ti, std::string const &codec_id, double fps, int width, int height);
@@ -39,5 +38,3 @@ public:
   }
   virtual connection_result_e can_connect_to(generic_packetizer_c *src, std::string &error_message) override;
 };
-
-#endif // MTX_OUTPUT_P_GENERIC_VIDEO_H

@@ -1,6 +1,7 @@
 #include "common/common_pch.h"
 
 #include "common/qt.h"
+#include "mkvtoolnix-gui/app.h"
 #include "mkvtoolnix-gui/forms/jobs/tool.h"
 #include "mkvtoolnix-gui/forms/main_window/main_window.h"
 #include "mkvtoolnix-gui/jobs/mux_job.h"
@@ -72,6 +73,8 @@ void
 Tool::setupUi() {
   ui->jobs->setModel(m_model);
 
+  setupMoveJobsButtons();
+
   Util::preventScrollingWithoutFocus(this);
   Util::HeaderViewManager::create(*ui->jobs, "Jobs::Jobs");
 
@@ -134,14 +137,27 @@ Tool::setupActions() {
   connect(m_editAndRemoveAction,                            &QAction::triggered,                              this,    &Tool::onEditAndRemove);
   connect(m_startImmediatelyAction,                         &QAction::triggered,                              this,    &Tool::onStartImmediately);
 
+  connect(ui->jobs->selectionModel(),                       &QItemSelectionModel::selectionChanged,           this,    &Tool::enableMoveJobsButtons);
   connect(ui->jobs,                                         &Util::BasicTreeView::doubleClicked,              this,    &Tool::onViewOutput);
   connect(ui->jobs,                                         &Util::BasicTreeView::customContextMenuRequested, this,    &Tool::onContextMenu);
   connect(ui->jobs,                                         &Util::BasicTreeView::deletePressed,              this,    &Tool::onRemove);
+  connect(ui->jobs,                                         &Util::BasicTreeView::ctrlDownPressed,            this,    [this]() { moveJobsUpOrDown(false); });
+  connect(ui->jobs,                                         &Util::BasicTreeView::ctrlUpPressed,              this,    [this]() { moveJobsUpOrDown(true); });
+  connect(ui->moveJobsDown,                                 &QPushButton::clicked,                            this,    [this]() { moveJobsUpOrDown(false); });
+  connect(ui->moveJobsUp,                                   &QPushButton::clicked,                            this,    [this]() { moveJobsUpOrDown(true); });
+
 
   connect(mw,                                               &MainWindow::preferencesChanged,                  this,    &Tool::retranslateUi);
+  connect(mw,                                               &MainWindow::preferencesChanged,                  this,    &Tool::setupMoveJobsButtons);
   connect(mw,                                               &MainWindow::aboutToClose,                        m_model, &Model::saveJobs);
 
   connect(MainWindow::watchCurrentJobTab(),                 &WatchJobs::Tab::watchCurrentJobTabCleared,       m_model, &Model::resetTotalProgress);
+}
+
+void
+Tool::setupMoveJobsButtons() {
+  ui->moveJobsButtons->setVisible(Util::Settings::get().m_showMoveUpDownButtons);
+  enableMoveJobsButtons();
 }
 
 void
@@ -265,7 +281,7 @@ Tool::onRemove() {
 
 void
 Tool::onRemoveDone() {
-  m_model->removeJobsIf([this](Job const &job) {
+  m_model->removeJobsIf([](Job const &job) {
       return (Job::DoneOk       == job.status())
           || (Job::DoneWarnings == job.status())
           || (Job::Failed       == job.status())
@@ -275,7 +291,7 @@ Tool::onRemoveDone() {
 
 void
 Tool::onRemoveDoneOk() {
-  m_model->removeJobsIf([this](Job const &job) { return Job::DoneOk == job.status(); });
+  m_model->removeJobsIf([](Job const &job) { return Job::DoneOk == job.status(); });
 }
 
 void
@@ -292,6 +308,19 @@ Tool::onRemoveAll() {
 
   if (emitRunningWarning)
     MainWindow::get()->setStatusBarMessage(QY("Running jobs cannot be removed."));
+}
+
+void
+Tool::moveJobsUpOrDown(bool up) {
+  auto focus = App::instance()->focusWidget();
+
+  m_model->withSelectedJobsAsList(ui->jobs, [this, up](auto const &selectedJobs) {
+    m_model->moveJobsUpOrDown(selectedJobs, up);
+    this->selectJobs(selectedJobs);
+  });
+
+  if (focus)
+    focus->setFocus();
 }
 
 void
@@ -519,6 +548,28 @@ Tool::processDroppedFiles() {
   for (auto const &fileName : fileNames)
     if (!addDroppedFileAsJob(fileName))
       Util::MessageBox::critical(this)->title(QY("Error loading settings file")).text(QY("The file '%1' is neither a job queue file nor a settings file.").arg(fileName)).exec();
+}
+
+void
+Tool::selectJobs(QList<Job *> const &jobs) {
+  auto numColumns = m_model->columnCount() - 1;
+  auto selection  = QItemSelection{};
+
+  for (auto const &job : jobs) {
+    auto row = m_model->rowFromId(job->id());
+    selection.select(m_model->index(row, 0), m_model->index(row, numColumns));
+  }
+
+  ui->jobs->selectionModel()->select(selection, QItemSelectionModel::ClearAndSelect);
+}
+
+void
+Tool::enableMoveJobsButtons() {
+  auto hasSelected = false;
+  m_model->withSelectedJobsAsList(ui->jobs, [&hasSelected](auto const &selectedJobs) { hasSelected = !selectedJobs.isEmpty(); });
+
+  ui->moveJobsUp->setEnabled(hasSelected);
+  ui->moveJobsDown->setEnabled(hasSelected);
 }
 
 }}}

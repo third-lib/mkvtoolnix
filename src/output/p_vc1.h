@@ -11,8 +11,7 @@
    Written by Moritz Bunkus <moritz@bunkus.org>.
 */
 
-#ifndef MTX_P_VC1_H
-#define MTX_P_VC1_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -21,11 +20,11 @@
 
 class vc1_video_packetizer_c: public generic_packetizer_c {
 protected:
-  vc1::es_parser_c m_parser;
-  vc1::sequence_header_t m_seqhdr;
+  mtx::vc1::es_parser_c m_parser;
+  mtx::vc1::sequence_header_t m_seqhdr;
   memory_cptr m_raw_headers;
 
-  int64_t m_previous_timecode;
+  int64_t m_previous_timestamp;
 
 public:
   vc1_video_packetizer_c(generic_reader_c *n_reader, track_info_c &n_ti);
@@ -43,7 +42,5 @@ protected:
   virtual void flush_impl();
   virtual void flush_frames();
   virtual void headers_found();
-  virtual void add_timecodes_to_parser(packet_cptr &packet);
+  virtual void add_timestamps_to_parser(packet_cptr &packet);
 };
-
-#endif // MTX_P_VC1_H

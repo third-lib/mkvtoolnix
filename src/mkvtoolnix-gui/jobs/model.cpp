@@ -9,6 +9,7 @@
 #include "common/list_utils.h"
 #include "common/qt.h"
 #include "common/sorting.h"
+#include "mkvtoolnix-gui/app.h"
 #include "mkvtoolnix-gui/jobs/model.h"
 #include "mkvtoolnix-gui/jobs/mux_job.h"
 #include "mkvtoolnix-gui/jobs/program_runner.h"
@@ -76,8 +77,8 @@ Model::selectedJobs(QAbstractItemView *view) {
   QMutexLocker locked{&m_mutex};
 
   QList<Job *> jobs;
-  Util::withSelectedIndexes(view, [&](QModelIndex const &idx) {
-    jobs << m_jobsById[ data(idx, Util::JobIdRole).value<uint64_t>() ].get();
+  Util::withSelectedIndexes(view, [this, &jobs](auto const &idx) {
+    jobs << m_jobsById[ this->data(idx, Util::JobIdRole).template value<uint64_t>() ].get();
   });
 
   return jobs;
@@ -183,6 +184,13 @@ Model::withSelectedJobs(QAbstractItemView *view,
   auto jobs = selectedJobs(view);
   for (auto const &job : jobs)
     worker(*job);
+}
+
+void
+Model::withSelectedJobsAsList(QAbstractItemView *view,
+                              std::function<void(QList<Job *> const &)> const &worker) {
+  QMutexLocker locked{&m_mutex};
+  worker(selectedJobs(view));
 }
 
 void
@@ -292,6 +300,9 @@ Model::onStatusChanged(uint64_t id,
 
   if ((Job::Running == oldStatus) && (Job::Running != newStatus))
     ++m_queueNumDone;
+
+  if (newStatus != Job::Running)
+    job.saveQueueFile();
 
   startNextAutoJob();
 
@@ -453,20 +464,25 @@ void
 Model::updateProgress() {
   QMutexLocker locked{&m_mutex};
 
-  if (!(m_toBeProcessed.count() + m_queueNumDone))
+  if (m_toBeProcessed.isEmpty())
     return;
 
   auto numRunning       = 0;
+  auto numPendingAuto   = 0;
   auto runningProgress  = 0;
 
   for (auto const &job : m_toBeProcessed)
     if (Job::Running == job->status()) {
       ++numRunning;
       runningProgress += job->progress();
-    }
+
+    } else if (Job::PendingAuto == job->status())
+      ++numPendingAuto;
 
   auto progress      = numRunning ? runningProgress / numRunning : 0u;
-  auto totalProgress = (m_queueNumDone * 100 + runningProgress) / (m_toBeProcessed.count() + m_queueNumDone);
+  auto totalProgress = (m_queueNumDone * 100 + runningProgress) / (m_queueNumDone + numRunning + numPendingAuto);
+
+  qDebug() << "updateProgress: total" << totalProgress << "numDone" << m_queueNumDone << "numRunning" << numRunning << "numPendingAuto" << numPendingAuto << "runningProgress" << runningProgress;
 
   emit progressChanged(progress, totalProgress);
 }
@@ -643,7 +659,11 @@ Model::dropMimeData(QMimeData const *data,
   if (!canDropMimeData(data, action, row, column, parent))
     return false;
 
-  return QStandardItemModel::dropMimeData(data, action, row, 0, parent);
+  auto result = QStandardItemModel::dropMimeData(data, action, row, 0, parent);
+
+  Util::requestAllItems(*this);
+
+  return result;
 }
 
 void
@@ -683,9 +703,55 @@ Model::runProgramOnQueueStop(QueueStatus status) {
   if (QueueStatus::Stopped != status)
     return;
 
-  ProgramRunner::run(Util::Settings::RunAfterJobQueueFinishes, [](ProgramRunner::VariableMap &) {
+  App::programRunner().run(Util::Settings::RunAfterJobQueueFinishes, [](ProgramRunner::VariableMap &) {
     // Nothing to do in this case.
   });
+}
+
+void
+Model::sortJobs(QList<Job *> &jobs,
+                bool reverse) {
+  auto rows = QHash<Job *, int>{};
+
+  for (auto const &job : jobs)
+    rows[job] = rowFromId(job->id());
+
+  std::sort(jobs.begin(), jobs.end(), [&rows](Job *a, Job *b) { return rows[a] < rows[b]; });
+
+  if (reverse)
+    brng::reverse(jobs);
+}
+
+void
+Model::moveJobsUpOrDown(QList<Job *> jobs,
+                        bool up) {
+  auto couldNotBeMoved = QHash<uint64_t, bool>{};
+  auto const direction = up ? -1 : +1;
+  auto const numRows   = rowCount();
+
+  sortJobs(jobs, !up);
+
+  for (auto const &job : jobs) {
+    auto id  = job->id();
+    auto row = rowFromId(id);
+
+    if (row == RowNotFound) {
+      qDebug() << "row not found for job ID" << id;
+      continue;
+    }
+
+    auto targetRow = row + direction;
+    Job *targetJob = (targetRow >= 0) && (targetRow < numRows) ? m_jobsById[idFromRow(targetRow)].get() : nullptr;
+
+    if (!targetJob || couldNotBeMoved[targetJob->id()]) {
+      couldNotBeMoved[id] = true;
+      continue;
+    }
+
+    auto rootItem = invisibleRootItem();
+    auto rowItems = rootItem->takeRow(row);
+    rootItem->insertRow(targetRow, rowItems);
+  }
 }
 
 }}}

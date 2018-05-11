@@ -53,24 +53,22 @@
 static std::unordered_map<std::string, bool> s_experimental_status_warning_shown;
 std::vector<generic_packetizer_c *> ptzrs_in_header_order;
 
-// Specs say that track numbers should start at 1.
-int generic_packetizer_c::ms_track_number = 1;
+int generic_packetizer_c::ms_track_number = 0;
 
 generic_packetizer_c::generic_packetizer_c(generic_reader_c *reader,
                                            track_info_c &ti)
   : m_num_packets{}
-  , m_next_packet_wo_assigned_timecode{}
+  , m_next_packet_wo_assigned_timestamp{}
   , m_free_refs{-1}
   , m_next_free_refs{-1}
   , m_enqueued_bytes{}
-  , m_safety_last_timecode{}
+  , m_safety_last_timestamp{}
   , m_safety_last_duration{}
   , m_track_entry{}
   , m_hserialno{-1}
   , m_htrack_type{-1}
-  , m_htrack_min_cache{}
-  , m_htrack_max_cache{-1}
   , m_htrack_default_duration{-1}
+  , m_htrack_default_duration_indicates_fields{}
   , m_default_duration_forced{true}
   , m_default_track_warning_printed{}
   , m_huid{}
@@ -86,30 +84,30 @@ generic_packetizer_c::generic_packetizer_c(generic_reader_c *reader,
   , m_hvideo_display_height{-1}
   , m_hcompression{COMPRESSION_UNSPECIFIED}
   , m_timestamp_factory_application_mode{TFA_AUTOMATIC}
-  , m_last_cue_timecode{-1}
+  , m_last_cue_timestamp{-1}
   , m_has_been_flushed{}
   , m_prevent_lacing{}
   , m_connected_successor{}
   , m_ti{ti}
   , m_reader{reader}
   , m_connected_to{}
-  , m_correction_timecode_offset{}
-  , m_append_timecode_offset{}
-  , m_max_timecode_seen{}
-  , m_relaxed_timecode_checking{}
+  , m_correction_timestamp_offset{}
+  , m_append_timestamp_offset{}
+  , m_max_timestamp_seen{}
+  , m_relaxed_timestamp_checking{}
 {
-  // Let's see if the user specified timecode sync for this track.
-  if (mtx::includes(m_ti.m_timecode_syncs, m_ti.m_id))
-    m_ti.m_tcsync = m_ti.m_timecode_syncs[m_ti.m_id];
-  else if (mtx::includes(m_ti.m_timecode_syncs, -1))
-    m_ti.m_tcsync = m_ti.m_timecode_syncs[-1];
+  // Let's see if the user specified timestamp sync for this track.
+  if (mtx::includes(m_ti.m_timestamp_syncs, m_ti.m_id))
+    m_ti.m_tcsync = m_ti.m_timestamp_syncs[m_ti.m_id];
+  else if (mtx::includes(m_ti.m_timestamp_syncs, -1))
+    m_ti.m_tcsync = m_ti.m_timestamp_syncs[-1];
   if (0 == m_ti.m_tcsync.numerator)
     m_ti.m_tcsync.numerator = 1;
   if (0 == m_ti.m_tcsync.denominator)
     m_ti.m_tcsync.denominator = 1;
 
-  // Let's see if the user specified "reset timecodes" for this track.
-  m_ti.m_reset_timecodes = mtx::includes(m_ti.m_reset_timecodes_specs, m_ti.m_id) || mtx::includes(m_ti.m_reset_timecodes_specs, -1);
+  // Let's see if the user specified "reset timestamps" for this track.
+  m_ti.m_reset_timestamps = mtx::includes(m_ti.m_reset_timestamps_specs, m_ti.m_id) || mtx::includes(m_ti.m_reset_timestamps_specs, -1);
 
   // Let's see if the user has specified which cues he wants for this track.
   if (mtx::includes(m_ti.m_cue_creations, m_ti.m_id))
@@ -173,11 +171,11 @@ generic_packetizer_c::generic_packetizer_c(generic_reader_c *reader,
   else if (mtx::includes(m_ti.m_track_names, -1))
     m_ti.m_track_name = m_ti.m_track_names[-1];
 
-  // Let's see if the user has specified external timecodes for this track.
-  if (mtx::includes(m_ti.m_all_ext_timecodes, m_ti.m_id))
-    m_ti.m_ext_timecodes = m_ti.m_all_ext_timecodes[m_ti.m_id];
-  else if (mtx::includes(m_ti.m_all_ext_timecodes, -1))
-    m_ti.m_ext_timecodes = m_ti.m_all_ext_timecodes[-1];
+  // Let's see if the user has specified external timestamps for this track.
+  if (mtx::includes(m_ti.m_all_ext_timestamps, m_ti.m_id))
+    m_ti.m_ext_timestamps = m_ti.m_all_ext_timestamps[m_ti.m_id];
+  else if (mtx::includes(m_ti.m_all_ext_timestamps, -1))
+    m_ti.m_ext_timestamps = m_ti.m_all_ext_timestamps[-1];
 
   // Let's see if the user has specified an aspect ratio or display dimensions
   // for this track.
@@ -211,9 +209,9 @@ generic_packetizer_c::generic_packetizer_c(generic_reader_c *reader,
     set_video_pixel_cropping(m_ti.m_pixel_crop_list[i], OPTION_SOURCE_COMMAND_LINE);
 
   // Let's see if the user has specified colour matrix for this track.
-  i = LOOKUP_TRACK_ID(m_ti.m_colour_matrix_list);
+  i = LOOKUP_TRACK_ID(m_ti.m_colour_matrix_coeff_list);
   if (-2 != i)
-    set_video_colour_matrix(m_ti.m_colour_matrix_list[i], OPTION_SOURCE_COMMAND_LINE);
+    set_video_colour_matrix(m_ti.m_colour_matrix_coeff_list[i], OPTION_SOURCE_COMMAND_LINE);
 
   // Let's see if the user has specified bits per channel parameter for this track.
   i = LOOKUP_TRACK_ID(m_ti.m_bits_per_channel_list);
@@ -280,6 +278,26 @@ generic_packetizer_c::generic_packetizer_c(generic_reader_c *reader,
   if (-2 != i)
     set_video_min_luminance(m_ti.m_min_luminance_list[i], OPTION_SOURCE_COMMAND_LINE);
 
+  i = LOOKUP_TRACK_ID(m_ti.m_projection_type_list);
+  if (-2 != i)
+    set_video_projection_type(m_ti.m_projection_type_list[i], OPTION_SOURCE_COMMAND_LINE);
+
+  i = LOOKUP_TRACK_ID(m_ti.m_projection_private_list);
+  if (-2 != i)
+    set_video_projection_private(m_ti.m_projection_private_list[i], OPTION_SOURCE_COMMAND_LINE);
+
+  i = LOOKUP_TRACK_ID(m_ti.m_projection_pose_yaw_list);
+  if (-2 != i)
+    set_video_projection_pose_yaw(m_ti.m_projection_pose_yaw_list[i], OPTION_SOURCE_COMMAND_LINE);
+
+  i = LOOKUP_TRACK_ID(m_ti.m_projection_pose_pitch_list);
+  if (-2 != i)
+    set_video_projection_pose_pitch(m_ti.m_projection_pose_pitch_list[i], OPTION_SOURCE_COMMAND_LINE);
+
+  i = LOOKUP_TRACK_ID(m_ti.m_projection_pose_roll_list);
+  if (-2 != i)
+    set_video_projection_pose_roll(m_ti.m_projection_pose_roll_list[i], OPTION_SOURCE_COMMAND_LINE);
+
   // Let's see if the user has specified a field order for this track.
   i = LOOKUP_TRACK_ID(m_ti.m_field_order_list);
   if (-2 != i)
@@ -291,11 +309,15 @@ generic_packetizer_c::generic_packetizer_c(generic_reader_c *reader,
     set_video_stereo_mode(m_ti.m_stereo_mode_list[m_ti.m_id], OPTION_SOURCE_COMMAND_LINE);
 
   // Let's see if the user has specified a default duration for this track.
-  if (mtx::includes(m_ti.m_default_durations, m_ti.m_id))
-    m_htrack_default_duration = m_ti.m_default_durations[m_ti.m_id];
-  else if (mtx::includes(m_ti.m_default_durations, -1))
-    m_htrack_default_duration = m_ti.m_default_durations[-1];
-  else
+  if (mtx::includes(m_ti.m_default_durations, m_ti.m_id)) {
+    m_htrack_default_duration                  = m_ti.m_default_durations[m_ti.m_id].first;
+    m_htrack_default_duration_indicates_fields = m_ti.m_default_durations[m_ti.m_id].second;
+
+  } else if (mtx::includes(m_ti.m_default_durations, -1)) {
+    m_htrack_default_duration                  = m_ti.m_default_durations[-1].first;
+    m_htrack_default_duration_indicates_fields = m_ti.m_default_durations[-1].second;
+
+  } else
     m_default_duration_forced = false;
 
   // Let's see if the user has set a max_block_add_id
@@ -320,13 +342,15 @@ generic_packetizer_c::generic_packetizer_c(generic_reader_c *reader,
     g_packetizers_by_track_num[m_hserialno] = this;
   }
 
-  m_timestamp_factory = timestamp_factory_c::create(m_ti.m_ext_timecodes, m_ti.m_fname, m_ti.m_id);
+  m_timestamp_factory = timestamp_factory_c::create(m_ti.m_ext_timestamps, m_ti.m_fname, m_ti.m_id);
 
-  // If no external timecode file but a default duration has been
-  // given then create a simple timecode factory that generates the
-  // timecodes for the given FPS.
-  if (!m_timestamp_factory && (-1 != m_htrack_default_duration))
-    m_timestamp_factory = timestamp_factory_c::create_fps_factory(m_htrack_default_duration, m_ti.m_tcsync);
+  // If no external timestamp file but a default duration has been
+  // given then create a simple timestamp factory that generates the
+  // timestamps for the given FPS.
+  if (!m_timestamp_factory && (-1 != m_htrack_default_duration)) {
+    auto divisor        = m_htrack_default_duration_indicates_fields ? 2 : 1;
+    m_timestamp_factory = timestamp_factory_c::create_fps_factory(m_htrack_default_duration / divisor, m_ti.m_tcsync);
+  }
 }
 
 generic_packetizer_c::~generic_packetizer_c() {
@@ -346,7 +370,7 @@ generic_packetizer_c::set_tag_track_uid() {
 
     GetChild<KaxTagTrackUID>(GetChild<KaxTagTargets>(tag)).SetValue(m_huid);
 
-    mtx::tags::fix_mandatory_elements(tag);
+    fix_mandatory_elements(tag);
 
     if (!tag->CheckMandatory())
       mxerror(boost::format(Y("The tags in '%1%' could not be parsed: some mandatory elements are missing.\n"))
@@ -431,22 +455,9 @@ generic_packetizer_c::set_codec_private(memory_cptr const &buffer) {
 }
 
 void
-generic_packetizer_c::set_track_min_cache(int min_cache) {
-  m_htrack_min_cache = min_cache;
-  if (m_track_entry)
-    GetChild<KaxTrackMinCache>(m_track_entry).SetValue(min_cache);
-}
-
-void
-generic_packetizer_c::set_track_max_cache(int max_cache) {
-  m_htrack_max_cache = max_cache;
-  if (m_track_entry)
-    GetChild<KaxTrackMaxCache>(m_track_entry).SetValue(max_cache);
-}
-
-void
-generic_packetizer_c::set_track_default_duration(int64_t def_dur) {
-  if (m_default_duration_forced)
+generic_packetizer_c::set_track_default_duration(int64_t def_dur,
+                                                 bool force) {
+  if (!force && m_default_duration_forced)
     return;
 
   m_htrack_default_duration = (int64_t)(def_dur * m_ti.m_tcsync.numerator / m_ti.m_tcsync.denominator);
@@ -535,8 +546,10 @@ generic_packetizer_c::set_audio_bit_depth(int bit_depth) {
 void
 generic_packetizer_c::set_video_interlaced_flag(bool interlaced) {
   m_hvideo_interlaced_flag = interlaced ? 1 : 0;
-  if (m_track_entry)
+  if (m_track_entry) {
     GetChild<KaxVideoFlagInterlaced>(GetChild<KaxTrackVideo>(*m_track_entry)).SetValue(m_hvideo_interlaced_flag);
+    set_required_matroska_version(2);
+  }
 }
 
 void
@@ -651,13 +664,13 @@ generic_packetizer_c::set_video_pixel_cropping(int left,
 void
 generic_packetizer_c::set_video_colour_matrix(int matrix_index,
                                               option_source_e source) {
-  m_ti.m_colour_matrix.set(matrix_index, source);
+  m_ti.m_colour_matrix_coeff.set(matrix_index, source);
   if (   m_track_entry
       && (matrix_index >= 0)
       && (matrix_index <= 10)) {
     auto &video = GetChild<KaxTrackVideo>(m_track_entry);
     auto &color = GetChild<KaxVideoColour>(video);
-    GetChild<KaxVideoColourMatrix>(color).SetValue(m_ti.m_colour_matrix.get());
+    GetChild<KaxVideoColourMatrix>(color).SetValue(m_ti.m_colour_matrix_coeff.get());
   }
 }
 
@@ -846,6 +859,59 @@ generic_packetizer_c::set_video_min_luminance(float luminance,
 }
 
 void
+generic_packetizer_c::set_video_projection_type(uint64_t value,
+                                                option_source_e source) {
+  m_ti.m_projection_type.set(value, source);
+  if (m_track_entry) {
+    auto &projection = GetChildEmptyIfNew<KaxVideoProjection>(GetChild<KaxTrackVideo>(m_track_entry));
+    GetChild<KaxVideoProjectionType>(projection).SetValue(value);
+  }
+}
+
+void
+generic_packetizer_c::set_video_projection_private(memory_cptr const &value,
+                                                   option_source_e source) {
+  m_ti.m_projection_private.set(value, source);
+  if (m_track_entry && value) {
+    auto &projection = GetChildEmptyIfNew<KaxVideoProjection>(GetChild<KaxTrackVideo>(m_track_entry));
+    if (value->get_size())
+      GetChild<KaxVideoProjectionPrivate>(projection).CopyBuffer(value->get_buffer(), value->get_size());
+    else
+      DeleteChildren<KaxVideoProjectionPrivate>(projection);
+  }
+}
+
+void
+generic_packetizer_c::set_video_projection_pose_yaw(double value,
+                                                    option_source_e source) {
+  m_ti.m_projection_pose_yaw.set(value, source);
+  if (m_track_entry && (value >= 0)) {
+    auto &projection = GetChildEmptyIfNew<KaxVideoProjection>(GetChild<KaxTrackVideo>(m_track_entry));
+    GetChild<KaxVideoProjectionPoseYaw>(projection).SetValue(value);
+  }
+}
+
+void
+generic_packetizer_c::set_video_projection_pose_pitch(double value,
+                                                      option_source_e source) {
+  m_ti.m_projection_pose_pitch.set(value, source);
+  if (m_track_entry && (value >= 0)) {
+    auto &projection = GetChildEmptyIfNew<KaxVideoProjection>(GetChild<KaxTrackVideo>(m_track_entry));
+    GetChild<KaxVideoProjectionPosePitch>(projection).SetValue(value);
+  }
+}
+
+void
+generic_packetizer_c::set_video_projection_pose_roll(double value,
+                                                     option_source_e source) {
+  m_ti.m_projection_pose_roll.set(value, source);
+  if (m_track_entry && (value >= 0)) {
+    auto &projection = GetChildEmptyIfNew<KaxVideoProjection>(GetChild<KaxTrackVideo>(m_track_entry));
+    GetChild<KaxVideoProjectionPoseRoll>(projection).SetValue(value);
+  }
+}
+
+void
 generic_packetizer_c::set_video_pixel_cropping(const pixel_crop_t &cropping,
                                                option_source_e source) {
   set_video_pixel_cropping(cropping.left, cropping.top, cropping.right, cropping.bottom, source);
@@ -901,7 +967,7 @@ generic_packetizer_c::set_headers() {
   if (!m_track_entry) {
     m_track_entry    = !g_kax_last_entry ? &GetChild<KaxTrackEntry>(*g_kax_tracks) : &GetNextChild<KaxTrackEntry>(*g_kax_tracks, *g_kax_last_entry);
     g_kax_last_entry = m_track_entry;
-    m_track_entry->SetGlobalTimecodeScale((int64_t)g_timecode_scale);
+    m_track_entry->SetGlobalTimecodeScale((int64_t)g_timestamp_scale);
   }
 
   GetChild<KaxTrackNumber>(m_track_entry).SetValue(m_hserialno);
@@ -921,12 +987,6 @@ generic_packetizer_c::set_headers() {
     GetChild<KaxCodecPrivate>(*m_track_entry).CopyBuffer(static_cast<binary *>(m_hcodec_private->get_buffer()), m_hcodec_private->get_size());
 
   if (!outputting_webm()) {
-    if (-1 != m_htrack_min_cache)
-      GetChild<KaxTrackMinCache>(m_track_entry).SetValue(m_htrack_min_cache);
-
-    if (-1 != m_htrack_max_cache)
-      GetChild<KaxTrackMaxCache>(m_track_entry).SetValue(m_htrack_max_cache);
-
     if (-1 != m_htrack_max_add_block_ids)
       GetChild<KaxMaxBlockAdditionID>(m_track_entry).SetValue(m_htrack_max_add_block_ids);
   }
@@ -966,7 +1026,7 @@ generic_packetizer_c::set_headers() {
     KaxTrackVideo &video = GetChild<KaxTrackVideo>(m_track_entry);
 
     if (-1 != m_hvideo_interlaced_flag)
-      GetChild<KaxVideoFlagInterlaced>(GetChild<KaxTrackVideo>(*m_track_entry)).SetValue(m_hvideo_interlaced_flag);
+      set_video_interlaced_flag(m_hvideo_interlaced_flag != 0);
 
     if ((-1 != m_hvideo_pixel_height) && (-1 != m_hvideo_pixel_width)) {
       if ((-1 == m_hvideo_display_width) || (-1 == m_hvideo_display_height) || m_ti.m_aspect_ratio_given || m_ti.m_display_dimensions_given) {
@@ -1009,8 +1069,8 @@ generic_packetizer_c::set_headers() {
         GetChild<KaxVideoPixelCropBottom>(video).SetValue(crop.bottom);
       }
 
-      if (m_ti.m_colour_matrix) {
-        int colour_matrix = m_ti.m_colour_matrix.get();
+      if (m_ti.m_colour_matrix_coeff) {
+        int colour_matrix = m_ti.m_colour_matrix_coeff.get();
         auto &colour      = GetChild<KaxVideoColour>(video);
         GetChild<KaxVideoColourMatrix>(colour).SetValue(colour_matrix);
       }
@@ -1106,6 +1166,31 @@ generic_packetizer_c::set_headers() {
         GetChild<KaxVideoLuminanceMin>(master_meta).SetValue(luminance);
       }
 
+      if (m_ti.m_projection_type) {
+        auto &projection = GetChildEmptyIfNew<KaxVideoProjection>(video);
+        GetChild<KaxVideoProjectionType>(projection).SetValue(m_ti.m_projection_type.get());
+      }
+
+      if (m_ti.m_projection_private) {
+        auto &projection = GetChildEmptyIfNew<KaxVideoProjection>(video);
+        GetChild<KaxVideoProjectionPrivate>(projection).CopyBuffer(m_ti.m_projection_private.get()->get_buffer(), m_ti.m_projection_private.get()->get_size());
+      }
+
+      if (m_ti.m_projection_pose_yaw) {
+        auto &projection = GetChildEmptyIfNew<KaxVideoProjection>(video);
+        GetChild<KaxVideoProjectionPoseYaw>(projection).SetValue(m_ti.m_projection_pose_yaw.get());
+      }
+
+      if (m_ti.m_projection_pose_pitch) {
+        auto &projection = GetChildEmptyIfNew<KaxVideoProjection>(video);
+        GetChild<KaxVideoProjectionPosePitch>(projection).SetValue(m_ti.m_projection_pose_pitch.get());
+      }
+
+      if (m_ti.m_projection_pose_roll) {
+        auto &projection = GetChildEmptyIfNew<KaxVideoProjection>(video);
+        GetChild<KaxVideoProjectionPoseRoll>(projection).SetValue(m_ti.m_projection_pose_roll.get());
+      }
+
       if (m_ti.m_field_order)
         GetChild<KaxVideoFieldOrder>(video).SetValue(m_ti.m_field_order.get());
 
@@ -1166,13 +1251,36 @@ void
 generic_packetizer_c::fix_headers() {
   GetChild<KaxTrackFlagDefault>(m_track_entry).SetValue(g_default_tracks[TRACK_TYPE_TO_DEFTRACK_TYPE(m_htrack_type)] == m_hserialno ? 1 : 0);
 
-  m_track_entry->SetGlobalTimecodeScale((int64_t)g_timecode_scale);
+  m_track_entry->SetGlobalTimecodeScale((int64_t)g_timestamp_scale);
+}
+
+void
+generic_packetizer_c::compress_packet(packet_t &packet) {
+  if (!m_compressor) {
+    return;
+  }
+
+  try {
+    packet.data = m_compressor->compress(packet.data);
+    size_t i;
+    for (i = 0; packet.data_adds.size() > i; ++i)
+      packet.data_adds[i] = m_compressor->compress(packet.data_adds[i]);
+
+  } catch (mtx::compression_x &e) {
+    mxerror_tid(m_ti.m_fname, m_ti.m_id, boost::format(Y("Compression failed: %1%\n")) % e.error());
+  }
+}
+
+void
+generic_packetizer_c::account_enqueued_bytes(packet_t &packet,
+                                             int64_t factor) {
+  m_enqueued_bytes += packet.calculate_uncompressed_size() * factor;
 }
 
 void
 generic_packetizer_c::add_packet(packet_cptr pack) {
-  if ((0 == m_num_packets) && m_ti.m_reset_timecodes)
-    m_ti.m_tcsync.displacement = -pack->timecode;
+  if ((0 == m_num_packets) && m_ti.m_reset_timestamps)
+    m_ti.m_tcsync.displacement = -pack->timestamp;
 
   ++m_num_packets;
 
@@ -1190,10 +1298,10 @@ generic_packetizer_c::add_packet(packet_cptr pack) {
 
   pack->source = this;
 
-  m_enqueued_bytes += pack->data->get_size();
-
   if ((0 > pack->bref) && (0 <= pack->fref))
     std::swap(pack->bref, pack->fref);
+
+  account_enqueued_bytes(*pack, +1);
 
   if (1 != m_connected_to)
     add_packet2(pack);
@@ -1201,69 +1309,60 @@ generic_packetizer_c::add_packet(packet_cptr pack) {
     m_deferred_packets.push_back(pack);
 }
 
-#define ADJUST_TIMECODE(x) (int64_t)((x + m_correction_timecode_offset + m_append_timecode_offset) * m_ti.m_tcsync.numerator / m_ti.m_tcsync.denominator) + m_ti.m_tcsync.displacement
+#define ADJUST_TIMESTAMP(x) (int64_t)((x + m_correction_timestamp_offset + m_append_timestamp_offset) * m_ti.m_tcsync.numerator / m_ti.m_tcsync.denominator) + m_ti.m_tcsync.displacement
 
 void
 generic_packetizer_c::add_packet2(packet_cptr pack) {
   if (pack->has_discard_padding())
     set_required_matroska_version(4);
 
-  pack->timecode   = ADJUST_TIMECODE(pack->timecode);
+  pack->timestamp   = ADJUST_TIMESTAMP(pack->timestamp);
   if (pack->has_bref())
-    pack->bref     = ADJUST_TIMECODE(pack->bref);
+    pack->bref     = ADJUST_TIMESTAMP(pack->bref);
   if (pack->has_fref())
-    pack->fref     = ADJUST_TIMECODE(pack->fref);
+    pack->fref     = ADJUST_TIMESTAMP(pack->fref);
   if (pack->has_duration()) {
     pack->duration = static_cast<int64_t>(pack->duration * m_ti.m_tcsync.numerator / m_ti.m_tcsync.denominator);
     if (pack->has_discard_padding())
       pack->duration -= std::min(pack->duration, pack->discard_padding.to_ns());
   }
 
-  if ((2 > m_htrack_min_cache) && pack->has_fref()) {
-    set_track_min_cache(2);
-    rerender_track_headers();
-
-  } else if ((1 > m_htrack_min_cache) && pack->has_bref()) {
-    set_track_min_cache(1);
-    rerender_track_headers();
-  }
-
-  if (0 > pack->timecode)
+  if (0 > pack->timestamp)
     return;
 
-  // 'timecode < safety_last_timecode' may only occur for B frames. In this
-  // case we have the coding order, e.g. IPB1B2 and the timecodes
+  // 'timestamp < safety_last_timestamp' may only occur for B frames. In this
+  // case we have the coding order, e.g. IPB1B2 and the timestamps
   // I: 0, P: 120, B1: 40, B2: 80.
-  if (!m_relaxed_timecode_checking && (pack->timecode < m_safety_last_timecode) && (0 > pack->fref) && hack_engaged(ENGAGE_ENABLE_TIMECODE_WARNING)) {
+  if (!m_relaxed_timestamp_checking && (pack->timestamp < m_safety_last_timestamp) && (0 > pack->fref) && hack_engaged(ENGAGE_ENABLE_TIMESTAMP_WARNING)) {
     if (track_audio == m_htrack_type) {
-      int64_t needed_timecode_offset  = m_safety_last_timecode + m_safety_last_duration - pack->timecode;
-      m_correction_timecode_offset   += needed_timecode_offset;
-      pack->timecode                 += needed_timecode_offset;
+      int64_t needed_timestamp_offset  = m_safety_last_timestamp + m_safety_last_duration - pack->timestamp;
+      m_correction_timestamp_offset   += needed_timestamp_offset;
+      pack->timestamp                 += needed_timestamp_offset;
       if (pack->has_bref())
-        pack->bref += needed_timecode_offset;
+        pack->bref += needed_timestamp_offset;
       if (pack->has_fref())
-        pack->fref += needed_timecode_offset;
+        pack->fref += needed_timestamp_offset;
 
       mxwarn_tid(m_ti.m_fname, m_ti.m_id,
-                 boost::format(Y("The current packet's timecode is smaller than that of the previous packet. "
+                 boost::format(Y("The current packet's timestamp is smaller than that of the previous packet. "
                                  "This usually means that the source file is a Matroska file that has not been created 100%% correctly. "
-                                 "The timecodes of all packets will be adjusted by %1%ms in order not to lose any data. "
+                                 "The timestamps of all packets will be adjusted by %1%ms in order not to lose any data. "
                                  "This may throw audio/video synchronization off, but that can be corrected with mkvmerge's \"--sync\" option. "
                                  "If you already use \"--sync\" and you still get this warning then do NOT worry -- this is normal. "
                                  "If this error happens more than once and you get this message more than once for a particular track "
                                  "then either is the source file badly mastered, or mkvmerge contains a bug. "
                                  "In this case you should contact the author Moritz Bunkus <moritz@bunkus.org>.\n"))
-                 % ((needed_timecode_offset + 500000) / 1000000));
+                 % ((needed_timestamp_offset + 500000) / 1000000));
 
     } else
       mxwarn_tid(m_ti.m_fname, m_ti.m_id,
-                 boost::format("generic_packetizer_c::add_packet2: timecode < last_timecode (%1% < %2%). %3%\n")
-                 % format_timestamp(pack->timecode) % format_timestamp(m_safety_last_timecode) % BUGMSG);
+                 boost::format("generic_packetizer_c::add_packet2: timestamp < last_timestamp (%1% < %2%). %3%\n")
+                 % format_timestamp(pack->timestamp) % format_timestamp(m_safety_last_timestamp) % BUGMSG);
   }
 
-  m_safety_last_timecode        = pack->timecode;
+  m_safety_last_timestamp        = pack->timestamp;
   m_safety_last_duration        = pack->duration;
-  pack->timecode_before_factory = pack->timecode;
+  pack->timestamp_before_factory = pack->timestamp;
 
   m_packet_queue.push_back(pack);
   if (!m_timestamp_factory || (TFA_IMMEDIATE == m_timestamp_factory_application_mode))
@@ -1273,18 +1372,7 @@ generic_packetizer_c::add_packet2(packet_cptr pack) {
 
   after_packet_timestamped(*pack);
 
-  if (!m_compressor)
-    return;
-
-  try {
-    pack->data = m_compressor->compress(pack->data);
-    size_t i;
-    for (i = 0; pack->data_adds.size() > i; ++i)
-      pack->data_adds[i] = m_compressor->compress(pack->data_adds[i]);
-
-  } catch (mtx::compression_x &e) {
-    mxerror_tid(m_ti.m_fname, m_ti.m_id, boost::format(Y("Compression failed: %1%\n")) % e.error());
-  }
+  compress_packet(*pack);
 }
 
 void
@@ -1302,13 +1390,13 @@ generic_packetizer_c::get_packet() {
   packet_cptr pack = m_packet_queue.front();
   m_packet_queue.pop_front();
 
-  pack->output_order_timecode = timestamp_c::ns(pack->assigned_timecode - std::max(m_codec_delay.to_ns(0), m_seek_pre_roll.to_ns(0)));
+  pack->output_order_timestamp = timestamp_c::ns(pack->assigned_timestamp - std::max(m_codec_delay.to_ns(0), m_seek_pre_roll.to_ns(0)));
 
-  m_enqueued_bytes -= pack->data->get_size();
+  account_enqueued_bytes(*pack, -1);
 
-  --m_next_packet_wo_assigned_timecode;
-  if (0 > m_next_packet_wo_assigned_timecode)
-    m_next_packet_wo_assigned_timecode = 0;
+  --m_next_packet_wo_assigned_timestamp;
+  if (0 > m_next_packet_wo_assigned_timestamp)
+    m_next_packet_wo_assigned_timestamp = 0;
 
   return pack;
 }
@@ -1316,21 +1404,21 @@ generic_packetizer_c::get_packet() {
 void
 generic_packetizer_c::apply_factory_once(packet_cptr &packet) {
   if (!m_timestamp_factory) {
-    packet->assigned_timecode = packet->timecode;
-    packet->gap_following     = false;
+    packet->assigned_timestamp = packet->timestamp;
+    packet->gap_following      = false;
   } else
-    packet->gap_following     = m_timestamp_factory->get_next(packet);
+    packet->gap_following      = m_timestamp_factory->get_next(packet);
 
-  packet->factory_applied     = true;
+  packet->factory_applied      = true;
 
   mxverb(4,
          boost::format("apply_factory_once(): source %1% t %2% tbf %3% at %4%\n")
-         % packet->source->get_source_track_num() % packet->timecode % packet->timecode_before_factory % packet->assigned_timecode);
+         % packet->source->get_source_track_num() % packet->timestamp % packet->timestamp_before_factory % packet->assigned_timestamp);
 
-  m_max_timecode_seen           = std::max(m_max_timecode_seen, packet->assigned_timecode + packet->duration);
-  m_reader->m_max_timecode_seen = std::max(m_max_timecode_seen, m_reader->m_max_timecode_seen);
+  m_max_timestamp_seen           = std::max(m_max_timestamp_seen, packet->assigned_timestamp + packet->duration);
+  m_reader->m_max_timestamp_seen = std::max(m_max_timestamp_seen, m_reader->m_max_timestamp_seen);
 
-  ++m_next_packet_wo_assigned_timecode;
+  ++m_next_packet_wo_assigned_timestamp;
 }
 
 void
@@ -1339,7 +1427,7 @@ generic_packetizer_c::apply_factory() {
     return;
 
   // Find the first packet to which the factory hasn't been applied yet.
-  packet_cptr_di p_start = m_packet_queue.begin() + m_next_packet_wo_assigned_timecode;
+  packet_cptr_di p_start = m_packet_queue.begin() + m_next_packet_wo_assigned_timestamp;
 
   while ((m_packet_queue.end() != p_start) && (*p_start)->factory_applied)
     ++p_start;
@@ -1357,11 +1445,11 @@ generic_packetizer_c::apply_factory() {
 void
 generic_packetizer_c::apply_factory_short_queueing(packet_cptr_di &p_start) {
   while (m_packet_queue.end() != p_start) {
-    // Find the next packet with a timecode bigger than the start packet's
-    // timecode. All packets between those two including the start packet
+    // Find the next packet with a timestamp bigger than the start packet's
+    // timestamp. All packets between those two including the start packet
     // and excluding the end packet can be timestamped.
     packet_cptr_di p_end = p_start + 1;
-    while ((m_packet_queue.end() != p_end) && ((*p_end)->timecode_before_factory < (*p_start)->timecode_before_factory))
+    while ((m_packet_queue.end() != p_end) && ((*p_end)->timestamp_before_factory < (*p_start)->timestamp_before_factory))
       ++p_end;
 
     // Abort if no such packet was found, but keep on assigning if the
@@ -1369,7 +1457,7 @@ generic_packetizer_c::apply_factory_short_queueing(packet_cptr_di &p_start) {
     if (!m_has_been_flushed && (m_packet_queue.end() == p_end))
       return;
 
-    // Now assign timecodes to the ones between p_start and p_end...
+    // Now assign timestamps to the ones between p_start and p_end...
     packet_cptr_di p_current;
     for (p_current = p_start + 1; p_current != p_end; ++p_current)
       apply_factory_once(*p_current);
@@ -1390,7 +1478,7 @@ struct packet_sorter_t {
   }
 
   bool operator <(const packet_sorter_t &cmp) const {
-    return (*m_packet_queue)[m_index]->timecode < (*m_packet_queue)[cmp.m_index]->timecode;
+    return (*m_packet_queue)[m_index]->timestamp < (*m_packet_queue)[cmp.m_index]->timestamp;
   }
 };
 
@@ -1411,19 +1499,19 @@ generic_packetizer_c::apply_factory_full_queueing(packet_cptr_di &p_start) {
     if (!m_has_been_flushed && (m_packet_queue.end() == p_end))
       return;
 
-    // Now sort the frames by their timecode as the factory has to be
+    // Now sort the frames by their timestamp as the factory has to be
     // applied to the packets in the same order as they're timestamped.
     std::vector<packet_sorter_t> sorter;
-    bool needs_sorting        = false;
-    int64_t previous_timecode = 0;
-    size_t i                  = distance(m_packet_queue.begin(), p_start);
+    bool needs_sorting         = false;
+    int64_t previous_timestamp = 0;
+    size_t i                   = distance(m_packet_queue.begin(), p_start);
 
     packet_cptr_di p_current;
     for (p_current = p_start; p_current != p_end; ++i, ++p_current) {
       sorter.push_back(packet_sorter_t(i));
-      if (m_packet_queue[i]->timecode < previous_timecode)
+      if (m_packet_queue[i]->timestamp < previous_timestamp)
         needs_sorting = true;
-      previous_timecode = m_packet_queue[i]->timecode;
+      previous_timestamp = m_packet_queue[i]->timestamp;
     }
 
     if (needs_sorting)
@@ -1446,7 +1534,7 @@ generic_packetizer_c::force_duration_on_last_packet() {
   packet_cptr &packet        = m_packet_queue.back();
   packet->duration_mandatory = true;
   mxverb_tid(3, m_ti.m_fname, m_ti.m_id,
-             boost::format("force_duration_on_last_packet: forcing at %1% with %|2$.3f|ms\n") % format_timestamp(packet->timecode) % (packet->duration / 1000.0));
+             boost::format("force_duration_on_last_packet: forcing at %1% with %|2$.3f|ms\n") % format_timestamp(packet->timestamp) % (packet->duration / 1000.0));
 }
 
 int64_t
@@ -1464,24 +1552,24 @@ generic_packetizer_c::calculate_avi_audio_sync(int64_t num_bytes,
 
 void
 generic_packetizer_c::connect(generic_packetizer_c *src,
-                              int64_t append_timecode_offset) {
-  m_free_refs                  = src->m_free_refs;
-  m_next_free_refs             = src->m_next_free_refs;
-  m_track_entry                = src->m_track_entry;
-  m_hserialno                  = src->m_hserialno;
-  m_htrack_type                = src->m_htrack_type;
-  m_htrack_default_duration    = src->m_htrack_default_duration;
-  m_huid                       = src->m_huid;
-  m_hcompression               = src->m_hcompression;
-  m_compressor                 = compressor_c::create(m_hcompression);
-  m_last_cue_timecode          = src->m_last_cue_timecode;
-  m_timestamp_factory          = src->m_timestamp_factory;
-  m_correction_timecode_offset = 0;
+                              int64_t append_timestamp_offset) {
+  m_free_refs                   = src->m_free_refs;
+  m_next_free_refs              = src->m_next_free_refs;
+  m_track_entry                 = src->m_track_entry;
+  m_hserialno                   = src->m_hserialno;
+  m_htrack_type                 = src->m_htrack_type;
+  m_htrack_default_duration     = src->m_htrack_default_duration;
+  m_huid                        = src->m_huid;
+  m_hcompression                = src->m_hcompression;
+  m_compressor                  = compressor_c::create(m_hcompression);
+  m_last_cue_timestamp          = src->m_last_cue_timestamp;
+  m_timestamp_factory           = src->m_timestamp_factory;
+  m_correction_timestamp_offset = 0;
 
-  if (-1 == append_timecode_offset)
-    m_append_timecode_offset   = src->m_max_timecode_seen;
+  if (-1 == append_timestamp_offset)
+    m_append_timestamp_offset = src->m_max_timestamp_seen;
   else
-    m_append_timecode_offset   = append_timecode_offset;
+    m_append_timestamp_offset = append_timestamp_offset;
 
   m_connected_to++;
   if (2 == m_connected_to) {
@@ -1522,6 +1610,7 @@ generic_packetizer_c::is_compatible_with(output_compatibility_e compatibility) {
 void
 generic_packetizer_c::discard_queued_packets() {
   m_packet_queue.clear();
+  m_enqueued_bytes = 0;
 }
 
 bool
@@ -1545,42 +1634,40 @@ generic_packetizer_c::show_experimental_status_version(std::string const &codec_
 
 int64_t
 generic_packetizer_c::create_track_number() {
-  bool found   = false;
   int file_num = -1;
   size_t i;
+
+  // Determine current file's file number regarding --track-order.
   for (i = 0; i < g_files.size(); i++)
     if (g_files[i]->reader.get() == this->m_reader) {
-      found = true;
       file_num = i;
       break;
     }
 
-  if (!found)
+  if (file_num == -1)
     mxerror(boost::format(Y("create_track_number: file_num not found. %1%\n")) % BUGMSG);
 
-  int64_t tnum = -1;
-  found        = false;
+  // Determine current track's track number regarding --track-order
+  // and look up the pair in g_track_order.
+  int tnum = -1;
   for (i = 0; i < g_track_order.size(); i++)
-    if ((g_track_order[i].file_id == file_num) &&
-        (g_track_order[i].track_id == m_ti.m_id)) {
-      found = true;
+    if (   (g_track_order[i].file_id  == file_num)
+        && (g_track_order[i].track_id == m_ti.m_id)) {
       tnum = i + 1;
       break;
     }
-  if (found) {
-    found = false;
-    for (i = 0; i < g_packetizers.size(); i++)
-      if (g_packetizers[i].packetizer && (g_packetizers[i].packetizer->get_track_num() == tnum)) {
-        tnum = ms_track_number;
-        break;
-      }
-  } else
-    tnum = ms_track_number;
 
-  if (tnum >= ms_track_number)
-    ms_track_number = tnum + 1;
+  // If the track's file/track number pair was found in g_track_order,
+  // use the resulting track number unconditionally.
+  if (tnum > 0)
+    return tnum;
 
-  return tnum;
+  // The file/track number pair wasn't found. Create a new track
+  // number. Don't use numbers that might be assigned by
+  // --track-order.
+
+  ++ms_track_number;
+  return ms_track_number + g_track_order.size();
 }
 
 file_status_e

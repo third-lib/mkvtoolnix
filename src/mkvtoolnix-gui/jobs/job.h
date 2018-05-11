@@ -1,5 +1,4 @@
-#ifndef MTX_MKVTOOLNIX_GUI_JOBS_JOB_H
-#define MTX_MKVTOOLNIX_GUI_JOBS_JOB_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -23,8 +22,17 @@ namespace Jobs {
 class Job;
 using JobPtr = std::shared_ptr<Job>;
 
+class JobPrivate;
 class Job: public QObject {
   Q_OBJECT;
+
+protected:
+  Q_DECLARE_PRIVATE(Job);
+
+  QScopedPointer<JobPrivate> const d_ptr;
+
+  explicit Job(JobPrivate &d);
+
   Q_ENUMS(Status);
 
 public:
@@ -44,22 +52,6 @@ public:
     WarningLine,
     ErrorLine,
   };
-
-private:
-  static uint64_t ms_next_id;
-
-protected:
-  QUuid m_uuid;
-  uint64_t m_id;
-  Status m_status;
-  QString m_description;
-  QStringList m_output, m_warnings, m_errors, m_fullOutput;
-  unsigned int m_progress, m_exitCode;
-  int m_warningsAcknowledged, m_errorsAcknowledged;
-  QDateTime m_dateAdded, m_dateStarted, m_dateFinished;
-  bool m_quitAfterFinished, m_modified;
-
-  QMutex m_mutex;
 
 public:
   Job(Status status = PendingManual);
@@ -110,11 +102,13 @@ public:
   int numUnacknowledgedWarnings() const;
   int numUnacknowledgedErrors() const;
 
+  virtual void runProgramSetupVariables(ProgramRunner::VariableMap &variables) const;
+
 protected:
   virtual void saveJobInternal(Util::ConfigFile &settings) const = 0;
   virtual void loadJobBasis(Util::ConfigFile &settings);
   virtual void runProgramsAfterCompletion();
-  virtual void runProgramSetupVariables(ProgramRunner::VariableMap &variables);
+  void setupJobConnections();
 
 public slots:
   virtual void setStatus(Job::Status status);
@@ -143,5 +137,3 @@ public:                         // static
 
 Q_DECLARE_METATYPE(mtx::gui::Jobs::Job::LineType);
 Q_DECLARE_METATYPE(mtx::gui::Jobs::Job::Status);
-
-#endif  // MTX_MKVTOOLNIX_GUI_JOBS_JOB_H

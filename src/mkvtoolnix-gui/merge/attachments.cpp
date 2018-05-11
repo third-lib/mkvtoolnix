@@ -112,12 +112,12 @@ Tab::withSelectedAttachedFiles(std::function<void(Track &)> code) {
 }
 
 void
-Tab::withSelectedAttachments(std::function<void(Attachment *)> code) {
+Tab::withSelectedAttachments(std::function<void(Attachment &)> code) {
   if (m_currentlySettingInputControlValues)
     return;
 
   for (auto const &attachment : selectedAttachments()) {
-    code(attachment);
+    code(*attachment);
     m_attachmentsModel->attachmentUpdated(*attachment);
   }
 }
@@ -184,17 +184,17 @@ Tab::enableDisableAllAttachedFiles(bool enable) {
 
 void
 Tab::onAttachmentNameChanged(QString newValue) {
-  withSelectedAttachments([&](Attachment *attachment) { attachment->m_name = newValue; });
+  withSelectedAttachments([&newValue](auto &attachment) { attachment.m_name = newValue; });
 }
 
 void
 Tab::onAttachmentDescriptionChanged(QString newValue) {
-  withSelectedAttachments([&](Attachment *attachment) { attachment->m_description = newValue; });
+  withSelectedAttachments([&newValue](auto &attachment) { attachment.m_description = newValue; });
 }
 
 void
 Tab::onAttachmentMIMETypeChanged(QString newValue) {
-  withSelectedAttachments([&](Attachment *attachment) { attachment->m_MIMEType = newValue; });
+  withSelectedAttachments([&newValue](auto &attachment) { attachment.m_MIMEType = newValue; });
 }
 
 void
@@ -204,7 +204,7 @@ Tab::onAttachmentStyleChanged(int newValue) {
     return;
 
   auto style = data.toInt() == Attachment::ToAllFiles ? Attachment::ToAllFiles : Attachment::ToFirstFile;
-  withSelectedAttachments([&](Attachment *attachment) { attachment->m_style = style; });
+  withSelectedAttachments([style](auto &attachment) { attachment.m_style = style; });
 }
 
 void
@@ -350,8 +350,8 @@ Tab::enableAttachedFilesActions() {
   m_enableAllAttachedFilesAction->setEnabled(hasEntries);
   m_disableAllAttachedFilesAction->setEnabled(hasEntries);
 
-  m_enableSelectedAttachedFilesAction->setText(QNY("&Enable selected attached file", "&Enable selected attached files", numSelected));
-  m_disableSelectedAttachedFilesAction->setText(QNY("&Disable selected attached file", "&Disable selected attached files", numSelected));
+  m_enableSelectedAttachedFilesAction->setText(QNY("&Enable selected attachment", "&Enable selected attachments", numSelected));
+  m_disableSelectedAttachedFilesAction->setText(QNY("&Disable selected attachment", "&Disable selected attachments", numSelected));
 }
 
 void
@@ -372,7 +372,7 @@ Tab::setAttachmentControlValues(Attachment *attachment) {
   m_currentlySettingInputControlValues = true;
 
   if (!attachment && ui->attachmentStyle->itemData(0).isValid())
-    ui->attachmentStyle->insertItem(0, QY("<do not change>"));
+    ui->attachmentStyle->insertItem(0, QY("<Do not change>"));
 
   else if (attachment && !ui->attachmentStyle->itemData(0).isValid())
     ui->attachmentStyle->removeItem(0);
@@ -388,7 +388,7 @@ Tab::setAttachmentControlValues(Attachment *attachment) {
     ui->attachmentDescription->setText( attachment->m_description);
     ui->attachmentMIMEType->setEditText(attachment->m_MIMEType);
 
-    Util::setComboBoxIndexIf(ui->attachmentStyle, [&](QString const &, QVariant const &data) { return data.isValid() && (data.toInt() == static_cast<int>(attachment->m_style)); });
+    Util::setComboBoxIndexIf(ui->attachmentStyle, [&attachment](auto const &, auto const &data) { return data.isValid() && (data.toInt() == static_cast<int>(attachment->m_style)); });
   }
 
   m_currentlySettingInputControlValues = false;
@@ -402,8 +402,8 @@ Tab::retranslateAttachmentsUI() {
   resizeAttachedFilesColumnsToContents();
   resizeAttachmentsColumnsToContents();
 
-  m_enableAllAttachedFilesAction->setText(QY("E&nable all attached files"));
-  m_disableAllAttachedFilesAction->setText(QY("Di&sable all attached files"));
+  m_enableAllAttachedFilesAction->setText(QY("E&nable all attachments"));
+  m_disableAllAttachedFilesAction->setText(QY("Di&sable all attachments"));
 
   m_addAttachmentsAction->setText(QY("&Add attachments"));
   m_removeAllAttachmentsAction->setText(QY("Remove a&ll attachments"));
@@ -500,7 +500,7 @@ Tab::findExistingAttachmentFileName(QString const &fileName) {
   for (int row = 0, numRows = m_attachedFilesModel->rowCount(); row < numRows; ++row) {
     auto attachedFile = m_attachedFilesModel->attachedFileForRow(row);
 
-    if (!attachedFile)
+    if (!attachedFile || !attachedFile->m_muxThis)
       continue;
 
     auto existingFileName = QFileInfo{attachedFile->m_name}.fileName();

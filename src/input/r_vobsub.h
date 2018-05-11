@@ -11,8 +11,7 @@
    Written by Moritz Bunkus <moritz@bunkus.org>.
 */
 
-#ifndef MTX_R_VOBSUB_H
-#define MTX_R_VOBSUB_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -69,8 +68,8 @@ public:
   vobsub_reader_c(const track_info_c &ti, const mm_io_cptr &in);
   virtual ~vobsub_reader_c();
 
-  virtual file_type_e get_format_type() const {
-    return FILE_TYPE_VOBSUB;
+  virtual mtx::file_type_e get_format_type() const {
+    return mtx::file_type_e::vobsub;
   }
 
   virtual void read_headers();
@@ -89,9 +88,7 @@ public:
 protected:
   virtual void parse_headers();
   virtual file_status_e flush_packetizers();
-  virtual int deliver_packet(unsigned char *buf, int size, int64_t timecode, int64_t default_duration, generic_packetizer_c *ptzr);
+  virtual int deliver_packet(unsigned char *buf, int size, int64_t timestamp, int64_t default_duration, generic_packetizer_c *ptzr);
 
   virtual int extract_one_spu_packet(int64_t track_id);
 };
-
-#endif  // MTX_R_VOBSUB_H

@@ -1,5 +1,4 @@
-#ifndef MTX_MKVTOOLNIX_GUI_UTIL_SETTINGS_H
-#define MTX_MKVTOOLNIX_GUI_UTIL_SETTINGS_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -21,6 +20,17 @@ class Settings: public QObject {
   Q_ENUMS(RunProgramForEvent);
 
 public:
+  enum RunProgramType {
+    Min,
+    ExecuteProgram,
+    PlayAudioFile,
+    ShutDownComputer,
+    HibernateComputer,
+    SleepComputer,
+    Max,
+    Default = ExecuteProgram,
+  };
+
   enum RunProgramForEvent {
     RunNever                         = 0x00,
     RunAfterJobQueueFinishes         = 0x01,
@@ -69,6 +79,7 @@ public:
     None,
     NewSettings,
     RemoveInputFiles,
+    CloseSettings,
   };
 
   enum class MergeAddingAppendingFilesPolicy {
@@ -94,11 +105,21 @@ public:
 
   class RunProgramConfig {
   public:
+    RunProgramType m_type{RunProgramType::ExecuteProgram};
     bool m_active{true};
-    QStringList m_commandLine;
+    QString m_name;
     RunProgramForEvents m_forEvents{};
+    QStringList m_commandLine;
+    QString m_audioFile;
+    unsigned int m_volume{75};
 
     bool isValid() const;
+    QString validate() const;
+    QString name() const;
+
+  private:
+    QString nameForExternalProgram() const;
+    QString nameForPlayAudioFile() const;
   };
 
   using RunProgramConfigPtr  = std::shared_ptr<RunProgramConfig>;
@@ -106,7 +127,7 @@ public:
 
   QString m_defaultAudioTrackLanguage, m_defaultVideoTrackLanguage, m_defaultSubtitleTrackLanguage;
   SetDefaultLanguagePolicy m_whenToSetDefaultLanguage;
-  QString m_chapterNameTemplate, m_defaultChapterLanguage, m_defaultChapterCountry, m_defaultSubtitleCharset, m_defaultAdditionalMergeOptions;
+  QString m_chapterNameTemplate, m_defaultChapterLanguage, m_defaultChapterCountry, m_ceTextFileCharacterSet, m_defaultSubtitleCharset, m_defaultAdditionalMergeOptions;
   QStringList m_oftenUsedLanguages, m_oftenUsedCountries, m_oftenUsedCharacterSets;
   bool m_oftenUsedLanguagesOnly, m_oftenUsedCountriesOnly, m_oftenUsedCharacterSetsOnly;
   ProcessPriority m_priority;
@@ -115,11 +136,12 @@ public:
   QDir m_lastOpenDir, m_lastOutputDir, m_lastConfigDir;
   bool m_setAudioDelayFromFileName, m_autoSetFileTitle, m_autoClearFileTitle, m_disableCompressionForAllTrackTypes, m_disableDefaultTrackForSubtitles, m_mergeAlwaysShowOutputFileControls, m_dropLastChapterFromBlurayPlaylist;
   ClearMergeSettingsAction m_clearMergeSettings;
-  MergeAddingAppendingFilesPolicy m_mergeAddingAppendingFilesPolicy;
+  MergeAddingAppendingFilesPolicy m_mergeAddingAppendingFilesPolicy, m_mergeLastAddingAppendingDecision;
   HeaderEditorDroppedFilesPolicy m_headerEditorDroppedFilesPolicy;
   TrackPropertiesLayout m_mergeTrackPropertiesLayout;
 
   OutputFileNamePolicy m_outputFileNamePolicy;
+  bool m_autoDestinationOnlyForVideoFiles;
   QDir m_relativeOutputDir, m_fixedOutputDir;
   bool m_uniqueOutputFileNames, m_autoClearOutputFileName;
 
@@ -178,6 +200,10 @@ protected:
   void saveSplitterSizes(QSettings &reg) const;
   void saveRunProgramConfigurations(QSettings &reg) const;
 
+  void addDefaultRunProgramConfigurations(QSettings &reg);
+  void addDefaultRunProgramConfigurationForType(QSettings &reg, RunProgramType type, std::function<void(RunProgramConfig &)> const &modifier = nullptr);
+  bool fixDefaultAudioFileNameBug();
+
 protected:
   static Settings s_settings;
 
@@ -188,6 +214,8 @@ public:
   static void change(std::function<void(Settings &)> worker);
   static std::unique_ptr<QSettings> registry();
 
+  static void runOncePerVersion(QString const &topic, std::function<void()> worker);
+
   static QString exeWithPath(QString const &exe);
 
   static void migrateFromRegistry();
@@ -195,6 +223,9 @@ public:
 
   static QString iniFileLocation();
   static QString iniFileName();
+
+  static QString cacheDirLocation(QString const &subDir);
+  static QString prepareCacheDir(QString const &subDir);
 };
 
 // extern Settings g_settings;
@@ -202,5 +233,3 @@ public:
 }}}
 
 Q_DECLARE_OPERATORS_FOR_FLAGS(mtx::gui::Util::Settings::RunProgramForEvents);
-
-#endif  // MTX_MKVTOOLNIX_GUI_UTIL_SETTINGS_H

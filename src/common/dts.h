@@ -12,13 +12,14 @@
    Modified by Moritz Bunkus <moritz@bunkus.org>.
 */
 
-#ifndef MTX_COMMON_DTS_H
-#define MTX_COMMON_DTS_H
+#pragma once
 
 #include "common/codec.h"
 #include "common/timestamp.h"
 
-class bit_reader_c;
+namespace mtx { namespace bits {
+class reader_c;
+}}
 
 namespace mtx { namespace dts {
 
@@ -242,11 +243,11 @@ public:
   bool decode_x96_header(unsigned char const *buf, size_t size);
 
 protected:
-  bool decode_asset(bit_reader_c &bc, substream_asset_t &asset);
-  bool decode_lbr_header(bit_reader_c &bc, substream_asset_t &asset);
-  bool decode_xll_header(bit_reader_c &bc, substream_asset_t &asset);
-  void parse_lbr_parameters(bit_reader_c &bc, substream_asset_t &asset);
-  void parse_xll_parameters(bit_reader_c &bc, substream_asset_t &asset);
+  bool decode_asset(mtx::bits::reader_c &bc, substream_asset_t &asset);
+  bool decode_lbr_header(mtx::bits::reader_c &bc, substream_asset_t &asset);
+  bool decode_xll_header(mtx::bits::reader_c &bc, substream_asset_t &asset);
+  void parse_lbr_parameters(mtx::bits::reader_c &bc, substream_asset_t &asset);
+  void parse_xll_parameters(mtx::bits::reader_c &bc, substream_asset_t &asset);
 
   bool set_one_extension_offset(substream_asset_t &asset, extension_mask_e wanted_mask, size_t &offset, size_t &size, size_t &offset_in_asset, size_t size_in_asset);
   bool set_extension_offsets(substream_asset_t &asset);
@@ -264,5 +265,3 @@ void convert_14_to_16_bits(const unsigned short *src, unsigned long srcwords, un
 bool detect(const void *src_buf, int len, bool &convert_14_to_16, bool &swap_bytes);
 
 }}
-
-#endif // MTX_COMMON_DTS_H

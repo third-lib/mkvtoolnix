@@ -51,7 +51,7 @@ AttachedFileModel::setRowData(QList<QStandardItem *> const &items,
 
   items[NameColumn       ]->setText(attachedFile.m_name);
   items[MIMETypeColumn   ]->setText(attachedFile.m_codec);
-  items[MuxThisColumn    ]->setText(attachedFile.m_muxThis ? QY("yes") : QY("no"));
+  items[MuxThisColumn    ]->setText(attachedFile.m_muxThis ? QY("Yes") : QY("No"));
   items[DescriptionColumn]->setText(attachedFile.m_attachmentDescription);
   items[SourceFileColumn ]->setText(info.fileName());
   items[SourceDirColumn  ]->setText(QDir::toNativeSeparators(info.path()));
@@ -61,7 +61,7 @@ AttachedFileModel::setRowData(QList<QStandardItem *> const &items,
 
   items[NameColumn       ]->setData(attachedFile.m_name.toLower(),                  Util::SortRole);
   items[MIMETypeColumn   ]->setData(attachedFile.m_codec.toLower(),                 Util::SortRole);
-  items[MuxThisColumn    ]->setData(attachedFile.m_muxThis ? QY("yes") : QY("no"),  Util::SortRole);
+  items[MuxThisColumn    ]->setData(attachedFile.m_muxThis ? QY("Yes") : QY("No"),  Util::SortRole);
   items[DescriptionColumn]->setData(attachedFile.m_attachmentDescription.toLower(), Util::SortRole);
   items[SourceFileColumn ]->setData(info.fileName().toLower(),                      Util::SortRole);
   items[SourceDirColumn  ]->setData(info.path().toLower(),                          Util::SortRole);
@@ -71,6 +71,8 @@ AttachedFileModel::setRowData(QList<QStandardItem *> const &items,
   items[NameColumn       ]->setCheckState(attachedFile.m_muxThis ? Qt::Checked           : Qt::Unchecked);
 
   items[MuxThisColumn    ]->setIcon(      attachedFile.m_muxThis ? MainWindow::yesIcon() : MainWindow::noIcon());
+
+  Util::setItemForegroundColorDisabled(items, !attachedFile.m_muxThis);
 }
 
 void
@@ -85,11 +87,11 @@ AttachedFileModel::retranslateUi() {
   Util::setDisplayableAndSymbolicColumnNames(*this, {
     { QY("Name"),             Q("name")           },
     { QY("MIME type"),        Q("mimeType")       },
-    { QY("Mux this"),         Q("muxThis")        },
+    { QY("Copy attachment"),  Q("muxThis")        },
     { QY("Description"),      Q("description")    },
-    { QY("Size"),             Q("size")           },
     { QY("Source file name"), Q("sourceFileName") },
     { QY("Directory"),        Q("directory")      },
+    { QY("Size"),             Q("size")           },
   });
 
   horizontalHeaderItem(SizeColumn)->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);

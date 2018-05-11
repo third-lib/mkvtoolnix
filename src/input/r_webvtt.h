@@ -11,8 +11,7 @@
    Written by Moritz Bunkus <moritz@bunkus.org>.
 */
 
-#ifndef MTX_INPUT_R_WEBVTT_H
-#define MTX_INPUT_R_WEBVTT_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -29,8 +28,8 @@ public:
   webvtt_reader_c(const track_info_c &ti, const mm_io_cptr &in);
   virtual ~webvtt_reader_c();
 
-  virtual file_type_e get_format_type() const {
-    return FILE_TYPE_WEBVTT;
+  virtual mtx::file_type_e get_format_type() const {
+    return mtx::file_type_e::webvtt;
   }
 
   virtual void read_headers();
@@ -47,5 +46,3 @@ public:
 protected:
   virtual void parse_file();
 };
-
-#endif  // MTX_INPUT_R_WEBVTT_H

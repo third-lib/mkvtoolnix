@@ -15,7 +15,7 @@
 
 #include <cmath>
 
-#include "common/bit_cursor.h"
+#include "common/bit_reader.h"
 #include "common/theora.h"
 
 theora_identification_header_t::theora_identification_header_t() {
@@ -26,7 +26,7 @@ void
 theora_parse_identification_header(unsigned char *buffer,
                                    int size,
                                    theora_identification_header_t &header) {
-  bit_reader_c bc(buffer, size);
+  mtx::bits::reader_c bc(buffer, size);
   int i;
 
   header.headertype = bc.get_bits(8);

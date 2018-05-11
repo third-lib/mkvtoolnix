@@ -12,8 +12,7 @@
    Written by Moritz Bunkus <moritz@bunkus.org>.
 */
 
-#ifndef MTX_LIBMATROSKA_EXTENSIONS
-#define MTX_LIBMATROSKA_EXTENSIONS
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -34,11 +33,11 @@ public:
 
   void delete_non_blocks();
 
-  void set_min_timecode(int64_t min_timecode) {
-    MinTimecode = min_timecode;
+  void set_min_timestamp(int64_t min_timestamp) {
+    MinTimecode = min_timestamp;
   }
-  void set_max_timecode(int64_t max_timecode) {
-    MaxTimecode = max_timecode;
+  void set_max_timestamp(int64_t max_timestamp) {
+    MaxTimecode = max_timestamp;
   }
 };
 
@@ -66,7 +65,7 @@ public:
   kax_block_group_c(): KaxBlockGroup() {
   }
 
-  bool add_frame(const KaxTrackEntry &track, uint64 timecode, DataBuffer &buffer, int64_t past_block, int64_t forw_block, LacingType lacing);
+  bool add_frame(const KaxTrackEntry &track, uint64 timestamp, DataBuffer &buffer, int64_t past_block, int64_t forw_block, LacingType lacing);
 };
 
 class kax_block_blob_c: public KaxBlockBlob {
@@ -74,7 +73,7 @@ public:
   kax_block_blob_c(BlockBlobType type): KaxBlockBlob(type) {
   }
 
-  bool add_frame_auto(const KaxTrackEntry &track, uint64 timecode, DataBuffer &buffer, LacingType lacing, int64_t past_block, int64_t forw_block);
+  bool add_frame_auto(const KaxTrackEntry &track, uint64 timestamp, DataBuffer &buffer, LacingType lacing, int64_t past_block, int64_t forw_block, boost::optional<bool> key_flag, boost::optional<bool> discardable_flag);
   void set_block_duration(uint64_t time_length);
   bool replace_simple_by_group();
 };
@@ -92,4 +91,8 @@ public:
   }
 };
 
-#endif // MTX_LIBMATROSKA_EXTENSIONS
+class kax_cues_with_cleanup_c: public KaxCues {
+public:
+  kax_cues_with_cleanup_c();
+  virtual ~kax_cues_with_cleanup_c();
+};

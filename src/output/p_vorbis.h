@@ -11,8 +11,7 @@
    Written by Moritz Bunkus <moritz@bunkus.org>.
 */
 
-#ifndef MTX_P_VORBIS_H
-#define MTX_P_VORBIS_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -41,7 +40,7 @@ namespace mtx {
 
 class vorbis_packetizer_c: public generic_packetizer_c {
 private:
-  int64_t m_previous_bs, m_samples, m_previous_samples_sum, m_previous_timecode, m_timecode_offset;
+  int64_t m_previous_bs, m_samples, m_previous_samples_sum, m_previous_timestamp, m_timestamp_offset;
   std::vector<memory_cptr> m_headers;
   vorbis_info m_vi;
   vorbis_comment m_vc;
@@ -63,5 +62,3 @@ public:
 
   virtual bool is_compatible_with(output_compatibility_e compatibility);
 };
-
-#endif  // MTX_P_VORBIS_H

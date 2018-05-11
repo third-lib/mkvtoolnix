@@ -22,6 +22,7 @@
 #include <locale.h>
 #include <stdlib.h>
 
+#include "common/fs_sys_helpers.h"
 #include "common/locale_string.h"
 #include "common/utf8_codecvt_facet.h"
 #include "common/strings/editing.h"
@@ -31,7 +32,6 @@
 # include <windows.h>
 # include <winnls.h>
 
-# include "common/fs_sys_helpers.h"
 # include "common/memory.h"
 #endif
 
@@ -59,7 +59,7 @@ translation_c::translation_c(std::string const &iso639_2_code,
 {
 }
 
-// See http://msdn.microsoft.com/en-us/library/windows/desktop/dd318693(v=vs.85).aspx for the (sub) language IDs.
+// See http://msdn.microsoft.com/en-us/library/windows/desktop/dd318693.aspx for the (sub) language IDs.
 void
 translation_c::initialize_available_translations() {
   ms_available_translations.clear();
@@ -79,6 +79,7 @@ translation_c::initialize_available_translations() {
   ms_available_translations.emplace_back("pol", "pl_PL",       "pl",          "polish",     "Polish",               "Polski",              false, 0x0015, 0x00);
   ms_available_translations.emplace_back("por", "pt_BR",       "pt_BR",       "portuguese", "Brazilian Portuguese", "Português do Brasil", false, 0x0016, 0x01);
   ms_available_translations.emplace_back("por", "pt_PT",       "pt",          "portuguese", "Portuguese",           "Português",           false, 0x0016, 0x02);
+  ms_available_translations.emplace_back("rum", "ro_RO",       "ro",          "romanian",   "Romanian",             "Română",              false, 0x0018, 0x00);
   ms_available_translations.emplace_back("rus", "ru_RU",       "ru",          "russian",    "Russian",              "Русский",             false, 0x0019, 0x00);
   ms_available_translations.emplace_back("srp", "sr_RS",       "sr_RS",       "serbian",    "Serbian Cyrillic",     "Српски",              false, 0x001a, 0x03);
   ms_available_translations.emplace_back("srp", "sr_RS@latin", "sr_RS@latin", "serbian",    "Serbian Latin",        "Srpski",              false, 0x001a, 0x02);
@@ -212,8 +213,7 @@ translation_c::set_active_translation(const std::string &locale) {
   int idx                   = look_up_translation(locale);
   ms_active_translation_idx = std::max(idx, 0);
 
-  if (debugging_c::requested("locale"))
-    mxinfo(boost::format("[translation_c::set_active_translation() active_translation_idx %1% for locale %2%]\n") % ms_active_translation_idx % locale);
+  mxdebug_if(debugging_c::requested("locale"), boost::format("[translation_c::set_active_translation() active_translation_idx %1% for locale %2%]\n") % ms_active_translation_idx % locale);
 }
 
 // ------------------------------------------------------------
@@ -223,13 +223,19 @@ translatable_string_c::translatable_string_c()
 }
 
 translatable_string_c::translatable_string_c(const std::string &untranslated_string)
-  : m_untranslated_string(untranslated_string)
+  : m_untranslated_strings{untranslated_string}
 {
 }
 
 translatable_string_c::translatable_string_c(const char *untranslated_string)
-  : m_untranslated_string(untranslated_string)
+  : m_untranslated_strings{std::string{untranslated_string}}
 {
+}
+
+translatable_string_c::translatable_string_c(std::vector<translatable_string_c> const &untranslated_strings)
+{
+  for (auto const &untranslated_string : untranslated_strings)
+    m_untranslated_strings.emplace_back(untranslated_string.get_untranslated());
 }
 
 std::string
@@ -239,19 +245,32 @@ translatable_string_c::get_translated()
   if (m_overridden_by)
     return *m_overridden_by;
 
-  return m_untranslated_string.empty() ? "" : Y(m_untranslated_string.c_str());
+  std::vector<std::string> translated_strings;
+  for (auto const &untranslated_string : m_untranslated_strings)
+    if (!untranslated_string.empty())
+      translated_strings.emplace_back(gettext(untranslated_string.c_str()));
+
+  return join(translated_strings);
 }
 
 std::string
 translatable_string_c::get_untranslated()
   const
 {
-  return m_untranslated_string;
+  return join(m_untranslated_strings);
 }
 
-void
+translatable_string_c &
 translatable_string_c::override(std::string const &by) {
   m_overridden_by.reset(by);
+  return *this;
+}
+
+std::string
+translatable_string_c::join(std::vector<std::string> const &strings)
+  const {
+  auto separator = translation_c::get_active_translation().m_line_breaks_anywhere ? "" : " ";
+  return boost::join(strings, separator);
 }
 
 // ------------------------------------------------------------
@@ -306,6 +325,12 @@ init_locales(std::string locale) {
   locale_dir = g_cc_local_utf8->native((mtx::sys::get_installation_path() / "locale").string());
 
 # else  // SYS_WINDOWS
+  auto language_var = mtx::sys::get_environment_variable("LANGUAGE");
+  if (!language_var.empty()) {
+    mxdebug_if(debug, boost::format("[init_locales LANGUAGE is set to %1%; un-setting it]\n") % language_var);
+    mtx::sys::unset_environment_variable("LANGUAGE");
+  }
+
   std::string chosen_locale;
 
   try {
@@ -347,7 +372,12 @@ init_locales(std::string locale) {
 
   translation_c::set_active_translation(chosen_locale);
 
+#  if defined(MTX_APPIMAGE)
+  locale_dir = (mtx::sys::get_installation_path() / ".." / "share" / "locale").string();
+#  else
   locale_dir = MTX_LOCALE_DIR;
+#  endif  // MTX_APPIMAGE
+
 # endif  // SYS_WINDOWS
 
 # if defined(SYS_APPLE)

@@ -1,5 +1,4 @@
-#ifndef MTX_MKVTOOLNIX_GUI_HEADER_EDITOR_TOOL_H
-#define MTX_MKVTOOLNIX_GUI_HEADER_EDITOR_TOOL_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -33,6 +32,7 @@ public:
 
   virtual void setupUi() override;
   virtual void setupActions() override;
+  virtual std::pair<QString, QString> nextPreviousWindowActionTexts() const override;
 
   virtual void dragEnterEvent(QDragEnterEvent *event) override;
   virtual void dropEvent(QDropEvent *event) override;
@@ -42,6 +42,7 @@ public slots:
   virtual void toolShown() override;
   virtual void selectFileToOpen();
   virtual void save();
+  virtual void saveAllTabs();
   virtual void validate();
   virtual bool closeTab(int index);
   virtual void closeCurrentTab();
@@ -51,13 +52,15 @@ public slots:
   virtual void openFiles(QStringList const &fileNames);
   virtual void openFilesFromCommandLine(QStringList const &fileNames);
   virtual void setupTabPositions();
+  virtual void enableMenuActions();
+  virtual void showTab(Tab &tab);
 
 protected:
   virtual void openFile(QString const &fileName);
   virtual void showHeaderEditorsWidget();
   virtual Tab *currentTab();
+
+  virtual void forEachTab(std::function<void(Tab &)> const &worker);
 };
 
 }}}
-
-#endif // MTX_MKVTOOLNIX_GUI_HEADER_EDITOR_TOOL_H

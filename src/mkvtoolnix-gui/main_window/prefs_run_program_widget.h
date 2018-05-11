@@ -1,5 +1,4 @@
-#ifndef MTX_MKVTOOLNIX_GUI_MAIN_WINDOW_PREFS_RUN_PROGRAM_WIDGET_H
-#define MTX_MKVTOOLNIX_GUI_MAIN_WINDOW_PREFS_RUN_PROGRAM_WIDGET_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -26,27 +25,35 @@ public:
 
   bool isValid() const;
   Util::Settings::RunProgramConfigPtr config() const;
+  QString validate() const;
 
 signals:
-  void executableChanged(QString const &newExecutable);
+  void titleChanged();
 
 protected slots:
+  void typeChanged(int index);
+
   void selectVariableToAdd();
   void changeExecutable();
   void commandLineEdited(QString const &commandLine);
+  void nameEdited();
   void executeNow();
   void enableControls();
+
+  void changeAudioFile();
+  void audioFileEdited();
 
 protected:
   void changeArguments(std::function<void(QStringList &)> const &worker);
   void addVariable(QString const &variable);
 
   void setupUi(Util::Settings::RunProgramConfig const &cfg);
+  void setupTypeControl(Util::Settings::RunProgramConfig const &cfg);
   void setupToolTips();
   void setupMenu();
   void setupConnections();
+
+  void showPageForType(Util::Settings::RunProgramType type);
 };
 
 }}
-
-#endif // MTX_MKVTOOLNIX_GUI_MAIN_WINDOW_PREFS_RUN_PROGRAM_WIDGET_H

@@ -8,6 +8,7 @@
 
    Written by Moritz Bunkus <moritz@bunkus.org>.
    Changes by Robert Millan <rmh@aybabtu.com>.
+   Changes by Daniel Løvbrøtte Olsen <daniel@dodsorf.as>
 */
 
 #include "common/common_pch.h"
@@ -2187,6 +2188,12 @@ std::vector<mime_type_t> const mime_types = {
   { "audio/x-wav",                                            { "wav" }                                                },
   { "chemical/x-pdb",                                         { "pdb" }                                                },
   { "chemical/x-xyz",                                         { "xyz" }                                                },
+  { "font/sfnt",                                              {}                                                       },
+  { "font/ttf",                                               {}                                                       },
+  { "font/otf" ,                                              {}                                                       },
+  { "font/collection",                                        {}                                                       },
+  { "font/woff",                                              { "woff" }                                               },
+  { "font/woff2",                                             { "woff2" }                                              },
   { "image/bmp",                                              { "bmp" }                                                },
   { "image/cgm",                                              {}                                                       },
   { "image/cgmComputerGraphicsMetafile",                      {}                                                       },
@@ -2194,13 +2201,14 @@ std::vector<mime_type_t> const mime_types = {
   { "image/gif",                                              { "gif" }                                                },
   { "image/ief",                                              { "ief" }                                                },
   { "image/iefImageExchangeFormat",                           {}                                                       },
-  { "image/jpeg",                                             { "jpeg", "jpg", "jpe" }                                 },
+  { "image/jpeg",                                             { "jpg", "jpeg", "jpe" }                                 },
   { "image/naplps",                                           {}                                                       },
   { "image/pcx",                                              { "pcx" }                                                },
   { "image/png",                                              { "png" }                                                },
   { "image/prs.btif",                                         {}                                                       },
   { "image/prs.pti",                                          {}                                                       },
-  { "image/svg+xml",                                          { "svg", "svgz" }                                        },
+  { "image/svg+xml",                                          { "svg" }                                                },
+  { "image/svg+xml-compressed",                               { "svgz" }                                               },
   { "image/tiff",                                             { "tiff", "tif" }                                        },
   { "image/tiffTagImageFileFormat",                           {}                                                       },
   { "image/vnd.cns.inf2",                                     {}                                                       },
@@ -2234,6 +2242,7 @@ std::vector<mime_type_t> const mime_types = {
   { "image/x-xbitmap",                                        { "xbm" }                                                },
   { "image/x-xpixmap",                                        { "xpm" }                                                },
   { "image/x-xwindowdump",                                    { "xwd" }                                                },
+  { "image/webp",                                             { "webp" }                                               },
   { "inode/blockdevice",                                      {}                                                       },
   { "inode/chardevice",                                       {}                                                       },
   { "inode/directory",                                        {}                                                       },
@@ -2636,6 +2645,13 @@ guess_mime_type_by_ext(std::string ext) {
   return "";
 }
 
+std::string
+primary_file_extension_for_mime_type(std::string const &mime_type) {
+  auto itr = brng::find_if(mime_types, [&mime_type](auto const &m) { return m.name == mime_type; });
+
+  return (itr != mime_types.end()) && !itr->extensions.empty() ? itr->extensions[0] : std::string{};
+}
+
 #if HAVE_MAGIC_H
 static std::string
 guess_mime_type_by_content(magic_t &m,
@@ -2695,8 +2711,14 @@ guess_mime_type_internal(std::string ext,
   if (!m || (-1 == magic_load(m, magic_filename.c_str())))
     return guess_mime_type_by_ext(ext);
 # else  // defined(SYS_WINDOWS)
+#  ifdef MTX_APPIMAGE
+  auto magic_filename = (mtx::sys::get_installation_path() / ".." / "share" / "file" / "magic.mgc").string();
+  if (!m || (-1 == magic_load(m, magic_filename.c_str())) || (-1 == magic_load(m, nullptr)))
+    return guess_mime_type_by_ext(ext);
+#  else
   if (!m || (-1 == magic_load(m, nullptr)))
     return guess_mime_type_by_ext(ext);
+#  endif  // defined(MTX_APPIMAGE)
 # endif  // defined(SYS_WINDOWS)
 
   ret = guess_mime_type_by_content(m, ext);

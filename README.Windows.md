@@ -1,41 +1,41 @@
-Building MKVToolNix 9.5.0 for Windows
+Building MKVToolNix 18.0.0 for Windows
 =====================================
 
 There is currently only one supported way to build MKVToolNix for
-Windows: on Linux using a mingw cross compiler. It is known that you
-can also build it on Windows itself with the mingw gcc compiler, but
+Windows: on Linux using a MinGW cross compiler. It is known that you
+can also build it on Windows itself with the MinGW gcc compiler, but
 that's not supported officially as I don't have such a setup myself.
 
 Earlier versions could still be built with Microsoft's Visual Studio /
 Visual C++ programs, and those steps were described here as
 well. However, current MKVToolNix versions require many features of
-the new C++11 standard which haven't been supported by Microsoft's
-compilers for a long time. Additionally the author doesn't use Visual
-C++ himself and couldn't provide project files for it.
+the C++11 and C++14 standards which Microsoft's compilers have had
+spotty support for for a long time. Additionally the author doesn't
+use Visual C++ himself and couldn't provide project files for it.
 
-# 1. Building with a mingw cross compiler
+# 1. Building with a MinGW cross compiler
 
 ## 1.1. Preparations
 
 You will need:
 
-- a mingw cross compiler
+- a MinGW cross compiler
 - roughly 4 GB of free space available
 
-Luckily there's the [M cross environment project]
-(http://mxe.cc/) that provides an easy-to-use way
-of setting up the cross-compiler and all required libraries.
+Luckily there's the [M cross environment project](http://mxe.cc/)
+that provides an easy-to-use way of setting up the cross-compiler
+and all required libraries.
 
-mxe is a fast-changing project. In order to provide a stable basis for
-compilation author maintains his own fork. That fork also includes a
-couple of changes that cause libraries to be compiled only with the
+MXE is a fast-changing project. In order to provide a stable basis for
+compilation, the author maintains his own fork. That fork also includes
+a couple of changes that cause libraries to be compiled only with the
 features required by MKVToolNix saving compilation time and deployment
-space. In order to retrieve that fork you need `git`. Then to the
+space. In order to retrieve that fork, you need `git`. Then do the
 following:
 
-    git clone https://github.com/mbunkus/mxe $HOME/mxe
+    git clone https://gitlab.com/mbunkus/mxe $HOME/mxe
 
-The rest of this guide assumes that you've unpacked mxe
+The rest of this guide assumes that you've unpacked MXE
 into the directory `$HOME/mxe`.
 
 ## 1.2. Automatic build script
@@ -43,7 +43,7 @@ into the directory `$HOME/mxe`.
 MKVToolNix contains a script that can download, compile and install
 all required libraries into the directory `$HOME/mxe`.
 
-If the script does not work or you want to do everything yourself
+If the script does not work or you want to do everything yourself,
 you'll find instructions for manual compilation in section 1.3.
 
 ### 1.2.1. Script configuration
@@ -54,10 +54,9 @@ needs:
 
     ARCHITECTURE=64
 
-The architecture (64bit vs 32bit) that the binaries will be built
-for. The majority of users to day run a 64bit Windows, therefore 64 is
-the default. If you run a 32bit version of Windows then change this to
-32.
+The architecture (64-bit vs 32-bit) that the binaries will be built
+for. The majority of users today run a 64-bit Windows, therefore 64 is
+the default. If you run a 32-bit version of Windows, change this to 32.
 
     INSTALL_DIR=$HOME/mxe
 
@@ -74,23 +73,24 @@ From the MKVToolNix source directory run:
 
     ./tools/windows/setup_cross_compilation_env.sh
 
-If everything works fine you'll end up with a configured MKVToolNix
-source tree. You just have to run `drake` afterwards.
+If everything works fine, you'll end up with a configured MKVToolNix
+source tree. You just have to run `rake` afterwards.
 
 ## 1.3. Manual installation
 
-First you will need the mxe build scripts. Get them by
+First you will need the MXE build scripts. Get them by
 downloading them (see section 1.1. above) and unpacking them into
 `$HOME/mxe`.
 
 Next, build the required libraries (change `MXE_TARGETS` to
-`i686-w64-mingw32.static` if you need a 32bit build instead of a 64bit
+`i686-w64-mingw32.static` if you need a 32-bit build instead of a 64-bit
 one, and increase `JOBS` if you have more than one core):
 
     cd $HOME/mxe
-    make MXE_TARGETS=x86_64-w64-mingw32.static JOBS=2 \
-      gettext libiconv zlib boost curl file flac lzo ogg pthreads \
-      vorbis qtbase qttranslations qtwinextras
+    make MXE_TARGETS=x86_64-w64-mingw32.static MXE_PLUGIN_DIRS=plugins/gcc6 \
+      JOBS=2 \
+      gettext libiconv zlib boost file flac lzo ogg pthreads vorbis \
+      qtbase qttranslations qtwinextras
 
 Append the installation directory to your `PATH` variable:
 
@@ -109,8 +109,8 @@ Finally, configure MKVToolNix (the `host=…` spec must match the
       --with-moc=${qtbin}/moc --with-uic=${qtbin}/uic --with-rcc=${qtbin}/rcc \
       --with-boost=$HOME/mxe/usr/${host}
 
-If everything works then build it:
+If everything works, build it:
 
-    ./drake
+    rake
 
 You're done.

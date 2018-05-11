@@ -43,7 +43,7 @@ codec_c::initialize() {
   ms_codecs.emplace_back("VP9",                     type_e::V_VP9,          track_video,    "vp9\\d|V_VP9");
 
   ms_codecs.emplace_back("AAC",                     type_e::A_AAC,          track_audio,    "mp4a|aac.|raac|racp|A_AAC.*",           std::vector<uint16_t>{ 0x00ffu, 0x706du });
-  ms_codecs.emplace_back("AC-3/E-AC-3",             type_e::A_AC3,          track_audio,    "ac3.|ac-3|sac3|eac3|ec-3|a52[\\sb]|dnet|A_E?AC3", 0x2000u);
+  ms_codecs.emplace_back("AC-3",                    type_e::A_AC3,          track_audio,    "ac3.|ac-3|sac3|eac3|ec-3|a52[\\sb]|dnet|A_E?AC3", 0x2000u);
   ms_codecs.emplace_back("ALAC",                    type_e::A_ALAC,         track_audio,    "alac|A_ALAC");
   ms_codecs.emplace_back("ATRAC3",                  type_e::A_ATRAC3,       track_audio,    "atrc|A_REAL/ATRC");
   ms_codecs.emplace_back("DTS",                     type_e::A_DTS,          track_audio,    "dts[\\sbcehl]|A_DTS",                   0x2001u);
@@ -64,7 +64,9 @@ codec_c::initialize() {
   ms_codecs.emplace_back("Vorbis",                  type_e::A_VORBIS,       track_audio,    "vor[1b]|A_VORBIS",                      std::vector<uint16_t>{ 0x566fu, 0xfffeu });
   ms_codecs.emplace_back("WavPack4",                type_e::A_WAVPACK4,     track_audio,    "wvpk|A_WAVPACK4");
 
+  ms_codecs.emplace_back("DVBSUB",                  type_e::S_DVBSUB,       track_subtitle, MKV_S_DVBSUB);
   ms_codecs.emplace_back("HDMV PGS",                type_e::S_HDMV_PGS,     track_subtitle, MKV_S_HDMV_PGS);
+  ms_codecs.emplace_back("HDMV TextST",             type_e::S_HDMV_TEXTST,  track_subtitle, MKV_S_HDMV_TEXTST);
   ms_codecs.emplace_back("Kate",                    type_e::S_KATE,         track_subtitle, "kate|S_KATE");
   ms_codecs.emplace_back("SubRip/SRT",              type_e::S_SRT,          track_subtitle, "S_TEXT/(?:UTF8|ASCII)");
   ms_codecs.emplace_back("SubStationAlpha",         type_e::S_SSA_ASS,      track_subtitle, "ssa\\s|ass\\s|S_TEXT/(?:SSA|ASS)");
@@ -86,6 +88,8 @@ codec_c::initialize() {
   ms_specialization_descriptions.emplace(specialization_e::mpeg_1_2_layer_3,       "MP3");
 
   ms_specialization_descriptions.emplace(specialization_e::truehd_atmos,           "TrueHD Atmos");
+
+  ms_specialization_descriptions.emplace(specialization_e::e_ac_3,                 "E-AC-3");
 }
 
 codec_c const
@@ -138,6 +142,7 @@ codec_c::look_up_object_type_id(unsigned int object_type_id) {
                  : MP4OTI_MPEG1Audio                           == object_type_id   ? type_e::A_MP2
                  : MP4OTI_MPEG2AudioPart3                      == object_type_id   ? type_e::A_MP3
                  : MP4OTI_DTS                                  == object_type_id   ? type_e::A_DTS
+                 : MP4OTI_VORBIS                               == object_type_id   ? type_e::A_VORBIS
                  : (   (MP4OTI_MPEG2VisualSimple               == object_type_id)
                     || (MP4OTI_MPEG2VisualMain                 == object_type_id)
                     || (MP4OTI_MPEG2VisualSNR                  == object_type_id)

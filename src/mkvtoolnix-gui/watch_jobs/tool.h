@@ -1,5 +1,4 @@
-#ifndef MTX_MKVTOOLNIX_GUI_WATCH_JOBS_TOOL_H
-#define MTX_MKVTOOLNIX_GUI_WATCH_JOBS_TOOL_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -23,7 +22,6 @@ class Tab;
 
 class Tool : public ToolBase {
   Q_OBJECT;
-
 protected:
   // UI stuff:
   std::unique_ptr<Ui::Tool> ui;
@@ -43,18 +41,22 @@ public:
 
   virtual void setupUi() override;
   virtual void setupActions() override;
+  virtual std::pair<QString, QString> nextPreviousWindowActionTexts() const override;
 
 public slots:
   virtual void toolShown() override;
   virtual void closeTab(int idx);
   virtual void closeCurrentTab();
+  virtual void closeAllTabs();
   virtual void saveCurrentTabOutput();
+  virtual void saveAllTabs();
   virtual void enableMenuActions();
   virtual void setupTabPositions();
   virtual void retranslateUi();
   virtual void switchToCurrentJobTab();
+
+protected:
+  virtual void forEachTab(std::function<void(Tab &)> const &worker);
 };
 
 }}}
-
-#endif // MTX_MKVTOOLNIX_GUI_WATCH_JOBS_TOOL_H

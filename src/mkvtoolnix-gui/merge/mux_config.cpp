@@ -159,7 +159,7 @@ MuxConfig::loadProperties(Util::ConfigFile &settings,
 
   settings.beginGroup("properties");
   for (auto &key : settings.childKeys())
-    properties[key] = settings.value(key).toString();
+    properties[key] = settings.value(key);
   settings.endGroup();
 }
 
@@ -177,6 +177,18 @@ MuxConfig::load(QString const &fileName) {
   load(*settings);
 
   m_configFileName = fileNameToOpen;
+}
+
+QString
+MuxConfig::determineFirstInputFileName(QList<SourceFilePtr> const &files) {
+  if (files.isEmpty())
+    return QString{};
+
+  if (!Util::Settings::get().m_autoDestinationOnlyForVideoFiles)
+    return files[0]->m_fileName;
+
+  auto itr = brng::find_if(files, [](auto const &file) { return file->hasVideoTrack(); });
+  return itr != files.end() ? (*itr)->m_fileName : QString{};
 }
 
 void
@@ -230,10 +242,7 @@ MuxConfig::load(Util::ConfigFile &settings) {
     m_tracks << track;
   }
 
-  auto value           = settings.value("firstInputFileName");
-  m_firstInputFileName = value.isValid()    ? value.toString()
-                       : !m_files.isEmpty() ? m_files[0]->m_fileName
-                       :                      QString{};
+  m_firstInputFileName = settings.value("firstInputFileName", determineFirstInputFileName(m_files)).toString();
   m_firstInputFileName = QDir::toNativeSeparators(m_firstInputFileName);
 
   settings.endGroup();
@@ -447,14 +456,14 @@ MuxConfig::buildMkvmergeOptions()
     attachment->buildMkvmergeOptions(options);
 
   if (DoNotSplit != m_splitMode) {
-    auto mode = SplitAfterSize      == m_splitMode ? Q("size:")
-              : SplitAfterDuration  == m_splitMode ? Q("duration:")
-              : SplitAfterTimecodes == m_splitMode ? Q("timecodes:")
-              : SplitByParts        == m_splitMode ? Q("parts:")
-              : SplitByPartsFrames  == m_splitMode ? Q("parts-frames:")
-              : SplitByFrames       == m_splitMode ? Q("frames:")
-              : SplitAfterChapters  == m_splitMode ? Q("chapters:")
-              :                                      Q("PROGRAM EROR");
+    auto mode = SplitAfterSize       == m_splitMode ? Q("size:")
+              : SplitAfterDuration   == m_splitMode ? Q("duration:")
+              : SplitAfterTimestamps == m_splitMode ? Q("timestamps:")
+              : SplitByParts         == m_splitMode ? Q("parts:")
+              : SplitByPartsFrames   == m_splitMode ? Q("parts-frames:")
+              : SplitByFrames        == m_splitMode ? Q("frames:")
+              : SplitAfterChapters   == m_splitMode ? Q("chapters:")
+              :                                       Q("PROGRAM EROR");
     options << Q("--split") << (mode + m_splitOptions);
 
     if (m_splitMaxFiles >= 2)
@@ -463,7 +472,7 @@ MuxConfig::buildMkvmergeOptions()
       options << Q("--link");
   }
 
-  auto add = [&](QString const &arg, QString const &value, boost::logic::tribool predicate = boost::indeterminate) {
+  auto add = [&options](auto const &arg, auto const &value, boost::logic::tribool predicate = boost::indeterminate) {
     if (boost::logic::indeterminate(predicate))
       predicate = !value.isEmpty();
     if (predicate)

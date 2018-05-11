@@ -10,8 +10,7 @@
    Written by Moritz Bunkus <moritz@bunkus.org>.
 */
 
-#ifndef MTX_COMMON_FS_SYS_HELPERS_H
-#define MTX_COMMON_FS_SYS_HELPERS_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -25,10 +24,12 @@ void determine_path_to_current_executable(std::string const &argv0);
 bfs::path get_current_exe_path(std::string const &argv0);
 bfs::path get_application_data_folder();
 bfs::path get_installation_path();
+uint64_t get_memory_usage();
 
 bool is_installed();
 
 std::string get_environment_variable(const std::string &key);
+void unset_environment_variable(std::string const &key);
 
 #if defined(SYS_WINDOWS)
 
@@ -44,9 +45,8 @@ void set_environment_variable(const std::string &key, const std::string &value);
 #define WINDOWS_VERSION_7            0x00060001
 
 unsigned int get_windows_version();
+std::string format_windows_message(uint64_t message_id);
 
 #endif
 
 }}
-
-#endif

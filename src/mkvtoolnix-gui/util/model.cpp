@@ -7,6 +7,7 @@
 #include <QStandardItemModel>
 #include <QTreeView>
 
+#include "mkvtoolnix-gui/main_window/main_window.h"
 #include "mkvtoolnix-gui/util/model.h"
 
 namespace mtx { namespace gui { namespace Util {
@@ -128,6 +129,17 @@ walkTree(QAbstractItemModel &model,
     walkTree(model, model.index(row, 0, idx), worker);
 }
 
+void
+requestAllItems(QStandardItemModel &model,
+                QModelIndex const &parent) {
+  for (int row = 0, numRows = model.rowCount(parent), numCols = model.columnCount(); row < numRows; ++row) {
+    for (int col = 0; col < numCols; ++col)
+      model.itemFromIndex(model.index(row, col, parent));
+
+    requestAllItems(model, model.index(row, 0, parent));
+  }
+}
+
 QModelIndex
 findIndex(QAbstractItemModel const &model,
           std::function<bool(QModelIndex const &)> const &predicate,
@@ -142,6 +154,17 @@ findIndex(QAbstractItemModel const &model,
   }
 
   return {};
+}
+
+void
+setItemForegroundColorDisabled(QList<QStandardItem *> const &items,
+                               bool disabled) {
+  auto palette = MainWindow::get()->palette();
+  palette.setCurrentColorGroup(disabled ? QPalette::Disabled : QPalette::Normal);
+
+  auto brush = palette.text();
+  for (auto &item : items)
+    item->setForeground(brush);
 }
 
 }}}

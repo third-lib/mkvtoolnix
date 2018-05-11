@@ -10,6 +10,25 @@ def unformat_string_for_po str
   str.gsub(/^"|"$/, '').gsub(/\\"/, '"')
 end
 
+def fix_po_msgstr_plurals items
+  return items if (items.size == 0) || !items.first.key?(:comments)
+
+  matches = %r{nplurals=(\d+)}.match(items.first[:comments].join(""))
+
+  return items if !matches
+
+  num_plurals = matches[1].to_i
+
+  return items if num_plurals <= 0
+
+  items.each do |item|
+    next unless item.key?(:msgstr)
+    item[:msgstr] = item[:msgstr][0..num_plurals - 1] if item[:msgstr].size > num_plurals
+  end
+
+  return items
+end
+
 def read_po file_name
   items   = [ { comments: [] } ]
   msgtype = nil
@@ -76,7 +95,7 @@ def read_po file_name
 
   items.pop if items.last.keys.empty?
 
-  return items
+  return fix_po_msgstr_plurals items
 end
 
 def write_po file_name, items
@@ -146,7 +165,7 @@ def replace_po_meta_info orig_metas, transifex_meta, key
   orig_metas.each { |meta| meta.gsub!(/"#{key}: \s+ .+? \\n"/x, "\"#{key}: #{new_value}\\n\"") }
 end
 
-def merge_po orig_items, updated_items
+def merge_po orig_items, updated_items, options = {}
   translated = Hash[ *updated_items.
     select { |item| item[:msgid] && item[:msgid].first && !item[:msgid].first.empty? && item[:msgstr] && !item[:msgstr].empty? && !item[:msgstr].first.empty? }.
     map    { |item| [ item[:msgid].first, item ] }.
@@ -179,12 +198,14 @@ def merge_po orig_items, updated_items
 
   # update_meta_info = true
 
-  if update_meta_info
-    orig_meta    = orig_items.first[:comments]
-    updated_meta = updated_items.first[:comments].join("")
+  return orig_items unless update_meta_info
 
-    %w{PO-Revision-Date Last-Translator Language-Team Plural-Forms}.each { |key| replace_po_meta_info orig_meta, updated_meta, key }
-  end
+  orig_meta          = orig_items.first[:comments]
+  updated_meta       = updated_items.first[:comments].join("")
+  headers_to_update  = %w{PO-Revision-Date Last-Translator Language-Team Plural-Forms}
+  headers_to_update += options[:headers_to_update] || []
+
+  headers_to_update.each { |key| replace_po_meta_info orig_meta, updated_meta, key }
 
   orig_items
 end
@@ -202,8 +223,9 @@ def transifex_pull_and_merge resource, language
 
   transifex_items = read_po(po_file)
   merged_items    = merge_po orig_items, transifex_items
+  fixed_items     = fix_po_msgstr_plurals merged_items
 
-  write_po po_file, merged_items
+  write_po po_file, fixed_items
 end
 
 def transifex_remove_fuzzy_and_push resource, language

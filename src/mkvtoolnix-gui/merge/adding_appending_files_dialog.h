@@ -1,5 +1,4 @@
-#ifndef MTX_MKVTOOLNIX_GUI_MERGE_ADDING_APPENDING_FILES_DIALOG_H
-#define MTX_MKVTOOLNIX_GUI_MERGE_ADDING_APPENDING_FILES_DIALOG_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -23,6 +22,8 @@ public:
   explicit AddingAppendingFilesDialog(QWidget *parent, QList<SourceFilePtr> const &files);
   ~AddingAppendingFilesDialog();
 
+  void setDefaults(Util::Settings::MergeAddingAppendingFilesPolicy decision, int fileIndex);
+
   Util::Settings::MergeAddingAppendingFilesPolicy decision() const;
   int fileIndex() const;
   bool alwaysUseThisDecision() const;
@@ -32,5 +33,3 @@ public slots:
 };
 
 }}}
-
-#endif // MTX_MKVTOOLNIX_GUI_MERGE_ADDING_APPENDING_FILES_DIALOG_H

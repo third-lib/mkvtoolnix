@@ -12,8 +12,7 @@
    Modified by Steve Lhomme <steve.lhomme@free.fr>.
 */
 
-#ifndef MTX_OUTPUT_CONTROL_H
-#define MTX_OUTPUT_CONTROL_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -22,7 +21,6 @@
 
 #include "common/bitvalue.h"
 #include "common/chapters/chapters.h"
-#include "common/mm_mpls_multi_file_io.h"
 #include "common/segmentinfo.h"
 #include "merge/file_status.h"
 #include "merge/packet.h"
@@ -106,10 +104,10 @@ struct track_order_t {
   int64_t track_id;
 };
 
-enum timecode_scale_mode_e {
-  TIMECODE_SCALE_MODE_NORMAL = 0,
-  TIMECODE_SCALE_MODE_FIXED,
-  TIMECODE_SCALE_MODE_AUTO
+enum timestamp_scale_mode_e {
+  TIMESTAMP_SCALE_MODE_NORMAL = 0,
+  TIMESTAMP_SCALE_MODE_FIXED,
+  TIMESTAMP_SCALE_MODE_AUTO
 };
 
 enum append_mode_e {
@@ -124,7 +122,7 @@ enum class identification_output_format_e {
   json,
 };
 
-class family_uids_c: public std::vector<bitvalue_c> {
+class family_uids_c: public std::vector<mtx::bits::value_c> {
 public:
   bool add_family_uid(const KaxSegmentFamily &family);
 };
@@ -137,13 +135,11 @@ extern std::unordered_map<int64_t, generic_packetizer_c *> g_packetizers_by_trac
 
 extern std::string g_outfile;
 
-extern double g_timecode_scale;
-extern timecode_scale_mode_e g_timecode_scale_mode;
+extern double g_timestamp_scale;
+extern timestamp_scale_mode_e g_timestamp_scale_mode;
 
-using g_bitvalue_cptr = std::shared_ptr<bitvalue_c>;
-
-extern bitvalue_cptr g_seguid_link_previous, g_seguid_link_next;
-extern std::deque<bitvalue_cptr> g_forced_seguids;
+extern mtx::bits::value_cptr g_seguid_link_previous, g_seguid_link_next;
+extern std::deque<mtx::bits::value_cptr> g_forced_seguids;
 extern family_uids_c g_segfamily_uids;
 
 extern kax_info_cptr g_kax_info_chap;
@@ -162,7 +158,7 @@ extern std::unique_ptr<KaxSegment> g_kax_segment;
 extern std::unique_ptr<KaxTracks> g_kax_tracks;
 extern KaxTrackEntry *g_kax_last_entry;
 extern std::unique_ptr<KaxSeekHead> g_kax_sh_main, g_kax_sh_cues;
-extern kax_chapters_cptr g_kax_chapters;
+extern mtx::chapters::kax_cptr g_kax_chapters;
 extern int64_t g_tags_size;
 extern std::string g_segment_title;
 extern bool g_segment_title_set;
@@ -172,7 +168,7 @@ extern std::string g_default_language;
 extern float g_video_fps;
 extern generic_packetizer_c *g_video_packetizer;
 
-extern bool g_write_cues, g_cue_writing_requested;
+extern bool g_write_cues, g_cue_writing_requested, g_write_date;
 extern bool g_no_lacing, g_no_linking, g_use_durations, g_no_track_statistics_tags;
 
 extern bool g_identifying;
@@ -218,5 +214,3 @@ int64_t add_attachment(attachment_cptr const &attachment);
 #if defined(SYS_UNIX) || defined(SYS_APPLE)
 void sighandler(int signum);
 #endif
-
-#endif // MTX_OUTPUT_CONTROL_H

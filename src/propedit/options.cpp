@@ -43,6 +43,28 @@ void
 options_c::execute(kax_analyzer_c &analyzer) {
   for (auto &target : m_targets)
     target->execute_change(analyzer);
+
+  prune_empty_masters();
+}
+
+void
+options_c::prune_empty_masters() {
+  std::unordered_map<EbmlMaster *, bool> handled;
+
+  for (auto &target : m_targets) {
+    if (!dynamic_cast<track_target_c *>(target.get()))
+      continue;
+
+    auto &track_target = static_cast<track_target_c &>(*target);
+    auto masters       = track_target.get_masters();
+
+    for (auto const &change : track_target.m_changes) {
+      remove_master_from_parent_if_empty_or_only_defaults(change->m_sub_sub_master, change->m_sub_sub_sub_master, handled); // sub_sub_master and sub_sub_sub_master
+      remove_master_from_parent_if_empty_or_only_defaults(std::get<1>(masters),     change->m_sub_sub_master,     handled); // sub_master     and sub_sub_master
+    }
+
+    remove_master_from_parent_if_empty_or_only_defaults(std::get<0>(masters), std::get<1>(masters), handled);               // master         and sub_master
+  }
 }
 
 target_cptr

@@ -18,14 +18,15 @@
 
 #include "avilib.h"
 #include "common/aac.h"
+#include "common/avc.h"
 #include "common/codec.h"
 #include "common/endian.h"
 #include "common/error.h"
 #include "common/hacks.h"
 #include "common/ivf.h"
+#include "common/mm_io_x.h"
 #include "common/mpeg1_2.h"
 #include "common/mpeg4_p2.h"
-#include "common/mpeg4_p10.h"
 #include "common/strings/formatting.h"
 #include "common/id_info.h"
 #include "input/r_avi.h"
@@ -34,11 +35,12 @@
 #include "merge/file_status.h"
 #include "output/p_aac.h"
 #include "output/p_ac3.h"
+#include "output/p_avc.h"
+#include "output/p_avc_es.h"
 #include "output/p_dts.h"
 #include "output/p_mp3.h"
 #include "output/p_mpeg1_2.h"
 #include "output/p_mpeg4_p2.h"
-#include "output/p_mpeg4_p10.h"
 #include "output/p_pcm.h"
 #include "output/p_video_for_windows.h"
 #include "output/p_vorbis.h"
@@ -166,6 +168,7 @@ avi_reader_c::parse_subtitle_chunks() {
           = srt_parser_c::probe(&text_io) ? avi_subs_demuxer_t::TYPE_SRT
           : ssa_parser_c::probe(&text_io) ? avi_subs_demuxer_t::TYPE_SSA
           :                                 avi_subs_demuxer_t::TYPE_UNKNOWN;
+        demuxer.m_encoding = text_io.get_encoding();
 
         if (avi_subs_demuxer_t::TYPE_UNKNOWN != demuxer.m_type)
           m_subtitle_demuxers.push_back(demuxer);
@@ -214,16 +217,16 @@ avi_reader_c::create_video_packetizer() {
     m_divx_type = DIVX_TYPE_MPEG4;
 
   if (mtx::includes(m_ti.m_default_durations, 0))
-    m_fps = 1000000000.0 / m_ti.m_default_durations[0];
+    m_fps = 1000000000.0 / m_ti.m_default_durations[0].first;
 
   else if (mtx::includes(m_ti.m_default_durations, -1))
-    m_fps = 1000000000.0 / m_ti.m_default_durations[-1];
+    m_fps = 1000000000.0 / m_ti.m_default_durations[-1].first;
 
   m_ti.m_id = 0;                 // ID for the video track.
   if (DIVX_TYPE_MPEG4 == m_divx_type)
     create_mpeg4_p2_packetizer();
 
-  else if (mpeg4::p10::is_avc_fourcc(codec) && !hack_engaged(ENGAGE_ALLOW_AVC_IN_VFW_MODE))
+  else if (mtx::avc::is_avc_fourcc(codec) && !hack_engaged(ENGAGE_ALLOW_AVC_IN_VFW_MODE))
     create_mpeg4_p10_packetizer();
 
   else if (mpeg1_2::is_fourcc(get_uint32_le(codec)))
@@ -301,8 +304,8 @@ avi_reader_c::create_mpeg4_p2_packetizer() {
 void
 avi_reader_c::create_mpeg4_p10_packetizer() {
   try {
-    mpeg4_p10_es_video_packetizer_c *ptzr = new mpeg4_p10_es_video_packetizer_c(this, m_ti);
-    m_vptzr                               = add_packetizer(ptzr);
+    auto ptzr = new avc_es_video_packetizer_c(this, m_ti);
+    m_vptzr   = add_packetizer(ptzr);
 
     ptzr->set_video_pixel_dimensions(m_video_width, m_video_height);
 
@@ -310,7 +313,7 @@ avi_reader_c::create_mpeg4_p10_packetizer() {
       ptzr->set_container_default_field_duration(1000000000ll / m_fps / 2);
 
     if (0 < m_avi->extradata_size) {
-      auto avc_extra_nalus = mpeg4::p10::avcc_to_nalus(reinterpret_cast<unsigned char *>(m_avi->bitmap_info_header + 1), m_avi->extradata_size);
+      auto avc_extra_nalus = mtx::avc::avcc_to_nalus(reinterpret_cast<unsigned char *>(m_avi->bitmap_info_header + 1), m_avi->extradata_size);
       if (avc_extra_nalus)
         ptzr->add_extra_data(avc_extra_nalus);
     }
@@ -496,45 +499,45 @@ avi_reader_c::add_audio_demuxer(int aid) {
 generic_packetizer_c *
 avi_reader_c::create_aac_packetizer(int aid,
                                     avi_demuxer_t &demuxer) {
-  int profile, channels, sample_rate, output_sample_rate;
-  bool is_sbr;
+  mtx::aac::audio_config_t audio_config;
 
   bool headerless = (AVI_audio_format(m_avi) != 0x706d);
 
   if (!m_ti.m_private_data
       || (   !headerless
           && ((sizeof(alWAVEFORMATEX) + 7)  < m_ti.m_private_data->get_size()))) {
-    channels             = AVI_audio_channels(m_avi);
-    sample_rate          = AVI_audio_rate(m_avi);
-    if (44100 > sample_rate) {
-      profile            = AAC_PROFILE_SBR;
-      output_sample_rate = sample_rate * 2;
-      is_sbr             = true;
+    audio_config.channels             = AVI_audio_channels(m_avi);
+    audio_config.sample_rate          = AVI_audio_rate(m_avi);
+    if (44100 > audio_config.sample_rate) {
+      audio_config.profile            = AAC_PROFILE_SBR;
+      audio_config.output_sample_rate = audio_config.sample_rate * 2;
+      audio_config.sbr                = true;
     } else {
-      profile            = AAC_PROFILE_MAIN;
-      output_sample_rate = sample_rate;
-      is_sbr             = false;
+      audio_config.profile            = AAC_PROFILE_MAIN;
+      audio_config.output_sample_rate = audio_config.sample_rate;
+      audio_config.sbr                = false;
     }
 
-    unsigned char created_aac_data[AAC_MAX_PRIVATE_DATA_SIZE];
-    auto size           = aac::create_audio_specific_config(created_aac_data, profile, channels, sample_rate, output_sample_rate, is_sbr);
-    m_ti.m_private_data = memory_c::clone(created_aac_data, size);
+    m_ti.m_private_data = mtx::aac::create_audio_specific_config(audio_config);
 
   } else {
-    if (!aac::parse_audio_specific_config(m_ti.m_private_data->get_buffer(), m_ti.m_private_data->get_size(), profile, channels, sample_rate, output_sample_rate, is_sbr))
+    auto parsed_audio_config = mtx::aac::parse_audio_specific_config(m_ti.m_private_data->get_buffer(), m_ti.m_private_data->get_size());
+    if (!parsed_audio_config)
       mxerror_tid(m_ti.m_fname, aid + 1, Y("This AAC track does not contain valid headers. Could not parse the AAC information.\n"));
 
-    if (is_sbr)
-      profile = AAC_PROFILE_SBR;
+    audio_config = *parsed_audio_config;
+
+    if (audio_config.sbr)
+      audio_config.profile = AAC_PROFILE_SBR;
   }
 
-  demuxer.m_samples_per_second = sample_rate;
-  demuxer.m_channels           = channels;
+  demuxer.m_samples_per_second = audio_config.sample_rate;
+  demuxer.m_channels           = audio_config.channels;
 
-  auto packetizer              = new aac_packetizer_c(this, m_ti, profile, demuxer.m_samples_per_second, demuxer.m_channels, headerless);
+  auto packetizer              = new aac_packetizer_c(this, m_ti, audio_config, headerless ? aac_packetizer_c::headerless : aac_packetizer_c::with_headers);
 
-  if (is_sbr)
-    packetizer->set_audio_output_sampling_freq(output_sample_rate);
+  if (audio_config.sbr)
+    packetizer->set_audio_output_sampling_freq(audio_config.output_sample_rate);
 
   return packetizer;
 }
@@ -547,7 +550,7 @@ avi_reader_c::create_dts_packetizer(int aid) {
     long audio_position   = AVI_get_audio_position_index(m_avi);
     unsigned int num_read = 0;
     int dts_position      = -1;
-    byte_buffer_c buffer;
+    mtx::bytes::buffer_c buffer;
     mtx::dts::header_t dtsheader;
 
     while ((-1 == dts_position) && (10 > num_read)) {
@@ -630,10 +633,10 @@ avi_reader_c::create_vorbis_packetizer(int aid) {
 }
 
 void
-avi_reader_c::set_avc_nal_size_size(mpeg4_p10_es_video_packetizer_c *ptzr) {
+avi_reader_c::set_avc_nal_size_size(avc_es_video_packetizer_c *ptzr) {
   m_avc_nal_size_size = ptzr->get_nalu_size_length();
 
-  for (size_t i = 0; i < m_max_video_frames; ++i) {
+  for (int i = 0; i < static_cast<int>(m_max_video_frames); ++i) {
     int size = AVI_frame_size(m_avi, i);
     if (0 == size)
       continue;
@@ -892,6 +895,9 @@ avi_reader_c::identify_subtitles() {
     if (   (avi_subs_demuxer_t::TYPE_SRT == m_subtitle_demuxers[i].m_type)
         || (avi_subs_demuxer_t::TYPE_SSA == m_subtitle_demuxers[i].m_type))
       info.add(mtx::id::text_subtitles, true);
+
+    if (m_subtitle_demuxers[i].m_encoding)
+      info.add(mtx::id::encoding, *m_subtitle_demuxers[i].m_encoding);
 
     id_result_track(1 + AVI_audio_tracks(m_avi) + i, ID_RESULT_TRACK_SUBTITLES,
                       avi_subs_demuxer_t::TYPE_SRT == m_subtitle_demuxers[i].m_type ? codec_c::get_name(codec_c::type_e::S_SRT, "SRT")

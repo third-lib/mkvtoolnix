@@ -3,7 +3,7 @@
 files = %w{
   data/aac/v.aac
   data/ac3/v.ac3
-  data/ssa-ass/fonts.ass
+  data/subtitles/ssa-ass/fonts.ass
   data/vobsub/ally1-short.idx
   data/ts/timecode-overflow.m2ts
   data/mp4/aac_encoder_delay_sample.m4a
@@ -16,6 +16,9 @@ files = %w{
   data/webm/yt3.webm
   data/wp/with-correction.wv
   data/wp/with-correction.wvc
+
+  data/truehd/truehd-atmos+ac3.m2ts
+  data/ts/two-teletext-pages-in-single-ts-track.ts
 }
 
 describe "mkvmerge / JSON identification format"

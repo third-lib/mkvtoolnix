@@ -9,13 +9,12 @@
    Written by Moritz Bunkus <moritz@bunkus.org>.
 */
 
-#ifndef MTX_INPUT_ID_INFO_H
-#define MTX_INPUT_ID_INFO_H
+#pragma once
 
 #include "common/common_pch.h"
 
+#include "common/json.h"
 #include "common/strings/editing.h"
-#include "nlohmann-json/src/json.hpp"
 
 namespace mtx { namespace id {
 
@@ -24,6 +23,7 @@ char const * const audio_bits_per_sample           = "audio_bits_per_sample";   
 char const * const audio_channels                  = "audio_channels";                  // track unsigned-integer
 char const * const audio_output_sampling_frequency = "audio_output_sampling_frequency"; // track unsigned-integer
 char const * const audio_sampling_frequency        = "audio_sampling_frequency";        // track unsigned-integer
+char const * const codec_delay                     = "codec_delay";                     // track unsigned-integer
 char const * const codec_id                        = "codec_id";                        // track unicoode-string
 char const * const codec_private_data              = "codec_private_data";              // track binary
 char const * const codec_private_length            = "codec_private_length";            // track unsigned-integer
@@ -35,6 +35,7 @@ char const * const default_duration                = "default_duration";        
 char const * const default_track                   = "default_track";                   // track boolean
 char const * const display_dimensions              = "display_dimensions";              // track ascii-string format:^\d+x\d+$
 char const * const duration                        = "duration";                        // container unsigned-integer
+char const * const encoding                        = "encoding";                        // track ascii-string
 char const * const enabled_track                   = "enabled_track";                   // track boolean
 char const * const forced_track                    = "forced_track";                    // track boolean
 char const * const language                        = "language";                        // track ascii-string format:^\w{3}$
@@ -44,6 +45,7 @@ char const * const mpeg4_p10_video                 = "mpeg4_p10_video";         
 char const * const mpegh_p2_es_video               = "mpegh_p2_es_video";               // track boolean
 char const * const mpegh_p2_video                  = "mpegh_p2_video";                  // track boolean
 char const * const muxing_application              = "muxing_application";              // container unicode-string
+char const * const multiplexed_tracks              = "multiplexed_tracks";              // track [ unsigned-integer ]
 char const * const next_segment_uid                = "next_segment_uid";                // container ascii-string format:^[0-9A-F]{32}$
 char const * const number                          = "number";                          // container unsigned-integer
 char const * const other_file                      = "other_file";                      // container unicoode-string
@@ -55,7 +57,11 @@ char const * const playlist_duration               = "playlist_duration";       
 char const * const playlist_file                   = "playlist_file";                   // container uinstr
 char const * const playlist_size                   = "playlist_size";                   // container unsigned-integer
 char const * const previous_segment_uid            = "previous_segment_uid";            // container ascii-string format:^[0-9A-F]{32}$
+char const * const program_number                  = "program_number";                  // track unsigned-integer, container unsigned-integer
+char const * const programs                        = "programs";                        // container array
 char const * const segment_uid                     = "segment_uid";                     // container ascii-string format:^[0-9A-F]{32}$
+char const * const service_name                    = "service_name";                    // container unicode-string
+char const * const service_provider                = "service_provider";                // container unicode-string
 char const * const stereo_mode                     = "stereo_mode";                     // track unsigned-integer
 char const * const stream_id                       = "stream_id";                       // track unsigned-integer
 char const * const sub_stream_id                   = "sub_stream_id";                   // track unsigned-integer
@@ -63,7 +69,6 @@ char const * const teletext_page                   = "teletext_page";           
 char const * const text_subtitles                  = "text_subtitles";                  // track boolean
 char const * const title                           = "title";                           // container unicoode-string
 char const * const track_name                      = "track_name";                      // track unicoode-string
-char const * const ts_pid                          = "ts_pid";                          // track unsigned-integer
 char const * const uid                             = "uid";                             // track attachments unsigned-integer
 char const * const writing_application             = "writing_application";             // container unicode-string
 
@@ -111,5 +116,3 @@ public:
 };
 
 }}
-
-#endif // MTX_INPUT_ID_INFO_H

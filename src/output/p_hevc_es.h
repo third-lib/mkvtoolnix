@@ -10,19 +10,18 @@
 
 */
 
-#ifndef MTX_P_HEVC_ES_H
-#define MTX_P_HEVC_ES_H
+#pragma once
 
 #include "common/common_pch.h"
 
-#include "common/hevc.h"
+#include "common/hevc_es_parser.h"
 #include "merge/generic_packetizer.h"
 
 class hevc_es_video_packetizer_c: public generic_packetizer_c {
 protected:
   mtx::hevc::es_parser_c m_parser;
   int64_t m_default_duration_for_interlaced_content;
-  bool m_first_frame, m_set_display_dimensions, m_debug_timecodes, m_debug_aspect_ratio;
+  bool m_first_frame, m_set_display_dimensions, m_debug_timestamps, m_debug_aspect_ratio;
 
 public:
   hevc_es_video_packetizer_c(generic_reader_c *p_reader, track_info_c &p_ti);
@@ -39,7 +38,7 @@ public:
     return YT("HEVC/h.265 (unframed)");
   };
 
-  virtual void connect(generic_packetizer_c *src, int64_t p_append_timecode_offset = -1);
+  virtual void connect(generic_packetizer_c *src, int64_t p_append_timestamp_offset = -1);
   virtual connection_result_e can_connect_to(generic_packetizer_c *src, std::string &error_message);
 
 protected:
@@ -48,5 +47,3 @@ protected:
   virtual void handle_actual_default_duration();
   virtual void flush_impl();
 };
-
-#endif // MTX_P_HEVC_ES_H

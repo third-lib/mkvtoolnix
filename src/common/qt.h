@@ -11,8 +11,7 @@
    Written by Moritz Bunkus <moritz@bunkus.org>.
 */
 
-#ifndef MTX_COMMON_QT_H
-#define MTX_COMMON_QT_H
+#pragma once
 
 #include <QString>
 
@@ -24,8 +23,7 @@
 #define QY(s) to_qs(Y(s))
 #define QYH(s) to_qs(Y(s)).toHtmlEscaped()
 #define QNY(singular, plural, count) to_qs(NY(singular, plural, count))
-#define QTR(s) to_qs(Y(s))
-#define QPTR(s, context) to_qs(PY(context, s))
+#define QTR(s, dummy) to_qs(Y(s))
 
 inline QChar
 to_qs(char const source) {
@@ -104,5 +102,3 @@ operator <<(std::wostream &out,
   out << string.toStdWString();
   return out;
 }
-
-#endif  // MTX_COMMON_QT_H

@@ -1,5 +1,4 @@
-#ifndef MTX_MKVTOOLNIX_GUI_JOBS_JOBS_WIDGET_H
-#define MTX_MKVTOOLNIX_GUI_JOBS_JOBS_WIDGET_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -65,6 +64,9 @@ public slots:
 
   void onJobQueueMenu();
   void onContextMenu(QPoint pos);
+  void moveJobsUpOrDown(bool up);
+  void setupMoveJobsButtons();
+  void enableMoveJobsButtons();
 
   void resizeColumnsToContents() const;
 
@@ -85,8 +87,8 @@ protected:
 
   virtual void dragEnterEvent(QDragEnterEvent *event) override;
   virtual void dropEvent(QDropEvent *event) override;
+
+  virtual void selectJobs(QList<Job *> const &jobs);
 };
 
 }}}
-
-#endif // MTX_MKVTOOLNIX_GUI_JOBS_JOB_WIDGET_H

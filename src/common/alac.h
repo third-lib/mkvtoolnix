@@ -11,12 +11,11 @@
    Written by Moritz Bunkus <moritz@bunkus.org>.
 */
 
-#ifndef MTX_COMMON_ALAC_H
-#define MTX_COMMON_ALAC_H
+#pragma once
 
 #include "common/common_pch.h"
 
-namespace alac {
+namespace mtx { namespace alac {
 
 #if defined(COMP_MSC)
 #pragma pack(push,1)
@@ -40,6 +39,4 @@ struct PACKED_STRUCTURE codec_config_t {
 #pragma pack(pop)
 #endif
 
-}
-
-#endif // MTX_COMMON_ALAC_H
+}}

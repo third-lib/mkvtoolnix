@@ -11,14 +11,12 @@
    Written by Moritz Bunkus <moritz@bunkus.org>.
 */
 
-#ifndef MTX_COMMON_AACCOMMON_H
-#define MTX_COMMON_AACCOMMON_H
+#pragma once
 
 #include "common/common_pch.h"
 
 #include <ostream>
 
-#include "common/bit_cursor.h"
 #include "common/byte_buffer.h"
 #include "common/timestamp.h"
 
@@ -42,23 +40,47 @@
 #define AAC_LOAS_SYNC_WORD_MASK  0xffe000 // first 11 of 24 bits
 #define AAC_LOAS_FRAME_SIZE_MASK 0x001fff // last 13 of 24 bits
 
-namespace aac {
+namespace mtx { namespace bits {
+class reader_c;
+}}
+
+namespace mtx { namespace aac {
+
+struct audio_config_t {
+  unsigned int profile, sample_rate, output_sample_rate, channels, samples_per_frame;
+  bool sbr;
+  memory_cptr ga_specific_config;
+  unsigned int ga_specific_config_bit_size;
+
+  audio_config_t()
+    : profile{}
+    , sample_rate{}
+    , output_sample_rate{}
+    , channels{}
+    , samples_per_frame{1024}
+    , sbr{}
+    , ga_specific_config_bit_size{}
+  {
+  }
+};
 
 unsigned int get_sampling_freq_idx(unsigned int sampling_freq);
 bool parse_codec_id(const std::string &codec_id, int &id, int &profile);
-bool parse_audio_specific_config(const unsigned char *data, size_t size, int &profile, int &channels, int &sample_rate, int &output_sample_rate, bool &sbr);
-int create_audio_specific_config(unsigned char *data, int profile, int channels, int sample_rate, int output_sample_rate, bool sbr);
+boost::optional<audio_config_t> parse_audio_specific_config(unsigned char const *data, std::size_t size);
+memory_cptr create_audio_specific_config(audio_config_t const &audio_config);
 
 class header_c {
 public:
-  unsigned int object_type, extension_object_type, profile, sample_rate, output_sample_rate, bit_rate, channels, bytes;
-  unsigned int id;                       // 0 = MPEG-4, 1 = MPEG-2
-  size_t header_bit_size, header_byte_size, data_byte_size;
+  audio_config_t config{};
 
-  bool is_sbr, is_valid;
+  unsigned int object_type{}, extension_object_type{}, bit_rate{}, bytes{};
+  unsigned int id{};                       // 0 = MPEG-4, 1 = MPEG-2
+  size_t header_bit_size{}, header_byte_size{}, data_byte_size{};
+
+  bool is_valid{};
 
 protected:
-  bit_reader_c *m_bc;
+  mtx::bits::reader_c *m_bc{};
 
 public:
   header_c();
@@ -69,7 +91,8 @@ public:
   static header_c from_audio_specific_config(const unsigned char *data, size_t size);
 
   void parse_audio_specific_config(const unsigned char *data, size_t size, bool look_for_sync_extension = true);
-  void parse_audio_specific_config(bit_reader_c &bc, bool look_for_sync_extension = true);
+  void parse_audio_specific_config(mtx::bits::reader_c &bc, bool look_for_sync_extension = true);
+  void parse_program_config_element(mtx::bits::reader_c &bc);
 
 protected:
   int read_object_type();
@@ -94,19 +117,21 @@ protected:
   int m_audio_mux_version, m_audio_mux_version_a;
   size_t m_fixed_frame_length, m_frame_length_type, m_frame_bit_offset, m_frame_length;
   header_c m_header;
-  bit_reader_c *m_bc;
+  mtx::bits::reader_c *m_bc;
   bool m_config_parsed;
+  memory_cptr m_audio_specific_config;
   debugging_option_c m_debug;
 
 public:
   latm_parser_c();
 
   bool config_parsed() const;
+  memory_cptr get_audio_specific_config() const;
   header_c const &get_header() const;
   size_t get_frame_bit_offset() const;
   size_t get_frame_length() const;
 
-  void parse(bit_reader_c &bc);
+  void parse(mtx::bits::reader_c &bc);
 
 protected:
   unsigned int get_value();
@@ -122,7 +147,7 @@ public:
   header_c m_header;
   uint64_t m_stream_position;
   size_t m_garbage_size;
-  timestamp_c m_timecode;
+  timestamp_c m_timestamp;
   memory_cptr m_data;
 
 public:
@@ -150,8 +175,8 @@ protected:
 
 protected:
   std::deque<frame_c> m_frames;
-  std::deque<timestamp_c> m_provided_timecodes;
-  byte_buffer_c m_buffer;
+  std::deque<timestamp_c> m_provided_timestamps;
+  mtx::bytes::buffer_c m_buffer;
   unsigned char const *m_fixed_buffer;
   size_t m_fixed_buffer_size;
   uint64_t m_parsed_stream_position, m_total_stream_position;
@@ -164,7 +189,7 @@ protected:
 
 public:
   parser_c();
-  void add_timecode(timestamp_c const &timecode);
+  void add_timestamp(timestamp_c const &timestamp);
 
   void add_bytes(memory_cptr const &mem);
   void add_bytes(unsigned char const *buffer, size_t size);
@@ -174,12 +199,16 @@ public:
 
   void flush();
 
+  multiplex_type_e get_multiplex_type() const;
+  void set_multiplex_type(multiplex_type_e multiplex_type);
+
   size_t frames_available() const;
   bool headers_parsed() const;
 
   frame_c get_frame();
   uint64_t get_parsed_stream_position() const;
   uint64_t get_total_stream_position() const;
+  memory_cptr get_audio_specific_config() const;
 
   void abort_after_num_frames(size_t num_frames);
   void require_frame_at_first_byte(bool require);
@@ -187,6 +216,7 @@ public:
 
 public:                         // static functions
   static int find_consecutive_frames(unsigned char const *buffer, size_t buffer_size, size_t num_required_frames);
+  static std::string get_multiplex_type_name(multiplex_type_e multiplex_type);
 
 protected:
   void parse();
@@ -197,6 +227,4 @@ protected:
 };
 using parser_cptr = std::shared_ptr<parser_c>;
 
-} // namespace aac
-
-#endif // MTX_COMMON_AACCOMMON_H
+}} // namespace mtx::aac

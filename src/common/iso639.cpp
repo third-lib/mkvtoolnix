@@ -63,7 +63,7 @@ std::vector<iso639_language_t> const g_iso639_languages{
   { "Bambara",                                                                          "bam", "bm",          std::string{}  },
   { "Bamileke languages",                                                               "bai", std::string{}, std::string{}  },
   { "Banda languages",                                                                  "bad", std::string{}, std::string{}  },
-  { "Bantu (Other)",                                                                    "bnt", std::string{}, std::string{}  },
+  { "Bantu languages",                                                                  "bnt", std::string{}, std::string{}  },
   { "Basa",                                                                             "bas", std::string{}, std::string{}  },
   { "Bashkir",                                                                          "bak", "ba",          std::string{}  },
   { "Basque",                                                                           "baq", "eu",          "eus"          },
@@ -373,12 +373,14 @@ std::vector<iso639_language_t> const g_iso639_languages{
   { "Polish",                                                                           "pol", "pl",          std::string{}  },
   { "Portuguese",                                                                       "por", "pt",          std::string{}  },
   { "Prakrit languages",                                                                "pra", std::string{}, std::string{}  },
-  { "Provençal, Old (to 1500);Occitan, Old (to 1500)",                                  "pro", std::string{}, std::string{}  },
+  { "Provençal, Old (to 1500); Occitan, Old (to 1500)",                                 "pro", std::string{}, std::string{}  },
   { "Pushto; Pashto",                                                                   "pus", "ps",          std::string{}  },
   { "Quechua",                                                                          "que", "qu",          std::string{}  },
   { "Rajasthani",                                                                       "raj", std::string{}, std::string{}  },
   { "Rapanui",                                                                          "rap", std::string{}, std::string{}  },
   { "Rarotongan; Cook Islands Maori",                                                   "rar", std::string{}, std::string{}  },
+  { "Reserved for local use: qaa",                                                      "qaa", std::string{}, std::string{}  },
+  { "Reserved for local use: qad",                                                      "qad", std::string{}, std::string{}  },
   { "Romance languages",                                                                "roa", std::string{}, std::string{}  },
   { "Romanian; Moldavian; Moldovan",                                                    "rum", "ro",          "ron"          },
   { "Romansh",                                                                          "roh", "rm",          std::string{}  },
@@ -422,11 +424,12 @@ std::vector<iso639_language_t> const g_iso639_languages{
   { "Soninke",                                                                          "snk", std::string{}, std::string{}  },
   { "Sorbian languages",                                                                "wen", std::string{}, std::string{}  },
   { "Sotho, Southern",                                                                  "sot", "st",          std::string{}  },
-  { "South American Indian (Other)",                                                    "sai", std::string{}, std::string{}  },
+  { "South American Indian languages",                                                  "sai", std::string{}, std::string{}  },
   { "Southern Altai",                                                                   "alt", std::string{}, std::string{}  },
   { "Southern Sami",                                                                    "sma", std::string{}, std::string{}  },
-  { "Spanish; Castillan",                                                               "spa", "es",          std::string{}  },
+  { "Spanish; Castilian",                                                               "spa", "es",          std::string{}  },
   { "Sranan Tongo",                                                                     "srn", std::string{}, std::string{}  },
+  { "Standard Moroccan Tamazight",                                                      "zgh", std::string{}, std::string{}  },
   { "Sukuma",                                                                           "suk", std::string{}, std::string{}  },
   { "Sumerian",                                                                         "sux", std::string{}, std::string{}  },
   { "Sundanese",                                                                        "sun", "su",          std::string{}  },
@@ -484,12 +487,12 @@ std::vector<iso639_language_t> const g_iso639_languages{
   { "Volapük",                                                                          "vol", "vo",          std::string{}  },
   { "Votic",                                                                            "vot", std::string{}, std::string{}  },
   { "Wakashan languages",                                                               "wak", std::string{}, std::string{}  },
-  { "Walamo",                                                                           "wal", std::string{}, std::string{}  },
   { "Walloon",                                                                          "wln", "wa",          std::string{}  },
   { "Waray",                                                                            "war", std::string{}, std::string{}  },
   { "Washo",                                                                            "was", std::string{}, std::string{}  },
   { "Welsh",                                                                            "wel", "cy",          "cym"          },
   { "Western Frisian",                                                                  "fry", "fy",          std::string{}  },
+  { "Wolaitta; Wolaytta",                                                               "wal", std::string{}, std::string{}  },
   { "Wolof",                                                                            "wol", "wo",          std::string{}  },
   { "Xhosa",                                                                            "xho", "xh",          std::string{}  },
   { "Yakut",                                                                            "sah", std::string{}, std::string{}  },
@@ -521,7 +524,7 @@ std::vector<std::string> const g_popular_language_codes{ "chi", "dut", "eng", "f
 
 bool
 is_valid_iso639_2_code(std::string const &iso639_2_code) {
-  return brng::find_if(g_iso639_languages, [&](iso639_language_t const &lang) { return lang.iso639_2_code == iso639_2_code; }) != g_iso639_languages.end();
+  return brng::find_if(g_iso639_languages, [&iso639_2_code](auto const &lang) { return lang.iso639_2_code == iso639_2_code; }) != g_iso639_languages.end();
 }
 
 #define FILL(s, idx) s + std::wstring(longest[idx] - get_width_in_em(s), L' ')
@@ -553,13 +556,13 @@ list_iso639_languages() {
 
 std::string const &
 map_iso639_2_to_iso639_1(std::string const &iso639_2_code) {
-  auto lang = brng::find_if(g_iso639_languages, [&](iso639_language_t const &lang) { return lang.iso639_2_code == iso639_2_code; });
+  auto lang = brng::find_if(g_iso639_languages, [&iso639_2_code](auto const &lang) { return lang.iso639_2_code == iso639_2_code; });
   return (lang != g_iso639_languages.end()) ? lang->iso639_1_code : empty_string;
 }
 
 bool
 is_popular_language(std::string const &language) {
-  static std::vector<std::string> s_popular_languages = { "Chinese", "Dutch", "English", "Finnish", "French", "German", "Italian", "Japanese", "Norwegian", "Portuguese", "Russian", "Spanish", "Spanish; Castillan", "Swedish" };
+  static std::vector<std::string> s_popular_languages = { "Chinese", "Dutch", "English", "Finnish", "French", "German", "Italian", "Japanese", "Norwegian", "Portuguese", "Russian", "Spanish", "Spanish; Castilian", "Swedish" };
   return brng::find(s_popular_languages, language) != s_popular_languages.end();
 }
 
@@ -582,12 +585,15 @@ is_popular_language_code(std::string const &code) {
 int
 map_to_iso639_2_code(std::string const &s,
                      bool allow_short_english_name) {
+  if (s.empty())
+    return -1;
+
   auto source          = s;
   auto deprecated_code = s_deprecated_1_and_2_codes.find(source);
   if (deprecated_code != s_deprecated_1_and_2_codes.end())
     source = deprecated_code->second;
 
-  auto lang = brng::find_if(g_iso639_languages, [&](iso639_language_t const &lang) { return (lang.iso639_2_code == source) || (lang.terminology_abbrev == source) || (lang.iso639_1_code == source); });
+  auto lang = brng::find_if(g_iso639_languages, [&source](auto const &lang) { return (lang.iso639_2_code == source) || (lang.terminology_abbrev == source) || (lang.iso639_1_code == source); });
   if (lang != g_iso639_languages.end())
     return std::distance(g_iso639_languages.begin(), lang);
 
@@ -622,7 +628,7 @@ map_to_iso639_2_code(std::string const &s,
 
     auto names = split(english_name, ";");
     strip(names);
-    if (names.end() != brng::find_if(names, [&](std::string const &name) { return balg::istarts_with(name, source); }))
+    if (names.end() != brng::find_if(names, [&source](auto const &name) { return balg::istarts_with(name, source); }))
       return index;
   }
 

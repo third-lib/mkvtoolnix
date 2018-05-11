@@ -11,8 +11,7 @@
    Written by Moritz Bunkus <moritz@bunkus.org>.
 */
 
-#ifndef MTX_COMMON_TRANSLATION_H
-#define MTX_COMMON_TRANSLATION_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -51,21 +50,26 @@ public:
 
 class translatable_string_c {
 protected:
-  std::string m_untranslated_string;
+  std::vector<std::string> m_untranslated_strings;
   boost::optional<std::string> m_overridden_by;
 
 public:
   translatable_string_c();
   translatable_string_c(const std::string &untranslated_string);
   translatable_string_c(const char *untranslated_string);
+  translatable_string_c(std::vector<translatable_string_c> const &untranslated_strings);
 
   std::string get_translated() const;
   std::string get_untranslated() const;
 
-  void override(std::string const &by);
+  translatable_string_c &override(std::string const &by);
+
+protected:
+  std::string join(std::vector<std::string> const &strings) const;
 };
 
 #define YT(s) translatable_string_c(s)
+#define TSV(...) std::vector<translatable_string_c>{__VA_ARGS__}
 
 inline std::ostream &
 operator <<(std::ostream &out,
@@ -75,5 +79,3 @@ operator <<(std::ostream &out,
 }
 
 void init_locales(std::string locale = "");
-
-#endif  // MTX_COMMON_TRANSLATION_H

@@ -10,8 +10,7 @@
    \author Written by Moritz Bunkus <moritz@bunkus.org>.
 */
 
-#ifndef MTX_COMMON_PROPERTY_TABLE_H
-#define MTX_COMMON_PROPERTY_TABLE_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -30,19 +29,19 @@
 
 class property_element_c {
 public:
-  enum ebml_type_e { EBMLT_SKIP, EBMLT_BOOL, EBMLT_BINARY, EBMLT_FLOAT, EBMLT_INT, EBMLT_UINT, EBMLT_STRING, EBMLT_USTRING };
+  enum ebml_type_e { EBMLT_SKIP, EBMLT_BOOL, EBMLT_BINARY, EBMLT_FLOAT, EBMLT_INT, EBMLT_UINT, EBMLT_STRING, EBMLT_USTRING, EBMLT_DATE };
 
   std::string m_name;
   translatable_string_c m_title, m_description;
 
-  const EbmlCallbacks *m_callbacks;
-  const EbmlCallbacks *m_sub_master_callbacks;
+  EbmlCallbacks const *m_callbacks, *m_sub_master_callbacks, *m_sub_sub_master_callbacks, *m_sub_sub_sub_master_callbacks;
 
+  unsigned int m_bit_length;
   ebml_type_e m_type;
 
   property_element_c();
-  property_element_c(const std::string &name, const EbmlCallbacks &callbacks, const translatable_string_c &title, const translatable_string_c &description,
-                     const EbmlCallbacks &sub_master_callbacks);
+  property_element_c(std::string const &name, EbmlCallbacks const &callbacks, translatable_string_c const &title, translatable_string_c const &description,
+                     EbmlCallbacks const &sub_master_callbacks, EbmlCallbacks const *sub_sub_master_callbacks = nullptr, EbmlCallbacks const *sub_sub_sub_master_callbacks = nullptr);
 
   bool is_valid() const;
 
@@ -58,5 +57,3 @@ public:                         // static
   static std::vector<property_element_c> &get_table_for(const EbmlCallbacks &master_callbacks, const EbmlCallbacks *sub_master_callbacks = nullptr, bool full_table = false);
 };
 using property_element_cptr = std::shared_ptr<property_element_c>;
-
-#endif  // MTX_COMMON_PROPERTY_TABLE_H

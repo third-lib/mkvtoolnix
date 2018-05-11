@@ -11,12 +11,9 @@
    Written by Moritz Bunkus <moritz@bunkus.org>.
 */
 
-#ifndef MTX_COMMON_MEMORY_H
-#define MTX_COMMON_MEMORY_H
+#pragma once
 
 #include "common/common_pch.h"
-
-#include <deque>
 
 #include "common/error.h"
 
@@ -171,32 +168,6 @@ public:
     add(new_buffer->get_buffer(), new_buffer->get_size());
   }
 
-  operator const unsigned char *() const {
-    return its_counter ? its_counter->ptr : nullptr;
-  }
-
-  operator const void *() const {
-    return its_counter ? its_counter->ptr : nullptr;
-  }
-
-  operator unsigned char *() const {
-    return its_counter ? its_counter->ptr : nullptr;
-  }
-
-  operator void *() const {
-    return its_counter ? its_counter->ptr : nullptr;
-  }
-
-  bool operator ==(memory_c const &cmp) const {
-    return (get_size() == cmp.get_size())
-        && ((get_buffer() && cmp.get_buffer()) || (!get_buffer() && !cmp.get_buffer()))
-        && (get_buffer() ? !::memcmp(get_buffer(), cmp.get_buffer(), get_size()) : true);
-  }
-
-  bool operator !=(memory_c const &cmp) const {
-    return !(*this == cmp);
-  }
-
   std::string to_string() const {
     if (!is_allocated() || !get_size())
       return {};
@@ -263,124 +234,38 @@ private:
   }
 };
 
-class memory_slice_cursor_c {
- protected:
-  size_t m_pos, m_pos_in_slice, m_size;
-  std::deque<memory_cptr> m_slices;
-  std::deque<memory_cptr>::iterator m_slice;
+inline bool
+operator ==(memory_c const &a,
+            memory_c const &b) {
+  return (a.get_size() == b.get_size())
+      && ((a.get_buffer() && b.get_buffer()) || (!a.get_buffer() && !b.get_buffer()))
+      && (a.get_buffer() ? !std::memcmp(a.get_buffer(), b.get_buffer(), a.get_size()) : true);
+}
 
- public:
-  memory_slice_cursor_c()
-    : m_pos(0)
-    , m_pos_in_slice(0)
-    , m_size(0)
-    , m_slice(m_slices.end())
-  {
-  }
+inline bool
+operator !=(memory_c const &a,
+            memory_c const &b) {
+  return !(a == b);
+}
 
-  ~memory_slice_cursor_c() {
-  }
+inline bool
+operator ==(memory_c const &a,
+            char const *b) {
+  if (!a.get_buffer() && !b)
+    return true;
 
-  void add_slice(memory_cptr slice) {
-    if (slice->get_size() == 0)
-      return;
+  if (!a.get_buffer() || !b)
+    return false;
 
-    if (m_slices.end() == m_slice) {
-      m_slices.push_back(slice);
-      m_slice = m_slices.begin();
+  return (a.get_size() == std::strlen(b))
+    && !std::memcmp(a.get_buffer(), b, a.get_size());
+}
 
-    } else {
-      size_t pos = std::distance(m_slices.begin(), m_slice);
-      m_slices.push_back(slice);
-      m_slice = m_slices.begin() + pos;
-    }
-
-    m_size += slice->get_size();
-  }
-
-  void add_slice(unsigned char *buffer, size_t size) {
-    if (0 == size)
-      return;
-
-    add_slice(memory_cptr(new memory_c(buffer, size, false)));
-  }
-
-  inline unsigned char get_char() {
-    assert(m_pos < m_size);
-
-    memory_c &slice = *m_slice->get();
-    unsigned char c = *(slice.get_buffer() + m_pos_in_slice);
-
-    ++m_pos_in_slice;
-    ++m_pos;
-
-    if (m_pos_in_slice < slice.get_size())
-      return c;
-
-    ++m_slice;
-    m_pos_in_slice = 0;
-
-    return c;
-  };
-
-  inline bool char_available() {
-    return m_pos < m_size;
-  };
-
-  inline size_t get_remaining_size() {
-    return m_size - m_pos;
-  };
-
-  inline size_t get_size() {
-    return m_size;
-  };
-
-  inline size_t get_position() {
-    return m_pos;
-  };
-
-  void reset(bool clear_slices = false) {
-    if (clear_slices) {
-      m_slices.clear();
-      m_size = 0;
-    }
-    m_pos          = 0;
-    m_pos_in_slice = 0;
-    m_slice        = m_slices.begin();
-  };
-
-  void copy(unsigned char *dest, size_t start, size_t size) {
-    assert((start + size) <= m_size);
-
-    std::deque<memory_cptr>::iterator curr = m_slices.begin();
-    int offset = 0;
-
-    while (start > ((*curr)->get_size() + offset)) {
-      offset += (*curr)->get_size();
-      curr++;
-      assert(m_slices.end() != curr);
-    }
-    offset = start - offset;
-
-    while (0 < size) {
-      size_t num_bytes = (*curr)->get_size() - offset;
-      if (num_bytes > size)
-        num_bytes = size;
-
-      memcpy(dest, (*curr)->get_buffer() + offset, num_bytes);
-
-      size -= num_bytes;
-      dest += num_bytes;
-      curr++;
-      offset = 0;
-    }
-  };
-
-private:
-  memory_slice_cursor_c(const memory_slice_cursor_c &) { }
-};
+inline bool
+operator !=(memory_c const &a,
+            char const *b) {
+  return !(a == b);
+}
 
 memory_cptr lace_memory_xiph(const std::vector<memory_cptr> &blocks);
 std::vector<memory_cptr> unlace_memory_xiph(memory_cptr &buffer);
-
-#endif  // MTX_COMMON_MEMORY_H

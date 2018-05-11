@@ -12,8 +12,7 @@
    Modified by Moritz Bunkus <moritz@bunkus.org>.
 */
 
-#ifndef MTX_R_DTS_H
-#define MTX_R_DTS_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -60,15 +59,15 @@ public:
   dts_reader_c(const track_info_c &ti, const mm_io_cptr &in);
   virtual ~dts_reader_c();
 
-  virtual file_type_e get_format_type() const {
-    return FILE_TYPE_DTS;
+  virtual mtx::file_type_e get_format_type() const {
+    return mtx::file_type_e::dts;
   }
 
   virtual void read_headers();
   virtual file_status_e read(generic_packetizer_c *ptzr, bool force = false);
   virtual void identify();
   virtual void create_packetizer(int64_t id);
-  virtual bool is_providing_timecodes() const {
+  virtual bool is_providing_timestamps() const {
     return false;
   }
 
@@ -78,5 +77,3 @@ public:
 protected:
   virtual int decode_buffer(size_t length);
 };
-
-#endif // MTX_R_DTS_H

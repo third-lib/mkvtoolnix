@@ -1,12 +1,13 @@
-#ifndef MTX_MKVTOOLNIX_GUI_UTIL_WIDGET_H
-#define MTX_MKVTOOLNIX_GUI_UTIL_WIDGET_H
+#pragma once
 
 #include "common/common_pch.h"
 
 #include <QDialogButtonBox>
 
 class QComboBox;
+class QFont;
 class QIcon;
+class QLineEdit;
 class QPushButton;
 class QScrollArea;
 class QString;
@@ -38,6 +39,6 @@ void enableChildren(QObject *parent, bool enable);
 
 void addSegmentUIDFromFileToLineEdit(QWidget &parent, QLineEdit &lineEdit, bool append);
 
-}}}
+QFont defaultUiFont();
 
-#endif // MTX_MKVTOOLNIX_GUI_UTIL_WIDGET_H
+}}}

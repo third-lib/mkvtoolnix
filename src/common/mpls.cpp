@@ -16,13 +16,14 @@
 
 #include "common/debugging.h"
 #include "common/hacks.h"
+#include "common/list_utils.h"
 #include "common/mpls.h"
 #include "common/strings/formatting.h"
 
-namespace mtx { namespace mpls {
+namespace mtx { namespace bluray { namespace mpls {
 
 static timestamp_c
-mpls_time_to_timecode(uint64_t value) {
+mpls_time_to_timestamp(uint64_t value) {
   return timestamp_c::ns(value * 1000000ull / 45);
 }
 
@@ -47,6 +48,9 @@ playlist_t::dump()
 
   for (auto &item : items)
     item.dump();
+
+  for (auto const &path : sub_paths)
+    path.dump();
 }
 
 void
@@ -65,6 +69,54 @@ play_item_t::dump()
          % relative_in_time);
 
   stn.dump();
+}
+
+void
+sub_path_t::dump()
+  const {
+  auto type_name = sub_path_type_e::primary_audio_of_browsable_slideshow       == type ? "primary_audio_of_browsable_slideshow"
+                 : sub_path_type_e::interactive_graphics_presentation_menu     == type ? "interactive_graphics_presentation_menu"
+                 : sub_path_type_e::text_subtitle_presentation                 == type ? "text_subtitle_presentation"
+                 : sub_path_type_e::out_of_mux_synchronous_elementary_streams  == type ? "out_of_mux_synchronous_elementary_streams"
+                 : sub_path_type_e::out_of_mux_asynchronous_picture_in_picture == type ? "out_of_mux_asynchronous_picture_in_picture"
+                 : sub_path_type_e::in_mux_synchronous_picture_in_picture      == type ? "in_mux_synchronous_picture_in_picture"
+                 :                                                                       "reserved";
+
+  mxinfo(boost::format("    sub path dump\n"
+                       "      type / is_repeat:        %1% [%2%] / %3%\n")
+         % static_cast<unsigned int>(type) % type_name % is_repeat_sub_path);
+
+  for (auto const &item : items)
+    item.dump();
+}
+
+void
+sub_play_item_t::dump()
+  const {
+  mxinfo(boost::format("      sub play item dump\n"
+                       "        clip_id / codec_id:    %1% / %2%\n"
+                       "        conn_con / sync_pi_id: %3% / %4%\n"
+                       "        ref_to_stc_id / multi: %5% / %6%\n"
+                       "        in_time / out_time:    %7% / %8%\n"
+                       "        sync_start_pts:        %9%\n")
+         % clpi_file_name       % codec_id
+         % connection_condition % sync_playitem_id
+         % ref_to_stc_id        % is_multi_clip_entries
+         % in_time              % out_time
+         % sync_start_pts_of_playitem);
+
+  for (auto const &clip : clips)
+    clip.dump();
+}
+
+void
+sub_play_item_clip_t::dump()
+  const {
+  mxinfo(boost::format("        sub play item clip dump\n"
+                       "          clip_id / codec_id:  %1% / %2%\n"
+                       "        ref_to_stc_id:         %3%\n")
+         % clpi_file_name % codec_id
+         % ref_to_stc_id);
 }
 
 void
@@ -89,16 +141,38 @@ stn_t::dump()
 void
 stream_t::dump(std::string const &type)
   const {
+  auto stream_type_name = stream_type_e::used_by_play_item           == stream_type ? "used_by_play_item"
+                        : stream_type_e::used_by_sub_path_type_23456 == stream_type ? "used_by_sub_path_type_23456"
+                        : stream_type_e::used_by_sub_path_type_7     == stream_type ? "used_by_sub_path_type_7"
+                        :                                                             "reserved";
+
+  auto coding_type_name = stream_coding_type_e::mpeg2_video_primary_secondary     == coding_type ? "mpeg2_video_primary_secondary"
+                        : stream_coding_type_e::mpeg4_avc_video_primary_secondary == coding_type ? "mpeg4_avc_video_primary_secondary"
+                        : stream_coding_type_e::vc1_video_primary_secondary       == coding_type ? "vc1_video_primary_secondary"
+                        : stream_coding_type_e::lpcm_audio_primary                == coding_type ? "lpcm_audio_primary"
+                        : stream_coding_type_e::ac3_audio_primary                 == coding_type ? "ac3_audio_primary"
+                        : stream_coding_type_e::dts_audio_primary                 == coding_type ? "dts_audio_primary"
+                        : stream_coding_type_e::truehd_audio_primary              == coding_type ? "truehd_audio_primary"
+                        : stream_coding_type_e::eac3_audio_primary                == coding_type ? "eac3_audio_primary"
+                        : stream_coding_type_e::dts_hd_audio_primary              == coding_type ? "dts_hd_audio_primary"
+                        : stream_coding_type_e::dts_hd_xll_audio_primary          == coding_type ? "dts_hd_xll_audio_primary"
+                        : stream_coding_type_e::eac3_audio_secondary              == coding_type ? "eac3_audio_secondary"
+                        : stream_coding_type_e::dts_hd_audio_secondary            == coding_type ? "dts_hd_audio_secondary"
+                        : stream_coding_type_e::presentation_graphics_subtitles   == coding_type ? "presentation_graphics_subtitles"
+                        : stream_coding_type_e::interactive_graphics_menu         == coding_type ? "interactive_graphics_menu"
+                        : stream_coding_type_e::text_subtitles                    == coding_type ? "text_subtitles"
+                        :                                                                          "reserved";
+
   mxinfo(boost::format("        %1% stream dump\n"
-                       "          stream_type:                     %2%\n"
-                       "          sub_path_id / sub_clip_id / pid: %3% / %4% / %|5$04x|\n"
-                       "          coding_type:                     %|6$04x|\n"
-                       "          format / rate:                   %7% / %8%\n"
-                       "          char_code / language:            %9% / %10%\n")
+                       "          stream_type:                     %2% [%3%]\n"
+                       "          sub_path_id / sub_clip_id / pid: %4% / %5% / %|6$04x|\n"
+                       "          coding_type:                     %|7$02x| [%8%]\n"
+                       "          format / rate:                   %9% / %10%\n"
+                       "          char_code / language:            %11% / %12%\n")
          % type
-         % stream_type
+         % static_cast<unsigned int>(stream_type) % stream_type_name
          % sub_path_id % sub_clip_id % pid
-         % coding_type
+         % static_cast<unsigned int>(coding_type) % coding_type_name
          % format % rate
          % char_code % language);
 }
@@ -126,16 +200,16 @@ parser_c::parse(mm_io_c *file) {
     int64_t file_size = file->get_size();
 
     if ((4 * 5 > file_size) || (10 * 1024 * 1024 < file_size))
-      throw mtx::mpls::exception(boost::format("File too small or too big: %1%") % file_size);
+      throw mtx::bluray::mpls::exception(boost::format("File too small or too big: %1%") % file_size);
 
     auto content = file->read(4 * 5);
-    m_bc         = std::make_shared<bit_reader_c>(content->get_buffer(), 4 * 5);
+    m_bc         = std::make_shared<mtx::bits::reader_c>(content->get_buffer(), 4 * 5);
     parse_header();
 
     file->setFilePointer(0);
 
     content = file->read(file_size);
-    m_bc    = std::make_shared<bit_reader_c>(content->get_buffer(), file_size);
+    m_bc    = std::make_shared<mtx::bits::reader_c>(content->get_buffer(), file_size);
 
     parse_playlist();
     parse_chapters();
@@ -144,7 +218,7 @@ parser_c::parse(mm_io_c *file) {
 
     m_ok = true;
 
-  } catch (mtx::mpls::exception &ex) {
+  } catch (mtx::bluray::mpls::exception &ex) {
     mxdebug_if(m_debug, boost::format("MPLS exception: %1%\n") % ex.what());
   } catch (mtx::mm_io::exception &ex) {
     mxdebug_if(m_debug, boost::format("I/O exception: %1%\n") % ex.what());
@@ -166,9 +240,8 @@ parser_c::parse_header() {
   m_header.chapter_pos     = m_bc->get_bits(32);
   m_header.ext_pos         = m_bc->get_bits(32);
 
-  if (   (m_header.type_indicator1 != MPLS_FILE_MAGIC)
-      || (   (m_header.type_indicator2 != MPLS_FILE_MAGIC2A)
-          && (m_header.type_indicator2 != MPLS_FILE_MAGIC2B)))
+  if (   (m_header.type_indicator1 != fourcc_c{"MPLS"})
+      || !mtx::included_in(m_header.type_indicator2, fourcc_c{"0100"}, fourcc_c{"0200"}, fourcc_c{"0300"}))
     throw exception{boost::format("Wrong type indicator 1 (%1%) or 2 (%2%)") % m_header.type_indicator1 % m_header.type_indicator2};
 }
 
@@ -186,6 +259,9 @@ parser_c::parse_playlist() {
 
   for (auto idx = 0u; idx < m_playlist.list_count; ++idx)
     m_playlist.items.push_back(parse_play_item());
+
+  for (auto idx = 0u; idx < m_playlist.sub_count; ++idx)
+    m_playlist.sub_paths.push_back(parse_sub_path());
 }
 
 play_item_t
@@ -203,8 +279,8 @@ parser_c::parse_play_item() {
   item.is_multi_angle       = m_bc->get_bit();
   item.connection_condition = m_bc->get_bits(4);
   item.stc_id               = m_bc->get_bits(8);
-  item.in_time              = mpls_time_to_timecode(m_bc->get_bits(32) & 0x7ffffffful);
-  item.out_time             = mpls_time_to_timecode(m_bc->get_bits(32) & 0x7ffffffful);
+  item.in_time              = mpls_time_to_timestamp(m_bc->get_bits(32));
+  item.out_time             = mpls_time_to_timestamp(m_bc->get_bits(32));
   item.relative_in_time     = m_playlist.duration;
   m_playlist.duration      += item.out_time - item.in_time;
 
@@ -225,6 +301,58 @@ parser_c::parse_play_item() {
   m_bc->set_bit_position((position + length) * 8);
 
   return item;
+}
+
+sub_path_t
+parser_c::parse_sub_path() {
+  auto path = sub_path_t{};
+
+  path.type               = static_cast<sub_path_type_e>(m_bc->skip_get_bits(32 + 8, 8)); // length, reserved
+  path.is_repeat_sub_path = m_bc->skip_get_bits(15, 1);                                   // reserved
+  auto num_sub_play_items = m_bc->skip_get_bits(8, 8);                                    // reserved
+
+  for (auto idx = 0u; idx < num_sub_play_items; ++idx)
+    path.items.push_back(parse_sub_play_item());
+
+  return path;
+}
+
+sub_play_item_t
+parser_c::parse_sub_play_item() {
+  auto item = sub_play_item_t{};
+
+  m_bc->skip_bits(16);          // length
+  item.clpi_file_name             = read_string(5);
+  item.codec_id                   = read_string(4);
+  item.connection_condition       = m_bc->skip_get_bits(27, 4); // reserved
+  item.is_multi_clip_entries      = m_bc->get_bit();
+  item.ref_to_stc_id              = m_bc->get_bits(8);
+  item.in_time                    = mpls_time_to_timestamp(m_bc->get_bits(32));
+  item.out_time                   = mpls_time_to_timestamp(m_bc->get_bits(32));
+  item.sync_playitem_id           = m_bc->get_bits(16);
+  item.sync_start_pts_of_playitem = mpls_time_to_timestamp(m_bc->get_bits(32));
+
+  if (!item.is_multi_clip_entries)
+    return item;
+
+  auto num_clips = m_bc->get_bits(8);
+  m_bc->skip_bits(8);           // reserved
+
+  for (auto idx = 1u; idx < num_clips; ++idx)
+    item.clips.push_back(parse_sub_play_item_clip());
+
+  return item;
+}
+
+sub_play_item_clip_t
+parser_c::parse_sub_play_item_clip() {
+  auto clip = sub_play_item_clip_t{};
+
+  clip.clpi_file_name = read_string(5);
+  clip.codec_id       = read_string(4);
+  clip.ref_to_stc_id  = m_bc->get_bits(8);
+
+  return clip;
 }
 
 stn_t
@@ -264,49 +392,51 @@ parser_c::parse_stream() {
   auto length     = m_bc->get_bits(8);
   auto position   = m_bc->get_bit_position() / 8u;
 
-  str.stream_type = m_bc->get_bits(8);
+  str.stream_type = static_cast<stream_type_e>(m_bc->get_bits(8));
 
-  if (1 == str.stream_type)
+  if (stream_type_e::used_by_play_item == str.stream_type)
     str.pid = m_bc->get_bits(16);
 
-  else if ((2 == str.stream_type) || (4 == str.stream_type)) {
+  else if (stream_type_e::used_by_sub_path_type_23456 == str.stream_type) {
     str.sub_path_id = m_bc->get_bits(8);
     str.sub_clip_id = m_bc->get_bits(8);
     str.pid         = m_bc->get_bits(16);
 
-  } else if (3 == str.stream_type) {
+  } else if (stream_type_e::used_by_sub_path_type_7 == str.stream_type) {
     str.sub_path_id = m_bc->get_bits(8);
     str.pid         = m_bc->get_bits(16);
 
   } else if (m_debug)
-    mxdebug(boost::format("Unknown stream type %1%\n") % str.stream_type);
+    mxdebug(boost::format("Unknown stream type %1%\n") % static_cast<unsigned int>(str.stream_type));
 
   m_bc->set_bit_position((length + position) * 8);
 
   length          = m_bc->get_bits(8);
   position        = m_bc->get_bit_position() / 8u;
 
-  str.coding_type = m_bc->get_bits(8);
+  str.coding_type = static_cast<stream_coding_type_e>(m_bc->get_bits(8));
 
-  if ((0x01 == str.coding_type) || (0x02 == str.coding_type) || (0x1b == str.coding_type) || (0xea == str.coding_type)) {
+  if (mtx::included_in(str.coding_type, stream_coding_type_e::mpeg2_video_primary_secondary, stream_coding_type_e::mpeg4_avc_video_primary_secondary, stream_coding_type_e::vc1_video_primary_secondary)) {
     str.format = m_bc->get_bits(4);
     str.rate   = m_bc->get_bits(4);
 
-  } else if (   (0x03 == str.coding_type) || (0x04 == str.coding_type) || (0x80 == str.coding_type) || (0x81 == str.coding_type) || (0x82 == str.coding_type)
-             || (0x83 == str.coding_type) || (0x84 == str.coding_type) || (0x85 == str.coding_type) || (0x86 == str.coding_type)) {
+  } else if (mtx::included_in(str.coding_type,
+                              stream_coding_type_e::lpcm_audio_primary,   stream_coding_type_e::ac3_audio_primary,    stream_coding_type_e::dts_audio_primary, stream_coding_type_e::truehd_audio_primary,
+                              stream_coding_type_e::eac3_audio_primary,   stream_coding_type_e::dts_hd_audio_primary, stream_coding_type_e::dts_hd_xll_audio_primary,
+                              stream_coding_type_e::eac3_audio_secondary, stream_coding_type_e::dts_hd_audio_secondary)) {
     str.format   = m_bc->get_bits(4);
     str.rate     = m_bc->get_bits(4);
     str.language = read_string(3);
 
-  } else if ((0x90 == str.coding_type) || (0x91 == str.coding_type))
+  } else if (mtx::included_in(str.coding_type, stream_coding_type_e::presentation_graphics_subtitles, stream_coding_type_e::interactive_graphics_menu))
     str.language = read_string(3);
 
-  else if (0x92 == str.coding_type) {
+  else if (stream_coding_type_e::text_subtitles == str.coding_type) {
     str.char_code = m_bc->get_bits(8);
     str.language  = read_string(3);
 
   } else
-    mxdebug_if(m_debug, boost::format("Unrecognized coding type %|1$02x|\n") % str.coding_type);
+    mxdebug_if(m_debug, boost::format("Unrecognized coding type %|1$02x|\n") % static_cast<unsigned int>(str.coding_type));
 
   m_bc->set_bit_position((position + length) * 8);
 
@@ -317,7 +447,7 @@ void
 parser_c::parse_chapters() {
   m_bc->set_bit_position(m_header.chapter_pos * 8);
   m_bc->skip_bits(32);          // unknown
-  size_t num_chapters = m_bc->get_bits(16);
+  int num_chapters = m_bc->get_bits(16);
 
   // 0 unknown
   // 1 type
@@ -325,7 +455,7 @@ parser_c::parse_chapters() {
   // 4, 5, 6, 7 chapter_time
   // 8 - 13 unknown
 
-  for (size_t idx = 0u; idx < num_chapters; ++idx) {
+  for (int idx = 0u; idx < num_chapters; ++idx) {
     m_bc->set_bit_position((m_header.chapter_pos + 4 + 2 + idx * 14) * 8);
     m_bc->skip_bits(8);         // unknown
     if (1 != m_bc->get_bits(8)) // chapter type: entry mark
@@ -336,8 +466,8 @@ parser_c::parse_chapters() {
       continue;
 
     auto &play_item = m_playlist.items[play_item_idx];
-    auto timecode   = mpls_time_to_timecode(m_bc->get_bits(32));
-    m_chapters.push_back(timecode - play_item.in_time + play_item.relative_in_time);
+    auto timestamp   = mpls_time_to_timestamp(m_bc->get_bits(32));
+    m_chapters.push_back(timestamp - play_item.in_time + play_item.relative_in_time);
   }
 
   if (   !hack_engaged(ENGAGE_KEEP_LAST_CHAPTER_IN_MPLS)
@@ -362,11 +492,11 @@ parser_c::dump()
                        "  ok:           %1%\n"
                        "  num_chapters: %2%\n")
          % m_ok % m_chapters.size());
-  for (auto &timecode : m_chapters)
-    mxinfo(boost::format("    %1%\n") % timecode);
+  for (auto &timestamp : m_chapters)
+    mxinfo(boost::format("    %1%\n") % timestamp);
 
   m_header.dump();
   m_playlist.dump();
 }
 
-}}
+}}}

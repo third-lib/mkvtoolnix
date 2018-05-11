@@ -8,8 +8,7 @@
    Written by Moritz Bunkus <moritz@bunkus.org>.
 */
 
-#ifndef MTX_PROPEDIT_CHAPTER_TARGET_H
-#define MTX_PROPEDIT_CHAPTER_TARGET_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -20,7 +19,7 @@ using namespace libebml;
 
 class chapter_target_c: public target_c {
 protected:
-  kax_chapters_cptr m_new_chapters;
+  mtx::chapters::kax_cptr m_new_chapters;
 
 public:
   chapter_target_c();
@@ -34,8 +33,8 @@ public:
   virtual void dump_info() const override;
 
   virtual bool has_changes() const override;
+  virtual bool write_elements_set_to_default_value() const override;
+  virtual bool add_mandatory_elements_if_missing() const override;
 
   virtual void execute() override;
 };
-
-#endif // MTX_PROPEDIT_CHAPTER_TARGET_H

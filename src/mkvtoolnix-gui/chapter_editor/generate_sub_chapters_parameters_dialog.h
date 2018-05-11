@@ -1,5 +1,4 @@
-#ifndef MTX_MKVTOOLNIX_GUI_CHAPTER_EDITOR_GENERATE_SUB_CHAPTERS_PARAMETERS_DIALOG_H
-#define MTX_MKVTOOLNIX_GUI_CHAPTER_EDITOR_GENERATE_SUB_CHAPTERS_PARAMETERS_DIALOG_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -19,25 +18,23 @@ private:
   std::unique_ptr<Ui::GenerateSubChaptersParametersDialog> m_ui;
 
 public:
-  explicit GenerateSubChaptersParametersDialog(QWidget *parent, int firstChapterNumber, uint64_t startTimecode, QStringList const &additionalLanguages, QStringList const &additionalCountryCodes);
+  explicit GenerateSubChaptersParametersDialog(QWidget *parent, int firstChapterNumber, uint64_t startTimestamp, QStringList const &additionalLanguages, QStringList const &additionalCountryCodes);
   ~GenerateSubChaptersParametersDialog();
 
   int numberOfEntries() const;
   uint64_t durationInNs() const;
   int firstChapterNumber() const;
-  uint64_t startTimecode() const;
+  uint64_t startTimestamp() const;
   QString nameTemplate() const;
   QString language() const;
   OptQString country() const;
 
 public slots:
-  void verifyStartTimecode();
+  void verifyStartTimestamp();
 
 protected:
-  void setupUi(int firstChapterNumber, uint64_t startTimecode, QStringList const &additionalLanguages, QStringList const &additionalCountryCodes);
+  void setupUi(int firstChapterNumber, uint64_t startTimestamp, QStringList const &additionalLanguages, QStringList const &additionalCountryCodes);
   void retranslateUi();
 };
 
 }}}
-
-#endif // MTX_MKVTOOLNIX_GUI_CHAPTER_EDITOR_GENERATE_SUB_CHAPTERS_PARAMETERS_DIALOG_H

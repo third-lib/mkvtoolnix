@@ -4,7 +4,8 @@
 #include <QLibraryInfo>
 #include <QLocalServer>
 #include <QLocalSocket>
-#include <QLockFile>
+#include <QThread>
+#include <QTranslator>
 
 #include <boost/optional.hpp>
 
@@ -13,12 +14,16 @@
 #include "common/fs_sys_helpers.h"
 #include "common/iso639.h"
 #include "common/qt.h"
+#include "common/random.h"
 #include "common/unique_numbers.h"
 #include "common/version.h"
 #include "mkvtoolnix-gui/app.h"
+#include "mkvtoolnix-gui/jobs/program_runner.h"
 #include "mkvtoolnix-gui/main_window/main_window.h"
 #include "mkvtoolnix-gui/merge/tool.h"
 #include "mkvtoolnix-gui/util/container.h"
+#include "mkvtoolnix-gui/util/media_player.h"
+#include "mkvtoolnix-gui/util/network_access_manager.h"
 #include "mkvtoolnix-gui/util/process.h"
 #include "mkvtoolnix-gui/util/settings.h"
 
@@ -31,12 +36,32 @@ static QHash<QString, QString> s_iso639_2LanguageCodeToDescription, s_topLevelDo
 
 static boost::optional<bool> s_is_installed;
 
+class AppPrivate {
+  friend class App;
+
+  std::unique_ptr<QTranslator> m_currentTranslator;
+  std::unique_ptr<GuiCliParser> m_cliParser;
+  std::unique_ptr<QLocalServer> m_instanceCommunicator;
+  std::unique_ptr<Jobs::ProgramRunner> m_programRunner;
+  std::unique_ptr<Util::MediaPlayer> m_mediaPlayer;
+  Util::NetworkAccessManager *m_networkAccessManager{new Util::NetworkAccessManager{}};
+  QThread m_networkAccessManagerThread;
+  bool m_otherInstanceRunning{};
+
+  explicit AppPrivate()
+  {
+  }
+};
+
 App::App(int &argc,
          char **argv)
   : QApplication{argc, argv}
+  , d_ptr{new AppPrivate{}}
 {
   mtx_common_init("mkvtoolnix-gui", argv[0]);
-  version_info = get_version_info("mkvtoolnix-gui", vif_full);
+  mtx::cli::g_version_info = get_version_info("mkvtoolnix-gui", vif_full);
+
+  qsrand(random_c::generate_64bits());
 
   // The routines for handling unique numbers cannot cope with
   // multiple chapters being worked on at the same time as they safe
@@ -56,6 +81,7 @@ App::App(int &argc,
   Util::Settings::get().load();
 
   setupInstanceCommunicator();
+  setupNetworkAccessManager();
 
   QObject::connect(this, &App::aboutToQuit, this, &App::saveSettings);
 
@@ -64,6 +90,28 @@ App::App(int &argc,
 }
 
 App::~App() {
+  Q_D(App);
+
+  d->m_networkAccessManagerThread.quit();
+  d->m_networkAccessManagerThread.wait();
+}
+
+Util::NetworkAccessManager &
+App::networkAccessManager() {
+  Q_D(App);
+
+  return *d->m_networkAccessManager;
+}
+
+void
+App::setupNetworkAccessManager() {
+  Q_D(App);
+
+  d->m_networkAccessManager->moveToThread(&d->m_networkAccessManagerThread);
+
+  connect(&d->m_networkAccessManagerThread, &QThread::finished, d->m_networkAccessManager, &QObject::deleteLater);
+
+  d->m_networkAccessManagerThread.start();
 }
 
 void
@@ -77,74 +125,37 @@ App::setupUiFont() {
   App::setFont(newFont);
 }
 
-void
-App::fixLockFileHostName(QString const &lockFilePath) {
-  // Due to a bug in Qt up to and including v5.5.1 the lock file
-  // contains the host name in the wrong encoding. If the host name
-  // contains non-ASCII characters stale lock file detection will
-  // fail. See https://bugreports.qt.io/browse/QTBUG-49640
-
-  if (!QFileInfo{lockFilePath}.exists())
-    return;
-
-  QFile lockFile{lockFilePath};
-  if (!lockFile.open(QIODevice::ReadWrite))
-    return;
-
-  auto const alreadyFixed = Q("alreadyFixedByMKVToolNix");
-  auto lines              = QList<QByteArray>{};
-
-  for (int idx = 0; idx < 4; ++idx)
-    lines << lockFile.readLine();
-
-  if (QString::fromLocal8Bit(lines[3]) == alreadyFixed)
-    return;
-
-  lines[2].chop(1);
-  lines[2] = Q("%1\n").arg(QString::fromLocal8Bit(lines[2])).toUtf8();
-  lines[3] = alreadyFixed.toLocal8Bit();
-
-  lockFile.seek(0);
-
-  for (auto const &line : lines)
-    lockFile.write(line);
-
-  lockFile.resize(lockFile.pos());
-}
-
 QString
 App::communicatorSocketName() {
-#if defined(SYS_WINDOWS)
-  return Q("MKVToolNix-GUI-Instance-Communicator");
-#else
   return Q("MKVToolNix-GUI-Instance-Communicator-%1").arg(Util::currentUserName());
-#endif
 }
 
 void
 App::setupInstanceCommunicator() {
-  auto socketName   = communicatorSocketName();
-  auto lockFilePath = QDir{QDir::tempPath()}.filePath(Q("%1.lock").arg(socketName));
+  Q_D(App);
 
-  fixLockFileHostName(lockFilePath);
+  auto socketName = communicatorSocketName();
+  auto socket     = std::make_unique<QLocalSocket>(this);
 
-  m_instanceLock = std::make_unique<QLockFile>(lockFilePath);
+  socket->connectToServer(socketName);
 
-  m_instanceLock->setStaleLockTime(0);
-  if (!m_instanceLock->tryLock(0)) {
-    m_instanceLock.reset(nullptr);
+  if (socket->state() == QLocalSocket::ConnectedState) {
+    socket->disconnect();
+
+    d->m_otherInstanceRunning = true;
+
     return;
   }
 
   QLocalServer::removeServer(socketName);
 
-  m_instanceCommunicator = std::make_unique<QLocalServer>(this);
+  d->m_instanceCommunicator = std::make_unique<QLocalServer>(this);
 
-  if (m_instanceCommunicator->listen(socketName))
-    connect(m_instanceCommunicator.get(), &QLocalServer::newConnection, this, &App::receiveInstanceCommunication);
+  if (d->m_instanceCommunicator->listen(socketName))
+    connect(d->m_instanceCommunicator.get(), &QLocalServer::newConnection, this, &App::receiveInstanceCommunication);
 
   else
-    m_instanceCommunicator.reset(nullptr);
+    d->m_instanceCommunicator.reset(nullptr);
 }
 
 void
@@ -156,6 +167,34 @@ App::saveSettings()
 App *
 App::instance() {
   return static_cast<App *>(QApplication::instance());
+}
+
+Jobs::ProgramRunner &
+App::setupProgramRunner() {
+  Q_D(App);
+
+  if (!d->m_programRunner)
+    d->m_programRunner = Jobs::ProgramRunner::create();
+  return *d->m_programRunner;
+}
+
+Jobs::ProgramRunner &
+App::programRunner() {
+  return instance()->setupProgramRunner();
+}
+
+Util::MediaPlayer &
+App::setupMediaPlayer() {
+  Q_D(App);
+
+  if (!d->m_mediaPlayer)
+    d->m_mediaPlayer.reset(new Util::MediaPlayer);
+  return *d->m_mediaPlayer;
+}
+
+Util::MediaPlayer &
+App::mediaPlayer() {
+  return instance()->setupMediaPlayer();
 }
 
 void
@@ -313,10 +352,12 @@ App::initializeLocale(QString const &requestedLocale) {
   auto locale = Util::Settings::get().localeToUse(requestedLocale);
 
 #if defined(HAVE_LIBINTL_H)
+  Q_D(App);
+
   if (!locale.isEmpty()) {
-    if (m_currentTranslator)
-      removeTranslator(m_currentTranslator.get());
-    m_currentTranslator.reset();
+    if (d->m_currentTranslator)
+      removeTranslator(d->m_currentTranslator.get());
+    d->m_currentTranslator.reset();
 
     auto translator = std::make_unique<QTranslator>();
     auto paths      = QStringList{} << Q("%1/locale/libqt").arg(applicationDirPath())
@@ -328,7 +369,7 @@ App::initializeLocale(QString const &requestedLocale) {
 
     installTranslator(translator.get());
 
-    m_currentTranslator              = std::move(translator);
+    d->m_currentTranslator           = std::move(translator);
     Util::Settings::get().m_uiLocale = locale;
   }
 
@@ -342,12 +383,16 @@ App::initializeLocale(QString const &requestedLocale) {
 bool
 App::isOtherInstanceRunning()
   const {
-  return !m_instanceLock;
+  Q_D(const App);
+
+  return d->m_otherInstanceRunning;
 }
 
 void
 App::sendCommandLineArgumentsToRunningInstance() {
-  auto args = m_cliParser->rebuildCommandLine();
+  Q_D(App);
+
+  auto args = d->m_cliParser->rebuildCommandLine();
   if (!args.isEmpty())
     sendArgumentsToRunningInstance(args);
 }
@@ -390,15 +435,17 @@ App::sendArgumentsToRunningInstance(QStringList const &args) {
 
 bool
 App::parseCommandLineArguments(QStringList const &args) {
+  Q_D(App);
+
   if (args.isEmpty()) {
     raiseAndActivateRunningInstance();
     return true;
   }
 
-  m_cliParser.reset(new GuiCliParser{Util::toStdStringVector(args, 1)});
-  m_cliParser->run();
+  d->m_cliParser.reset(new GuiCliParser{Util::toStdStringVector(args, 1)});
+  d->m_cliParser->run();
 
-  if (m_cliParser->exitAfterParsing())
+  if (d->m_cliParser->exitAfterParsing())
     return false;
 
   if (!isOtherInstanceRunning())
@@ -412,22 +459,26 @@ App::parseCommandLineArguments(QStringList const &args) {
 
 void
 App::handleCommandLineArgumentsLocally() {
-  if (!m_cliParser->m_configFiles.isEmpty())
-    emit openConfigFilesRequested(m_cliParser->m_configFiles);
+  Q_D(App);
 
-  if (!m_cliParser->m_addToMerge.isEmpty())
-    emit addingFilesToMergeRequested(m_cliParser->m_addToMerge);
+  if (!d->m_cliParser->configFiles().isEmpty())
+    emit openConfigFilesRequested(d->m_cliParser->configFiles());
 
-  if (!m_cliParser->m_editChapters.isEmpty())
-    emit editingChaptersRequested(m_cliParser->m_editChapters);
+  if (!d->m_cliParser->addToMerge().isEmpty())
+    emit addingFilesToMergeRequested(d->m_cliParser->addToMerge());
 
-  if (!m_cliParser->m_editHeaders.isEmpty())
-    emit editingHeadersRequested(m_cliParser->m_editHeaders);
+  if (!d->m_cliParser->editChapters().isEmpty())
+    emit editingChaptersRequested(d->m_cliParser->editChapters());
+
+  if (!d->m_cliParser->editHeaders().isEmpty())
+    emit editingHeadersRequested(d->m_cliParser->editHeaders());
 }
 
 void
 App::receiveInstanceCommunication() {
-  auto socket = m_instanceCommunicator->nextPendingConnection();
+  Q_D(App);
+
+  auto socket = d->m_instanceCommunicator->nextPendingConnection();
   connect(socket, &QLocalSocket::disconnected, socket, &QLocalSocket::deleteLater);
 
   QDataStream in{socket};
@@ -464,8 +515,8 @@ App::receiveInstanceCommunication() {
   socket->write(reinterpret_cast<char *>(&ok), sizeof(bool));
   socket->flush();
 
-  m_cliParser.reset(new GuiCliParser{Util::toStdStringVector(args)});
-  m_cliParser->run();
+  d->m_cliParser.reset(new GuiCliParser{Util::toStdStringVector(args)});
+  d->m_cliParser->run();
   handleCommandLineArgumentsLocally();
 }
 

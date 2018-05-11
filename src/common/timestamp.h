@@ -11,8 +11,7 @@
    Written by Moritz Bunkus <moritz@bunkus.org>.
 */
 
-#ifndef MTX_COMMON_TIMESTAMP_H
-#define MTX_COMMON_TIMESTAMP_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -162,6 +161,10 @@ public:
     return m_valid ? *this : max();
   }
 
+  basic_timestamp_c<T> value_or_zero() const {
+    return m_valid ? *this : ns(0);
+  }
+
   // comparison
   bool operator <(basic_timestamp_c<T> const &other) const {
     return !m_valid &&  other.m_valid ? true
@@ -224,5 +227,3 @@ public:
 };
 
 using timestamp_c = basic_timestamp_c<int64_t>;
-
-#endif  // MTX_COMMON_TIMESTAMP_H

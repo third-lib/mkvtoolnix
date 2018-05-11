@@ -67,7 +67,7 @@
     </property>
     <widget class="QMenu" name="menuMergeAll">
      <property name="title">
-      <string>Actions for &amp;all settings</string>
+      <string>Actions for &amp;all tabs</string>
      </property>
      <addaction name="actionMergeSaveAll"/>
      <addaction name="separator"/>
@@ -93,11 +93,20 @@
     <addaction name="separator"/>
     <addaction name="actionMergeCopyFirstFileNameToTitle"/>
     <addaction name="actionMergeCopyOutputFileNameToTitle"/>
+    <addaction name="actionMergeCopyTitleToOutputFileName"/>
    </widget>
    <widget class="QMenu" name="menuHeaderEditor">
     <property name="title">
      <string notr="true">&amp;Header editor</string>
     </property>
+    <widget class="QMenu" name="menuHeaderEditorAll">
+     <property name="title">
+      <string>Actions for &amp;all tabs</string>
+     </property>
+     <addaction name="actionHeaderEditorSaveAll"/>
+     <addaction name="separator"/>
+     <addaction name="actionHeaderEditorCloseAll"/>
+    </widget>
     <addaction name="actionHeaderEditorOpen"/>
     <addaction name="actionHeaderEditorReload"/>
     <addaction name="separator"/>
@@ -105,11 +114,21 @@
     <addaction name="actionHeaderEditorSave"/>
     <addaction name="separator"/>
     <addaction name="actionHeaderEditorClose"/>
+    <addaction name="separator"/>
+    <addaction name="menuHeaderEditorAll"/>
    </widget>
    <widget class="QMenu" name="menuChapterEditor">
     <property name="title">
      <string notr="true">&amp;Chapter editor</string>
     </property>
+    <widget class="QMenu" name="menuChapterEditorAll">
+     <property name="title">
+      <string>Actions for &amp;all tabs</string>
+     </property>
+     <addaction name="actionChapterEditorSaveAll"/>
+     <addaction name="separator"/>
+     <addaction name="actionChapterEditorCloseAll"/>
+    </widget>
     <addaction name="actionChapterEditorNew"/>
     <addaction name="separator"/>
     <addaction name="actionChapterEditorOpen"/>
@@ -121,15 +140,27 @@
     <addaction name="separator"/>
     <addaction name="actionChapterEditorClose"/>
     <addaction name="separator"/>
+    <addaction name="menuChapterEditorAll"/>
+    <addaction name="separator"/>
     <addaction name="actionChapterEditorRemoveFromMatroska"/>
    </widget>
    <widget class="QMenu" name="menuJobOutput">
     <property name="title">
      <string notr="true">Job o&amp;utput</string>
     </property>
+    <widget class="QMenu" name="menuJobOutputAll">
+     <property name="title">
+      <string>Actions for &amp;all tabs</string>
+     </property>
+     <addaction name="actionJobOutputSaveAll"/>
+     <addaction name="separator"/>
+     <addaction name="actionJobOutputCloseAll"/>
+    </widget>
     <addaction name="actionJobOutputSave"/>
     <addaction name="separator"/>
     <addaction name="actionJobOutputClose"/>
+    <addaction name="separator"/>
+    <addaction name="menuJobOutputAll"/>
    </widget>
    <widget class="QMenu" name="menuHelp">
     <property name="title">
@@ -171,12 +202,20 @@
     <addaction name="actionJobQueueAcknowledgeAllErrors"/>
     <addaction name="actionJobQueueAcknowledgeAllWarningsErrors"/>
    </widget>
+   <widget class="QMenu" name="menuWindow">
+    <property name="title">
+     <string>&amp;Window</string>
+    </property>
+    <addaction name="actionWindowNext"/>
+    <addaction name="actionWindowPrevious"/>
+   </widget>
    <addaction name="menuGUI"/>
    <addaction name="menuMerge"/>
    <addaction name="menuHeaderEditor"/>
    <addaction name="menuChapterEditor"/>
    <addaction name="menuJobQueue"/>
    <addaction name="menuJobOutput"/>
+   <addaction name="menuWindow"/>
    <addaction name="menuHelp"/>
   </widget>
   <widget class="QStatusBar" name="statusBar"/>
@@ -243,7 +282,7 @@
      <normaloff>:/icons/16x16/media-playback-start.png</normaloff>:/icons/16x16/media-playback-start.png</iconset>
    </property>
    <property name="text">
-    <string>Start &amp;muxing</string>
+    <string>Start &amp;multiplexing</string>
    </property>
    <property name="shortcut">
     <string>Ctrl+R</string>
@@ -374,7 +413,7 @@
      <normaloff>:/icons/16x16/document-open.png</normaloff>:/icons/16x16/document-open.png</iconset>
    </property>
    <property name="text">
-    <string>&amp;Open Matroska or chapter file</string>
+    <string>&amp;Open Matroska, WebM or chapter file</string>
    </property>
    <property name="shortcut">
     <string>Ctrl+O</string>
@@ -411,7 +450,7 @@
   </action>
   <action name="actionChapterEditorSaveToMatroska">
    <property name="text">
-    <string>Save to &amp;Matroska file</string>
+    <string>Save to &amp;Matroska or WebM file</string>
    </property>
   </action>
   <action name="actionChapterEditorReload">
@@ -429,10 +468,7 @@
      <normaloff>:/icons/16x16/merge.png</normaloff>:/icons/16x16/merge.png</iconset>
    </property>
    <property name="text">
-    <string>&amp;Merge tool</string>
-   </property>
-   <property name="shortcut">
-    <string>Alt+1</string>
+    <string>&amp;Multiplexer</string>
    </property>
   </action>
   <action name="actionGUIExtractionTool">
@@ -443,9 +479,6 @@
    <property name="text">
     <string>&amp;Extraction tool</string>
    </property>
-   <property name="shortcut">
-    <string>Alt+2</string>
-   </property>
   </action>
   <action name="actionGUIInfoTool">
    <property name="icon">
@@ -454,9 +487,6 @@
    </property>
    <property name="text">
     <string>&amp;Info tool</string>
-   </property>
-   <property name="shortcut">
-    <string>Alt+3</string>
    </property>
   </action>
   <action name="actionGUIHeaderEditor">
@@ -467,9 +497,6 @@
    <property name="text">
     <string>&amp;Header editor</string>
    </property>
-   <property name="shortcut">
-    <string>Alt+4</string>
-   </property>
   </action>
   <action name="actionGUIChapterEditor">
    <property name="icon">
@@ -478,9 +505,6 @@
    </property>
    <property name="text">
     <string>&amp;Chapter editor</string>
-   </property>
-   <property name="shortcut">
-    <string>Alt+5</string>
    </property>
   </action>
   <action name="actionGUIJobQueue">
@@ -491,9 +515,6 @@
    <property name="text">
     <string>&amp;Job queue</string>
    </property>
-   <property name="shortcut">
-    <string>Alt+7</string>
-   </property>
   </action>
   <action name="actionGUIJobOutput">
    <property name="icon">
@@ -503,9 +524,6 @@
    <property name="text">
     <string>Job &amp;output</string>
    </property>
-   <property name="shortcut">
-    <string>Alt+8</string>
-   </property>
   </action>
   <action name="actionGUITagEditor">
    <property name="icon">
@@ -514,9 +532,6 @@
    </property>
    <property name="text">
     <string>&amp;Tag editor</string>
-   </property>
-   <property name="shortcut">
-    <string>Alt+6</string>
    </property>
   </action>
   <action name="actionMergeClose">
@@ -668,23 +683,67 @@
   </action>
   <action name="actionMergeCopyFirstFileNameToTitle">
    <property name="text">
-    <string>Copy first source file's name to file &amp;title</string>
+    <string>Copy &amp;first source file's name to file title</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+F</string>
+   </property>
+  </action>
+  <action name="actionMergeCopyOutputFileNameToTitle">
+   <property name="text">
+    <string>Copy &amp;destination file's name to file title</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+D</string>
+   </property>
+  </action>
+  <action name="actionMergeCopyTitleToOutputFileName">
+   <property name="text">
+    <string>Copy file &amp;title to destination file name</string>
    </property>
    <property name="shortcut">
     <string>Ctrl+T</string>
    </property>
   </action>
-  <action name="actionMergeCopyOutputFileNameToTitle">
-   <property name="text">
-    <string>Copy o&amp;utput file's name to file title</string>
-   </property>
-   <property name="shortcut">
-    <string>Ctrl+U</string>
-   </property>
-  </action>
   <action name="actionChapterEditorRemoveFromMatroska">
    <property name="text">
     <string>Remo&amp;ve chapters from existing Matroska file</string>
+   </property>
+  </action>
+  <action name="actionChapterEditorCloseAll">
+   <property name="icon">
+    <iconset resource="../../qt_resources.qrc">
+     <normaloff>:/icons/16x16/document-close.png</normaloff>:/icons/16x16/document-close.png</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;Close</string>
+   </property>
+  </action>
+  <action name="actionChapterEditorSaveAll">
+   <property name="icon">
+    <iconset resource="../../qt_resources.qrc">
+     <normaloff>:/icons/16x16/document-save.png</normaloff>:/icons/16x16/document-save.png</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;Save</string>
+   </property>
+  </action>
+  <action name="actionHeaderEditorCloseAll">
+   <property name="icon">
+    <iconset resource="../../qt_resources.qrc">
+     <normaloff>:/icons/16x16/document-close.png</normaloff>:/icons/16x16/document-close.png</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;Close</string>
+   </property>
+  </action>
+  <action name="actionHeaderEditorSaveAll">
+   <property name="icon">
+    <iconset resource="../../qt_resources.qrc">
+     <normaloff>:/icons/16x16/document-save.png</normaloff>:/icons/16x16/document-save.png</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;Save</string>
    </property>
   </action>
   <action name="actionMergeCloseAll">
@@ -711,7 +770,7 @@
      <normaloff>:/icons/16x16/media-playback-start.png</normaloff>:/icons/16x16/media-playback-start.png</iconset>
    </property>
    <property name="text">
-    <string>Start &amp;muxing</string>
+    <string>Start &amp;multiplexing</string>
    </property>
   </action>
   <action name="actionMergeAddAllToJobQueue">
@@ -721,6 +780,40 @@
    </property>
    <property name="text">
     <string>Add to job &amp;queue</string>
+   </property>
+  </action>
+  <action name="actionJobOutputCloseAll">
+   <property name="icon">
+    <iconset resource="../../qt_resources.qrc">
+     <normaloff>:/icons/16x16/document-close.png</normaloff>:/icons/16x16/document-close.png</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;Close</string>
+   </property>
+  </action>
+  <action name="actionJobOutputSaveAll">
+   <property name="icon">
+    <iconset resource="../../qt_resources.qrc">
+     <normaloff>:/icons/16x16/document-save.png</normaloff>:/icons/16x16/document-save.png</iconset>
+   </property>
+   <property name="text">
+    <string>&amp;Save</string>
+   </property>
+  </action>
+  <action name="actionWindowNext">
+   <property name="text">
+    <string notr="true">Next</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+F6</string>
+   </property>
+  </action>
+  <action name="actionWindowPrevious">
+   <property name="text">
+    <string notr="true">Previous</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+Shift+F6</string>
    </property>
   </action>
  </widget>

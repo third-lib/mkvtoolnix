@@ -13,10 +13,11 @@
 #include "common/construct.h"
 #include "common/ebml.h"
 #include "common/extern_data.h"
+#include "common/list_utils.h"
 #include "common/mm_io_x.h"
+#include "common/property_element.h"
 #include "common/qt.h"
 #include "common/segmentinfo.h"
-#include "common/segment_tracks.h"
 #include "common/strings/formatting.h"
 #include "common/unique_numbers.h"
 #include "mkvtoolnix-gui/forms/header_editor/tab.h"
@@ -31,6 +32,7 @@
 #include "mkvtoolnix-gui/header_editor/page_model.h"
 #include "mkvtoolnix-gui/header_editor/string_value_page.h"
 #include "mkvtoolnix-gui/header_editor/tab.h"
+#include "mkvtoolnix-gui/header_editor/time_value_page.h"
 #include "mkvtoolnix-gui/header_editor/tool.h"
 #include "mkvtoolnix-gui/header_editor/top_level_page.h"
 #include "mkvtoolnix-gui/header_editor/track_type_page.h"
@@ -85,17 +87,23 @@ Tab::resetData() {
 
 void
 Tab::load() {
-  auto selectedIdx         = ui->elements->selectionModel()->currentIndex();
-  selectedIdx              = selectedIdx.isValid()          ? selectedIdx.sibling(selectedIdx.row(), 0) : selectedIdx;
-  auto selectedTopLevelRow = !selectedIdx.isValid()         ? -1
-                           : selectedIdx.parent().isValid() ? selectedIdx.parent().row()
-                           :                                  selectedIdx.row();
-  auto selected2ndLevelRow = !selectedIdx.isValid()         ? -1
-                           : selectedIdx.parent().isValid() ? selectedIdx.row()
-                           :                                  -1;
-  auto expansionStatus     = QHash<QString, bool>{};
+  QVector<int> selectedRows;
 
-  for (auto const &page : m_model->topLevelPages()) {
+  auto selectedIdx = ui->elements->selectionModel()->currentIndex();
+  if (!selectedIdx.isValid()) {
+    auto rowIndexes = ui->elements->selectionModel()->selectedRows();
+    if (!rowIndexes.isEmpty())
+      selectedIdx = rowIndexes.first();
+  }
+
+  while (selectedIdx.isValid()) {
+    selectedRows.insert(0, selectedIdx.row());
+    selectedIdx = selectedIdx.sibling(selectedIdx.row(), 0).parent();
+  }
+
+  QHash<QString, bool> expansionStatus;
+
+  for (auto const &page : m_model->allExpandablePages()) {
     auto key = dynamic_cast<TopLevelPage &>(*page).internalIdentifier();
     expansionStatus[key] = ui->elements->isExpanded(page->m_pageIdx);
   }
@@ -112,35 +120,48 @@ Tab::load() {
   }
 
   m_analyzer = std::make_unique<QtKaxAnalyzer>(this, m_fileName);
+  bool ok    = false;
+  QString error;
 
-  if (!m_analyzer->set_parse_mode(kax_analyzer_c::parse_mode_fast).set_open_mode(MODE_READ).process()) {
+  try {
+    ok = m_analyzer->set_parse_mode(kax_analyzer_c::parse_mode_fast)
+      .set_open_mode(MODE_READ)
+      .set_throw_on_error(true)
+      .process();
+
+  } catch (mtx::kax_analyzer_x &ex) {
+    error = QY("Error details: %1.").arg(Q(ex.what()));
+  }
+
+  if (!ok) {
+    if (error.isEmpty())
+      error = QY("Possible reasons are: the file is not a Matroska file; the file is write-protected; the file is locked by another process; you do not have permission to access the file.");
+
     auto text = Q("%1 %2")
       .arg(QY("The file you tried to open (%1) could not be read successfully.").arg(m_fileName))
-      .arg(QY("Possible reasons are: the file is not a Matroska file; the file is write-protected; the file is locked by another process; you do not have permission to access the file."));
+      .arg(error);
     Util::MessageBox::critical(this)->title(QY("File parsing failed")).text(text).exec();
     emit removeThisTab();
     return;
   }
 
-  m_fileModificationTime = QFileInfo{m_fileName}.lastModified();
-
   populateTree();
 
   m_analyzer->close_file();
 
-  for (auto const &page : m_model->topLevelPages()) {
+  for (auto const &page : m_model->allExpandablePages()) {
     auto key = dynamic_cast<TopLevelPage &>(*page).internalIdentifier();
     ui->elements->setExpanded(page->m_pageIdx, expansionStatus[key]);
   }
 
   Util::resizeViewColumnsToContents(ui->elements);
 
-  if (!selectedIdx.isValid() || (-1 == selectedTopLevelRow))
+  if (selectedRows.isEmpty())
     return;
 
-  selectedIdx = m_model->index(selectedTopLevelRow, 0);
-  if (-1 != selected2ndLevelRow)
-    selectedIdx = m_model->index(selected2ndLevelRow, 0, selectedIdx);
+  selectedIdx = m_model->index(selectedRows.takeFirst(), 0);
+  for (auto row : selectedRows)
+    selectedIdx = m_model->index(row, 0, selectedIdx);
 
   auto selection = QItemSelection{selectedIdx, selectedIdx.sibling(selectedIdx.row(), m_model->columnCount() - 1)};
   ui->elements->selectionModel()->select(selection, QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Current);
@@ -178,48 +199,55 @@ Tab::save() {
     return;
   }
 
-  if (QFileInfo{m_fileName}.lastModified() != m_fileModificationTime) {
-    Util::MessageBox::critical(this)
-      ->title(QY("File has been modified"))
-      .text(QY("The file has been changed by another program since it was read by the header editor. Therefore you have to re-load it. Unfortunately this means that all of your changes will be lost."))
-      .exec();
-    return;
-  }
-
   doModifications();
 
-  if (segmentinfoModified && m_eSegmentInfo) {
-    auto result = m_analyzer->update_element(m_eSegmentInfo, true);
-    if (kax_analyzer_c::uer_success != result)
-      QtKaxAnalyzer::displayUpdateElementResult(this, result, QY("Saving the modified segment information header failed."));
-  }
+  bool ok = true;
 
-  if (tracksModified && m_eTracks) {
-    auto result = m_analyzer->update_element(m_eTracks, true);
-    if (kax_analyzer_c::uer_success != result)
-      QtKaxAnalyzer::displayUpdateElementResult(this, result, QY("Saving the modified track headers failed."));
-  }
+  try {
+    if (segmentinfoModified && m_eSegmentInfo) {
+      auto result = m_analyzer->update_element(m_eSegmentInfo, true);
+      if (kax_analyzer_c::uer_success != result) {
+        QtKaxAnalyzer::displayUpdateElementResult(this, result, QY("Saving the modified segment information header failed."));
+        ok = false;
+      }
+    }
 
-  if (attachmentsModified) {
-    auto attachments = std::make_shared<KaxAttachments>();
+    if (tracksModified && m_eTracks) {
+      auto result = m_analyzer->update_element(m_eTracks, true);
+      if (kax_analyzer_c::uer_success != result) {
+        QtKaxAnalyzer::displayUpdateElementResult(this, result, QY("Saving the modified track headers failed."));
+        ok = false;
+      }
+    }
 
-    for (auto const &attachedFilePage : m_attachmentsPage->m_children)
-      attachments->PushElement(*dynamic_cast<AttachedFilePage &>(*attachedFilePage).m_attachment.get());
+    if (attachmentsModified) {
+      auto attachments = std::make_shared<KaxAttachments>();
 
-    auto result = attachments->ListSize() ? m_analyzer->update_element(attachments.get(), true)
-                :                           m_analyzer->remove_elements(KaxAttachments::ClassInfos.GlobalId);
+      for (auto const &attachedFilePage : m_attachmentsPage->m_children)
+        attachments->PushElement(*dynamic_cast<AttachedFilePage &>(*attachedFilePage).m_attachment.get());
 
-    attachments->RemoveAll();
+      auto result = attachments->ListSize() ? m_analyzer->update_element(attachments.get(), true)
+                  :                           m_analyzer->remove_elements(KaxAttachments::ClassInfos.GlobalId);
 
-    if (kax_analyzer_c::uer_success != result)
-      QtKaxAnalyzer::displayUpdateElementResult(this, result, QY("Saving the modified attachments failed."));
+      attachments->RemoveAll();
+
+      if (kax_analyzer_c::uer_success != result) {
+        QtKaxAnalyzer::displayUpdateElementResult(this, result, QY("Saving the modified attachments failed."));
+        ok = false;
+      }
+    }
+
+  } catch (mtx::kax_analyzer_x &ex) {
+    QMessageBox::critical(this, QY("Error writing Matroska file"), QY("Error details: %1.").arg(Q(ex.what())));
+    ok = false;
   }
 
   m_analyzer->close_file();
 
   load();
 
-  MainWindow::get()->setStatusBarMessage(QY("The file has been saved successfully."));
+  if (ok)
+    MainWindow::get()->setStatusBarMessage(QY("The file has been saved successfully."));
 }
 
 void
@@ -287,12 +315,19 @@ Tab::retranslateUi() {
   m_saveAttachmentContentAction->setIcon(QIcon{Q(":/icons/16x16/document-save.png")});
   m_replaceAttachmentContentAction->setIcon(QIcon{Q(":/icons/16x16/document-open.png")});
 
+  setupToolTips();
+
   for (auto const &page : m_model->pages())
     page->retranslateUi();
 
   m_model->retranslateUi();
 
   Util::resizeViewColumnsToContents(ui->elements);
+}
+
+void
+Tab::setupToolTips() {
+  Util::setToolTip(ui->elements, QY("Right-click for actions for header elements and attachments"));
 }
 
 void
@@ -311,6 +346,9 @@ Tab::populateTree() {
 void
 Tab::selectionChanged(QModelIndex const &current,
                       QModelIndex const &) {
+  if (m_ignoreSelectionChanges)
+    return;
+
   auto selectedPage = m_model->selectedPage(current);
   if (selectedPage)
     ui->pageContainer->setCurrentWidget(selectedPage);
@@ -328,14 +366,48 @@ Tab::title()
   return QFileInfo{m_fileName}.fileName();
 }
 
-bool
+PageBase *
 Tab::hasBeenModified() {
   auto &pages = m_model->topLevelPages();
-  for (auto const &page : pages)
-    if (page->hasBeenModified())
-      return true;
+  for (auto const &page : pages) {
+    auto modifiedPage = page->hasBeenModified();
+    if (modifiedPage)
+      return modifiedPage;
+  }
 
-  return false;
+  return nullptr;
+}
+
+void
+Tab::pruneEmptyMastersForTrack(TrackTypePage &page) {
+  auto trackType = FindChildValue<KaxTrackType>(page.m_master);
+
+  if (!mtx::included_in(trackType, track_video, track_audio))
+    return;
+
+  std::unordered_map<EbmlMaster *, bool> handled;
+
+  if (trackType == track_video) {
+    auto trackVideo            = &GetChildEmptyIfNew<KaxTrackVideo>(page.m_master);
+    auto videoColour           = &GetChildEmptyIfNew<KaxVideoColour>(trackVideo);
+    auto videoColourMasterMeta = &GetChildEmptyIfNew<KaxVideoColourMasterMeta>(videoColour);
+    auto videoProjection       = &GetChildEmptyIfNew<KaxVideoProjection>(trackVideo);
+
+    remove_master_from_parent_if_empty_or_only_defaults(videoColour,    videoColourMasterMeta, handled);
+    remove_master_from_parent_if_empty_or_only_defaults(trackVideo,     videoColour,           handled);
+    remove_master_from_parent_if_empty_or_only_defaults(trackVideo,     videoProjection,       handled);
+    remove_master_from_parent_if_empty_or_only_defaults(&page.m_master, trackVideo,            handled);
+
+  } else
+    // trackType is track_audio
+    remove_master_from_parent_if_empty_or_only_defaults(&page.m_master, &GetChildEmptyIfNew<KaxTrackAudio>(page.m_master), handled);
+}
+
+void
+Tab::pruneEmptyMastersForAllTracks() {
+  for (auto const &page : m_model->topLevelPages())
+    if (dynamic_cast<TrackTypePage *>(page))
+      pruneEmptyMastersForTrack(static_cast<TrackTypePage &>(*page));
 }
 
 void
@@ -344,15 +416,41 @@ Tab::doModifications() {
   for (auto const &page : pages)
     page->doModifications();
 
+  pruneEmptyMastersForAllTracks();
+
   if (m_eSegmentInfo) {
-    fix_mandatory_segmentinfo_elements(m_eSegmentInfo.get());
+    fix_mandatory_elements(m_eSegmentInfo.get());
     m_eSegmentInfo->UpdateSize(true, true);
   }
 
   if (m_eTracks) {
-    fix_mandatory_segment_tracks_elements(m_eTracks.get());
+    fix_mandatory_elements(m_eTracks.get());
     m_eTracks->UpdateSize(true, true);
   }
+}
+
+ValuePage *
+Tab::createValuePage(TopLevelPage &parentPage,
+                     EbmlMaster &parentMaster,
+                     property_element_c const &element) {
+  ValuePage *page{};
+  auto const type = element.m_type;
+
+  page = element.m_callbacks == &KaxTrackLanguage::ClassInfos     ? new LanguageValuePage{       *this, parentPage, parentMaster, *element.m_callbacks, element.m_title, element.m_description}
+       : type                == property_element_c::EBMLT_BOOL    ? new BoolValuePage{           *this, parentPage, parentMaster, *element.m_callbacks, element.m_title, element.m_description}
+       : type                == property_element_c::EBMLT_BINARY  ? new BitValuePage{            *this, parentPage, parentMaster, *element.m_callbacks, element.m_title, element.m_description, element.m_bit_length}
+       : type                == property_element_c::EBMLT_FLOAT   ? new FloatValuePage{          *this, parentPage, parentMaster, *element.m_callbacks, element.m_title, element.m_description}
+       : type                == property_element_c::EBMLT_INT     ? new UnsignedIntegerValuePage{*this, parentPage, parentMaster, *element.m_callbacks, element.m_title, element.m_description}
+       : type                == property_element_c::EBMLT_UINT    ? new UnsignedIntegerValuePage{*this, parentPage, parentMaster, *element.m_callbacks, element.m_title, element.m_description}
+       : type                == property_element_c::EBMLT_STRING  ? new AsciiStringValuePage{    *this, parentPage, parentMaster, *element.m_callbacks, element.m_title, element.m_description}
+       : type                == property_element_c::EBMLT_USTRING ? new StringValuePage{         *this, parentPage, parentMaster, *element.m_callbacks, element.m_title, element.m_description}
+       : type                == property_element_c::EBMLT_DATE    ? new TimeValuePage{           *this, parentPage, parentMaster, *element.m_callbacks, element.m_title, element.m_description}
+       :                                                             static_cast<ValuePage *>(nullptr);
+
+  if (page)
+    page->init();
+
+  return page;
 }
 
 void
@@ -366,15 +464,9 @@ Tab::handleSegmentInfo(kax_analyzer_data_c const &data) {
   page->setInternalIdentifier("segmentInfo");
   page->init();
 
-  (new StringValuePage{*this, *page, info, KaxTitle::ClassInfos,           YT("Title"),                        YT("The title for the whole movie.")})->init();
-  (new StringValuePage{*this, *page, info, KaxSegmentFilename::ClassInfos, YT("Segment file name"),            YT("The file name for this segment.")})->init();
-  (new StringValuePage{*this, *page, info, KaxPrevFilename::ClassInfos,    YT("Previous file name"),           YT("An escaped file name corresponding to the previous segment.")})->init();
-  (new StringValuePage{*this, *page, info, KaxNextFilename::ClassInfos,    YT("Next filename"),                YT("An escaped file name corresponding to the next segment.")})->init();
-  (new BitValuePage{   *this, *page, info, KaxSegmentUID::ClassInfos,      YT("Segment unique ID"),            YT("A randomly generated unique ID to identify the current segment between many others (128 bits)."), 128})->init();
-  (new BitValuePage{   *this, *page, info, KaxPrevUID::ClassInfos,         YT("Previous segment's unique ID"), YT("A unique ID to identify the previous chained segment (128 bits)."), 128})->init();
-  (new BitValuePage{   *this, *page, info, KaxNextUID::ClassInfos,         YT("Next segment's unique ID"),     YT("A unique ID to identify the next chained segment (128 bits)."), 128})->init();
-  (new StringValuePage{*this, *page, info, KaxMuxingApp::ClassInfos,       YT("Muxing application"),           YT("The name of the application or library used for muxing the file.")})->init();
-  (new StringValuePage{*this, *page, info, KaxWritingApp::ClassInfos,      YT("Writing application"),          YT("The name of the application or library used for writing the file.")})->init();
+  auto &propertyElements = property_element_c::get_table_for(KaxInfo::ClassInfos, nullptr, true);
+  for (auto const &element : propertyElements)
+    createValuePage(*page, info, element);
 
   m_segmentinfoPage = page;
 }
@@ -385,7 +477,8 @@ Tab::handleTracks(kax_analyzer_data_c const &data) {
   if (!m_eTracks)
     return;
 
-  auto trackIdxMkvmerge = 0u;
+  auto trackIdxMkvmerge  = 0u;
+  auto &propertyElements = property_element_c::get_table_for(KaxTracks::ClassInfos, nullptr, true);
 
   for (auto const &element : dynamic_cast<EbmlMaster &>(*m_eTracks)) {
     auto kTrackEntry = dynamic_cast<KaxTrackEntry *>(element);
@@ -400,107 +493,52 @@ Tab::handleTracks(kax_analyzer_data_c const &data) {
     auto page      = new TrackTypePage{*this, *kTrackEntry, trackIdxMkvmerge++};
     page->init();
 
-    (new UnsignedIntegerValuePage{*this, *page, *kTrackEntry, KaxTrackNumber::ClassInfos, YT("Track number"), YT("The track number as used in the Block Header.")})
-      ->init();
+    QHash<EbmlCallbacks const *, EbmlMaster *> parentMastersByCallback;
+    QHash<EbmlCallbacks const *, TopLevelPage *> parentPagesByCallback;
 
-    (new UnsignedIntegerValuePage{*this, *page, *kTrackEntry, KaxTrackUID::ClassInfos, YT("Track UID"), YT("A unique ID to identify the Track. This should be kept the same when making a direct stream copy "
-                                                                                                           "of the Track to another file.")})
-      ->init();
-
-    (new BoolValuePage{*this, *page, *kTrackEntry, KaxTrackFlagDefault::ClassInfos, YT("'Default track' flag"), YT("Set if that track (audio, video or subs) SHOULD be used if no language found matches the user preference.")})
-      ->init();
-
-    (new BoolValuePage{*this, *page, *kTrackEntry, KaxTrackFlagEnabled::ClassInfos, YT("'Track enabled' flag"), YT("Set if the track is used.")})
-      ->init();
-
-    (new BoolValuePage{*this, *page, *kTrackEntry, KaxTrackFlagForced::ClassInfos, YT("'Forced display' flag"),
-                       YT("Set if that track MUST be used during playback. "
-                          "There can be many forced track for a kind (audio, video or subs). "
-                          "The player should select the one whose language matches the user preference or the default + forced track.")})
-      ->init();
-
-    (new UnsignedIntegerValuePage{*this, *page, *kTrackEntry, KaxTrackMinCache::ClassInfos, YT("Minimum cache"),
-                                  YT("The minimum number of frames a player should be able to cache during playback. "
-                                     "If set to 0, the reference pseudo-cache system is not used.")})
-      ->init();
-
-    (new UnsignedIntegerValuePage{*this, *page, *kTrackEntry, KaxTrackMaxCache::ClassInfos, YT("Maximum cache"),
-                                  YT("The maximum number of frames a player should be able to cache during playback. "
-                                     "If set to 0, the reference pseudo-cache system is not used.")})
-      ->init();
-
-    (new UnsignedIntegerValuePage{*this, *page, *kTrackEntry, KaxTrackDefaultDuration::ClassInfos, YT("Default duration"), YT("Number of nanoseconds (not scaled) per frame.")})
-      ->init();
-
-    (new StringValuePage{*this, *page, *kTrackEntry, KaxTrackName::ClassInfos, YT("Name"), YT("A human-readable track name.")})
-      ->init();
-
-    (new LanguageValuePage{*this, *page, *kTrackEntry, KaxTrackLanguage::ClassInfos, YT("Language"), YT("Specifies the language of the track in the Matroska languages form.")})
-      ->init();
-
-    (new AsciiStringValuePage{*this, *page, *kTrackEntry, KaxCodecID::ClassInfos, YT("Codec ID"), YT("An ID corresponding to the codec.")})
-      ->init();
-
-    (new StringValuePage{*this, *page, *kTrackEntry, KaxCodecName::ClassInfos, YT("Codec name"), YT("A human-readable string specifying the codec.")})
-      ->init();
-
-    (new UnsignedIntegerValuePage{*this, *page, *kTrackEntry, KaxCodecDelay::ClassInfos, YT("Codec-inherent delay"), YT("Delay built into the codec during decoding in ns.")})
-      ->init();
+    parentMastersByCallback[nullptr] = kTrackEntry;
+    parentPagesByCallback[nullptr]   = page;
 
     if (track_video == trackType) {
-      auto &kTrackVideo = GetChild<KaxTrackVideo>(kTrackEntry);
+      auto colourPage = new TopLevelPage{*this, YT("Colour information")};
+      colourPage->setInternalIdentifier(Q("videoColour %1").arg(trackIdxMkvmerge - 1));
+      colourPage->setParentPage(*page);
+      colourPage->init();
 
-      (new UnsignedIntegerValuePage{*this, *page, kTrackVideo, KaxVideoPixelWidth::ClassInfos, YT("Video pixel width"), YT("Width of the encoded video frames in pixels.")})
-        ->init();
+      auto colourMasterMetaPage = new TopLevelPage{*this, YT("Colour mastering meta information")};
+      colourMasterMetaPage->setInternalIdentifier(Q("videoColourMasterMeta %1").arg(trackIdxMkvmerge - 1));
+      colourMasterMetaPage->setParentPage(*page);
+      colourMasterMetaPage->init();
 
-      (new UnsignedIntegerValuePage{*this, *page, kTrackVideo, KaxVideoPixelHeight::ClassInfos, YT("Video pixel height"), YT("Height of the encoded video frames in pixels.")})
-        ->init();
+      auto projectionPage = new TopLevelPage{*this, YT("Video projection information")};
+      projectionPage->setInternalIdentifier(Q("videoProjection %1").arg(trackIdxMkvmerge - 1));
+      projectionPage->setParentPage(*page);
+      projectionPage->init();
 
-      (new UnsignedIntegerValuePage{*this, *page, kTrackVideo, KaxVideoDisplayWidth::ClassInfos, YT("Video display width"), YT("Width of the video frames to display.")})
-        ->init();
+      parentMastersByCallback[&KaxTrackVideo::ClassInfos]            = &GetChildEmptyIfNew<KaxTrackVideo>(kTrackEntry);
+      parentMastersByCallback[&KaxVideoColour::ClassInfos]           = &GetChildEmptyIfNew<KaxVideoColour>(parentMastersByCallback[&KaxTrackVideo::ClassInfos]);
+      parentMastersByCallback[&KaxVideoColourMasterMeta::ClassInfos] = &GetChildEmptyIfNew<KaxVideoColourMasterMeta>(parentMastersByCallback[&KaxVideoColour::ClassInfos]);
+      parentMastersByCallback[&KaxVideoProjection::ClassInfos]       = &GetChildEmptyIfNew<KaxVideoProjection>(parentMastersByCallback[&KaxTrackVideo::ClassInfos]);
 
-      (new UnsignedIntegerValuePage{*this, *page, kTrackVideo, KaxVideoDisplayHeight::ClassInfos, YT("Video display height"), YT("Height of the video frames to display.")})
-        ->init();
-
-      (new UnsignedIntegerValuePage{*this, *page, kTrackVideo, KaxVideoDisplayUnit::ClassInfos, YT("Video display unit"), YT("Type of the unit for DisplayWidth/Height (0: pixels, 1: centimeters, 2: inches, 3: aspect ratio).")})
-        ->init();
-
-      (new UnsignedIntegerValuePage{*this, *page, kTrackVideo, KaxVideoPixelCropLeft::ClassInfos, YT("Video crop left"), YT("The number of video pixels to remove on the left of the image.")})
-        ->init();
-
-      (new UnsignedIntegerValuePage{*this, *page, kTrackVideo, KaxVideoPixelCropTop::ClassInfos, YT("Video crop top"), YT("The number of video pixels to remove on the top of the image.")})
-        ->init();
-
-      (new UnsignedIntegerValuePage{*this, *page, kTrackVideo, KaxVideoPixelCropRight::ClassInfos, YT("Video crop right"), YT("The number of video pixels to remove on the right of the image.")})
-        ->init();
-
-      (new UnsignedIntegerValuePage{*this, *page, kTrackVideo, KaxVideoPixelCropBottom::ClassInfos, YT("Video crop bottom"), YT("The number of video pixels to remove on the bottom of the image.")})
-        ->init();
-
-      (new UnsignedIntegerValuePage{*this, *page, kTrackVideo, KaxVideoAspectRatio::ClassInfos, YT("Video aspect ratio type"), YT("Specify the possible modifications to the aspect ratio "
-                                                                                                                                   "(0: free resizing, 1: keep aspect ratio, 2: fixed).")})
-        ->init();
-
-      (new UnsignedIntegerValuePage{*this, *page, kTrackVideo, KaxVideoFieldOrder::ClassInfos, YT("Video field order"), YT("Field order (0, 1, 2, 6, 9 or 14, see documentation).")})
-        ->init();
-
-      (new UnsignedIntegerValuePage{*this, *page, kTrackVideo, KaxVideoStereoMode::ClassInfos, YT("Video stereo mode"), YT("Stereo-3D video mode (0 - 11, see documentation).")})
-        ->init();
+      parentPagesByCallback[&KaxTrackVideo::ClassInfos]              = page;
+      parentPagesByCallback[&KaxVideoColour::ClassInfos]             = colourPage;
+      parentPagesByCallback[&KaxVideoColourMasterMeta::ClassInfos]   = colourMasterMetaPage;
+      parentPagesByCallback[&KaxVideoProjection::ClassInfos]         = projectionPage;
 
     } else if (track_audio == trackType) {
-      auto &kTrackAudio = GetChild<KaxTrackAudio>(kTrackEntry);
+      parentMastersByCallback[&KaxTrackAudio::ClassInfos]            = &GetChildEmptyIfNew<KaxTrackAudio>(kTrackEntry);
+      parentPagesByCallback[&KaxTrackAudio::ClassInfos]              = page;
+    }
 
-      (new FloatValuePage{*this, *page, kTrackAudio, KaxAudioSamplingFreq::ClassInfos, YT("Audio sampling frequency"), YT("Sampling frequency in Hz.")})
-        ->init();
+    for (auto const &element : propertyElements) {
+      auto parentMasterCallbacks = element.m_sub_sub_sub_master_callbacks ? element.m_sub_sub_sub_master_callbacks
+                                 : element.m_sub_sub_master_callbacks     ? element.m_sub_sub_master_callbacks
+                                 :                                          element.m_sub_master_callbacks;
+      auto parentPage            = parentPagesByCallback[parentMasterCallbacks];
+      auto parentMaster          = parentMastersByCallback[parentMasterCallbacks];
 
-      (new FloatValuePage{*this, *page, kTrackAudio, KaxAudioOutputSamplingFreq::ClassInfos, YT("Audio output sampling frequency"), YT("Real output sampling frequency in Hz.")})
-        ->init();
-
-      (new UnsignedIntegerValuePage{*this, *page, kTrackAudio, KaxAudioChannels::ClassInfos, YT("Audio channels"), YT("Numbers of channels in the track.")})
-        ->init();
-
-      (new UnsignedIntegerValuePage{*this, *page, kTrackAudio, KaxAudioBitDepth::ClassInfos, YT("Audio bit depth"), YT("Bits per sample, mostly used for PCM.")})
-        ->init();
+      if (parentPage && parentMaster)
+        createValuePage(*parentPage, *parentMaster, element);
     }
   }
 }
@@ -566,9 +604,13 @@ Tab::collapseAll() {
 }
 
 void
-Tab::expandCollapseAll(bool expand) {
-  for (auto const &page : m_model->topLevelPages())
-    ui->elements->setExpanded(page->m_pageIdx, expand);
+Tab::expandCollapseAll(bool expand,
+                       QModelIndex const &parentIdx) {
+  if (parentIdx.isValid())
+    ui->elements->setExpanded(parentIdx, expand);
+
+  for (auto row = 0, numRows = m_model->rowCount(parentIdx); row < numRows; ++row)
+    expandCollapseAll(expand, m_model->index(row, 0, parentIdx));
 }
 
 void
@@ -739,6 +781,53 @@ Tab::handleDroppedFiles(QStringList const &fileNames,
 
   else
     addAttachments(fileNames);
+}
+
+void
+Tab::focusPage(PageBase *page) {
+  auto idx = m_model->indexFromPage(page);
+  if (!idx.isValid())
+    return;
+
+  auto selection = QItemSelection{idx.sibling(idx.row(), 0), idx.sibling(idx.row(), m_model->columnCount() - 1)};
+
+  m_ignoreSelectionChanges = true;
+
+  ui->elements->selectionModel()->setCurrentIndex(idx.sibling(idx.row(), 0), QItemSelectionModel::ClearAndSelect);
+  ui->elements->selectionModel()->select(selection, QItemSelectionModel::ClearAndSelect);
+  ui->pageContainer->setCurrentWidget(page);
+
+  m_ignoreSelectionChanges = false;
+}
+
+bool
+Tab::isClosingOrReloadingOkIfModified(ModifiedConfirmationMode mode) {
+  if (!Util::Settings::get().m_warnBeforeClosingModifiedTabs)
+    return true;
+
+  auto modifiedPage = hasBeenModified();
+  if (!modifiedPage)
+    return true;
+
+  auto tool = MainWindow::headerEditorTool();
+  MainWindow::get()->switchToTool(tool);
+  tool->showTab(*this);
+  focusPage(modifiedPage);
+
+  auto closing  = mode == ModifiedConfirmationMode::Closing;
+  auto text     = closing ? QY("The file \"%1\" has been modified. Do you really want to close? All changes will be lost.")
+                :           QY("The file \"%1\" has been modified. Do you really want to reload it? All changes will be lost.");
+  auto title    = closing ? QY("Close modified file") : QY("Reload modified file");
+  auto yesLabel = closing ? QY("&Close file")         : QY("&Reload file");
+
+  auto answer   = Util::MessageBox::question(this)
+    ->title(title)
+    .text(text.arg(QFileInfo{fileName()}.fileName()))
+    .buttonLabel(QMessageBox::Yes, yesLabel)
+    .buttonLabel(QMessageBox::No,  QY("Cancel"))
+    .exec();
+
+  return answer == QMessageBox::Yes;
 }
 
 }}}

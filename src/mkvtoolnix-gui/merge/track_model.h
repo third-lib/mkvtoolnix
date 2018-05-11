@@ -1,5 +1,4 @@
-#ifndef MTX_MKVTOOLNIX_GUI_MERGE_TRACK_MODEL_H
-#define MTX_MKVTOOLNIX_GUI_MERGE_TRACK_MODEL_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -19,6 +18,21 @@ using TrackModelPtr = std::shared_ptr<TrackModel>;
 
 class TrackModel : public QStandardItemModel {
   Q_OBJECT;
+
+protected:
+  static int const CodecColumn            =  0;
+  static int const TypeColumn             =  1;
+  static int const MuxThisColumn          =  2;
+  static int const LanguageColumn         =  3;
+  static int const NameColumn             =  4;
+  static int const IDColumn               =  5;
+  static int const DefaultTrackFlagColumn =  6;
+  static int const ForcedTrackFlagColumn  =  7;
+  static int const CharacterSetColumn     =  8;
+  static int const PropertiesColumn       =  9;
+  static int const SourceFileColumn       = 10;
+  static int const SourceFileDirColumn    = 11;
+  static int const ProgramColumn          = 12;
 
 protected:
   QList<Track *> *m_tracks;
@@ -71,8 +85,7 @@ protected:
   void sortTracks(QList<Track *> &tracks, bool reverse = false);
 
   static QString summarizeProperties(Track const &track);
+  static QString programInfoFor(Track const &track);
 };
 
 }}}
-
-#endif  // MTX_MKVTOOLNIX_GUI_MERGE_TRACK_MODEL_H

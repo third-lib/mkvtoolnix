@@ -11,8 +11,7 @@
    Written by Moritz Bunkus <moritz@bunkus.org>.
 */
 
-#ifndef MTX_R_FLV_H
-#define MTX_R_FLV_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -70,7 +69,7 @@ public:
 public:
   uint32_t m_previous_tag_size;
   uint8_t m_flags;
-  uint64_t m_data_size, m_timecode, m_timecode_extended, m_next_position;
+  uint64_t m_data_size, m_timestamp, m_timestamp_extended, m_next_position;
   bool m_ok;
   debugging_option_c m_debug;
 
@@ -88,8 +87,8 @@ public:
 inline std::ostream &
 operator <<(std::ostream &out,
             flv_tag_c const &t) {
-  out << (boost::format("[prev size: %1% flags: %2% data size: %3% timecode+ex: %4%/%5% next pos: %6% ok: %7%]")
-          % t.m_previous_tag_size % static_cast<unsigned int>(t.m_flags) % t.m_data_size % t.m_timecode % t.m_timecode_extended % t.m_next_position % t.m_ok).str();
+  out << (boost::format("[prev size: %1% flags: %2% data size: %3% timestamp+ex: %4%/%5% next pos: %6% ok: %7%]")
+          % t.m_previous_tag_size % static_cast<unsigned int>(t.m_flags) % t.m_data_size % t.m_timestamp % t.m_timestamp_extended % t.m_next_position % t.m_ok).str();
   return out;
 }
 
@@ -103,7 +102,7 @@ public:
 
   int m_ptzr;                   // the actual packetizer instance
 
-  int64_t m_timecode;
+  int64_t m_timestamp;
 
   // video related parameters
   unsigned int m_v_version, m_v_width, m_v_height, m_v_dwidth, m_v_dheight;
@@ -154,8 +153,8 @@ public:
 
   static int probe_file(mm_io_c *io, uint64_t size);
 
-  virtual file_type_e get_format_type() const {
-    return FILE_TYPE_FLV;
+  virtual mtx::file_type_e get_format_type() const {
+    return mtx::file_type_e::flv;
   }
 
 protected:
@@ -174,5 +173,3 @@ protected:
 
   unsigned int add_track(char type);
 };
-
-#endif // MTX_R_FLV_H

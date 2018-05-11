@@ -10,7 +10,6 @@
 
 #include "common/common_pch.h"
 
-#include "common/segment_tracks.h"
 #include "common/strings/parsing.h"
 #include "propedit/propedit.h"
 #include "propedit/track_target.h"
@@ -45,14 +44,20 @@ track_target_c::validate() {
   if (INVALID_TRACK_TYPE == m_track_type)
     return;
 
-  auto property_table = &property_element_c::get_table_for(KaxTracks::ClassInfos,
+  for (auto &change : m_changes)
+    change->validate();
+}
+
+void
+track_target_c::look_up_property_elements() {
+  auto &property_table = property_element_c::get_table_for(KaxTracks::ClassInfos,
                                                              track_audio == m_track_type ? &KaxTrackAudio::ClassInfos
                                                            : track_video == m_track_type ? &KaxTrackVideo::ClassInfos
                                                            :                               nullptr,
                                                            false);
 
   for (auto &change : m_changes)
-    change->validate(property_table);
+    change->look_up_property(property_table);
 }
 
 void
@@ -101,7 +106,7 @@ track_target_c::execute() {
   for (auto &change : m_changes)
     change->execute(m_master, m_sub_master);
 
-  fix_mandatory_segment_tracks_elements(m_master);
+  fix_mandatory_elements(m_master);
 }
 
 void
@@ -155,17 +160,33 @@ track_target_c::set_level1_element(ebml_element_cptr level1_element_cp,
     m_track_uid  = track_uid;
     m_track_type = this_track_type;
     m_master     = track;
-    m_sub_master = track_video == m_track_type ? dynamic_cast<EbmlMaster *>(FindChild<KaxTrackVideo>(track))
-                 : track_audio == m_track_type ? dynamic_cast<EbmlMaster *>(FindChild<KaxTrackAudio>(track))
+    m_sub_master = track_video == m_track_type ? static_cast<EbmlMaster *>(&GetChild<KaxTrackVideo>(track))
+                 : track_audio == m_track_type ? static_cast<EbmlMaster *>(&GetChild<KaxTrackAudio>(track))
                  :                               nullptr;
 
-    if (   !m_sub_master
-        && (   (track_video == m_track_type)
-            || (track_audio == m_track_type))
-        && has_add_or_set_change()) {
-      m_sub_master = track_video == m_track_type ? static_cast<EbmlMaster *>(new KaxTrackVideo) : static_cast<EbmlMaster *>(new KaxTrackAudio);
-      m_master->PushElement(*m_sub_master);
-    }
+    look_up_property_elements();
+
+    if (track_video == m_track_type)
+      for (auto const &change_ptr : m_changes) {
+        auto &change = *change_ptr;
+        auto &prop   = change.m_property;
+
+        if (!prop.m_sub_sub_master_callbacks)
+          continue;
+
+        change.m_sub_sub_master = prop.m_sub_sub_master_callbacks == &KaxVideoColour::ClassInfos     ? &GetChildEmptyIfNew<KaxVideoColour>(m_sub_master)
+                                : prop.m_sub_sub_master_callbacks == &KaxVideoProjection::ClassInfos ? &GetChildEmptyIfNew<KaxVideoProjection>(m_sub_master)
+                                :                                                                      static_cast<EbmlMaster*>(nullptr);
+
+        if (!change.m_sub_sub_master)
+          continue;
+
+        if (!prop.m_sub_sub_sub_master_callbacks)
+          continue;
+
+        change.m_sub_sub_sub_master = prop.m_sub_sub_sub_master_callbacks == &KaxVideoColourMasterMeta::ClassInfos ? &GetChildEmptyIfNew<KaxVideoColourMasterMeta>(change.m_sub_sub_master)
+                                    :                                                                                nullptr;
+      }
 
     if (sub_master_is_track()) {
       m_master     = m_level1_element;

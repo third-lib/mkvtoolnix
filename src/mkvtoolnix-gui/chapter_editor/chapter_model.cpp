@@ -70,11 +70,11 @@ ChapterModel::setEditionRowText(QList<QStandardItem *> const &rowItems) {
   auto isOrdered = edition && FindChildValue<KaxEditionFlagOrdered>(*edition);
 
   if (isOrdered)
-    flags << QY("ordered");
+    flags << QY("Ordered");
   if (isHidden)
-    flags << QY("hidden");
+    flags << QY("Hidden");
   if (isDefault)
-    flags << QY("default");
+    flags << QY("Default");
 
   rowItems[0]->setText(QY("Edition entry"));
   rowItems[3]->setText(flags.join(Q(", ")));
@@ -105,9 +105,9 @@ ChapterModel::setChapterRowText(QList<QStandardItem *> const &rowItems) {
   auto kEnd      = FindChild<KaxChapterTimeEnd>(*chapter);
 
   if (!isEnabled)
-    flags << QY("disabled");
+    flags << QY("Disabled");
   if (isHidden)
-    flags << QY("hidden");
+    flags << QY("Hidden");
 
   rowItems[1]->setData(static_cast<qulonglong>(kStart ? kStart->GetValue() : 0), QStandardItemModel::sortRole());
 
@@ -195,7 +195,7 @@ ChapterModel::chapterDisplayName(KaxChapterAtom &chapter) {
     chapterName = chapterNameForLanguage(chapter, "");
 
   if (chapterName.isEmpty())
-    chapterName = QY("<unnamed>");
+    chapterName = QY("<Unnamed>");
 
   return chapterName;
 }
@@ -321,7 +321,7 @@ ChapterModel::fixMandatoryElements(QModelIndex const &parentIdx) {
     else if (Is<KaxEditionEntry>(*element) && !FindChildValue<KaxEditionUID>(*element, 0))
       DeleteChildren<KaxEditionUID>(*element);
 
-    fix_mandatory_chapter_elements(element.get());
+    fix_mandatory_elements(element.get());
   });
 }
 
@@ -375,7 +375,11 @@ ChapterModel::dropMimeData(QMimeData const *data,
     return false;
 
   auto isInside = (-1 == row) && (-1 == column);
-  return QStandardItemModel::dropMimeData(data, action, isInside ? -1 : row, isInside ? -1 : 0, parent.sibling(parent.row(), 0));
+  auto result   = QStandardItemModel::dropMimeData(data, action, isInside ? -1 : row, isInside ? -1 : 0, parent.sibling(parent.row(), 0));
+
+  Util::requestAllItems(*this);
+
+  return result;
 }
 
 Qt::ItemFlags

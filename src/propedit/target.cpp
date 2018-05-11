@@ -60,6 +60,12 @@ target_c::set_level1_element(ebml_element_cptr level1_element_cp,
   m_master            = m_level1_element;
 }
 
+std::tuple<EbmlMaster *, EbmlMaster *>
+target_c::get_masters()
+  const {
+  return std::make_tuple(m_master, m_sub_master);
+}
+
 void
 target_c::add_or_replace_all_master_elements(EbmlMaster *source) {
   size_t idx;
@@ -103,4 +109,16 @@ void
 target_c::execute_change(kax_analyzer_c &analyzer) {
   m_analyzer = &analyzer;
   execute();
+}
+
+bool
+target_c::write_elements_set_to_default_value()
+  const {
+  return true;
+}
+
+bool
+target_c::add_mandatory_elements_if_missing()
+  const {
+  return true;
 }

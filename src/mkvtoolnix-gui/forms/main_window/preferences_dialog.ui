@@ -19,6 +19,9 @@
      <property name="orientation">
       <enum>Qt::Horizontal</enum>
      </property>
+     <property name="childrenCollapsible">
+      <bool>false</bool>
+     </property>
      <widget class="QTreeView" name="pageSelector">
       <property name="sizePolicy">
        <sizepolicy hsizetype="Minimum" vsizetype="Expanding">
@@ -343,17 +346,22 @@
                </property>
                <item>
                 <property name="text">
-                 <string>no</string>
+                 <string>No</string>
                 </property>
                </item>
                <item>
                 <property name="text">
-                 <string>create new settings</string>
+                 <string>Create new settings</string>
                 </property>
                </item>
                <item>
                 <property name="text">
-                 <string>remove input files</string>
+                 <string>Remove source files</string>
+                </property>
+               </item>
+               <item>
+                <property name="text">
+                 <string>Close current settings</string>
                 </property>
                </item>
               </widget>
@@ -435,7 +443,7 @@
            <item>
             <widget class="QCheckBox" name="cbMAlwaysShowOutputFileControls">
              <property name="text">
-              <string>Always show the output file controls &amp;below tabs</string>
+              <string>Always show the destination file controls &amp;below tabs</string>
              </property>
             </widget>
            </item>
@@ -469,7 +477,7 @@
                <item>
                 <widget class="QRadioButton" name="rbMTrackPropertiesLayoutHorizontalScrollArea">
                  <property name="text">
-                  <string>in a &amp;scrollable column on the right of the files and tracks</string>
+                  <string>In a &amp;scrollable column on the right of the files and tracks</string>
                  </property>
                  <attribute name="buttonGroup">
                   <string notr="true">bgMTrackPropertiesLayout</string>
@@ -479,7 +487,7 @@
                <item>
                 <widget class="QRadioButton" name="rbMTrackPropertiesLayoutHorizontalTwoColumns">
                  <property name="text">
-                  <string>in &amp;two fixed columns on the right of the files and tracks</string>
+                  <string>In &amp;two fixed columns on the right of the files and tracks</string>
                  </property>
                  <attribute name="buttonGroup">
                   <string notr="true">bgMTrackPropertiesLayout</string>
@@ -489,7 +497,7 @@
                <item>
                 <widget class="QRadioButton" name="rbMTrackPropertiesLayoutVerticalTabWidget">
                  <property name="text">
-                  <string>in a tab &amp;widget below the files and tracks</string>
+                  <string>In a tab &amp;widget below the files and tracks</string>
                  </property>
                  <attribute name="buttonGroup">
                   <string notr="true">bgMTrackPropertiesLayout</string>
@@ -535,7 +543,7 @@
         <item>
          <widget class="QGroupBox" name="groupBox_11">
           <property name="title">
-           <string>Defaults for new mux settings</string>
+           <string>Defaults for new multiplex settings</string>
           </property>
           <layout class="QGridLayout" name="gridLayout_6">
            <item row="0" column="0">
@@ -751,100 +759,116 @@
         <item>
          <widget class="QGroupBox" name="groupBox_5">
           <property name="title">
-           <string>Output file name</string>
+           <string>Destination file name</string>
           </property>
           <layout class="QVBoxLayout" name="verticalLayout_5">
            <item>
             <widget class="QCheckBox" name="cbMAutoSetOutputFileName">
              <property name="text">
-              <string>&amp;Automatically set the output file name</string>
+              <string>&amp;Automatically set the destination file name</string>
              </property>
             </widget>
            </item>
            <item>
-            <widget class="QRadioButton" name="rbMAutoSetSameDirectory">
+            <widget class="QCheckBox" name="cbMAutoDestinationOnlyForVideoFiles">
              <property name="text">
-              <string>Sa&amp;me directory as the first input file</string>
+              <string>&amp;Only use the first source file that contains a video track</string>
              </property>
             </widget>
            </item>
            <item>
-            <widget class="QRadioButton" name="rbMAutoSetPreviousDirectory">
-             <property name="text">
-              <string>Pre&amp;viously used output directory</string>
+            <widget class="QGroupBox" name="gbDestinationDirectory">
+             <property name="title">
+              <string>Destination directory</string>
              </property>
+             <layout class="QVBoxLayout" name="verticalLayout_31">
+              <item>
+               <widget class="QRadioButton" name="rbMAutoSetSameDirectory">
+                <property name="text">
+                 <string>Sa&amp;me directory as the first source file</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QRadioButton" name="rbMAutoSetPreviousDirectory">
+                <property name="text">
+                 <string>Pre&amp;viously used destination directory</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QRadioButton" name="rbMAutoSetRelativeDirectory">
+                <property name="text">
+                 <string>Directory &amp;relative to first source file's directory:</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <layout class="QHBoxLayout" name="horizontalLayout_7">
+                <item>
+                 <spacer name="horizontalSpacer_4">
+                  <property name="orientation">
+                   <enum>Qt::Horizontal</enum>
+                  </property>
+                  <property name="sizeType">
+                   <enum>QSizePolicy::Fixed</enum>
+                  </property>
+                  <property name="sizeHint" stdset="0">
+                   <size>
+                    <width>20</width>
+                    <height>20</height>
+                   </size>
+                  </property>
+                 </spacer>
+                </item>
+                <item>
+                 <widget class="QLineEdit" name="leMAutoSetRelativeDirectory"/>
+                </item>
+               </layout>
+              </item>
+              <item>
+               <widget class="QRadioButton" name="rbMAutoSetFixedDirectory">
+                <property name="text">
+                 <string>Use fi&amp;xed directory:</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <layout class="QHBoxLayout" name="horizontalLayout_5">
+                <item>
+                 <spacer name="horizontalSpacer_3">
+                  <property name="orientation">
+                   <enum>Qt::Horizontal</enum>
+                  </property>
+                  <property name="sizeType">
+                   <enum>QSizePolicy::Fixed</enum>
+                  </property>
+                  <property name="sizeHint" stdset="0">
+                   <size>
+                    <width>20</width>
+                    <height>20</height>
+                   </size>
+                  </property>
+                 </spacer>
+                </item>
+                <item>
+                 <widget class="QLineEdit" name="leMAutoSetFixedDirectory"/>
+                </item>
+                <item>
+                 <widget class="QPushButton" name="pbMBrowseAutoSetFixedDirectory">
+                  <property name="text">
+                   <string/>
+                  </property>
+                  <property name="icon">
+                   <iconset resource="../../qt_resources.qrc">
+                    <normaloff>:/icons/16x16/document-open-folder.png</normaloff>:/icons/16x16/document-open-folder.png</iconset>
+                  </property>
+                 </widget>
+                </item>
+               </layout>
+              </item>
+             </layout>
             </widget>
-           </item>
-           <item>
-            <widget class="QRadioButton" name="rbMAutoSetRelativeDirectory">
-             <property name="text">
-              <string>Directory &amp;relative to first input file's directory:</string>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <layout class="QHBoxLayout" name="horizontalLayout_7">
-             <item>
-              <spacer name="horizontalSpacer_4">
-               <property name="orientation">
-                <enum>Qt::Horizontal</enum>
-               </property>
-               <property name="sizeType">
-                <enum>QSizePolicy::Fixed</enum>
-               </property>
-               <property name="sizeHint" stdset="0">
-                <size>
-                 <width>20</width>
-                 <height>20</height>
-                </size>
-               </property>
-              </spacer>
-             </item>
-             <item>
-              <widget class="QLineEdit" name="leMAutoSetRelativeDirectory"/>
-             </item>
-            </layout>
-           </item>
-           <item>
-            <widget class="QRadioButton" name="rbMAutoSetFixedDirectory">
-             <property name="text">
-              <string>Use fi&amp;xed directory:</string>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <layout class="QHBoxLayout" name="horizontalLayout_5">
-             <item>
-              <spacer name="horizontalSpacer_3">
-               <property name="orientation">
-                <enum>Qt::Horizontal</enum>
-               </property>
-               <property name="sizeType">
-                <enum>QSizePolicy::Fixed</enum>
-               </property>
-               <property name="sizeHint" stdset="0">
-                <size>
-                 <width>20</width>
-                 <height>20</height>
-                </size>
-               </property>
-              </spacer>
-             </item>
-             <item>
-              <widget class="QLineEdit" name="leMAutoSetFixedDirectory"/>
-             </item>
-             <item>
-              <widget class="QPushButton" name="pbMBrowseAutoSetFixedDirectory">
-               <property name="text">
-                <string/>
-               </property>
-               <property name="icon">
-                <iconset resource="../../qt_resources.qrc">
-                 <normaloff>:/icons/16x16/document-open-folder.png</normaloff>:/icons/16x16/document-open-folder.png</iconset>
-               </property>
-              </widget>
-             </item>
-            </layout>
            </item>
            <item>
             <widget class="QCheckBox" name="cbMUniqueOutputFileNames">
@@ -856,7 +880,7 @@
            <item>
             <widget class="QCheckBox" name="cbMAutoClearOutputFileName">
              <property name="text">
-              <string>Automatically &amp;clear the output file name when the last file is removed</string>
+              <string>Automatically &amp;clear the destination file name when the last file is removed</string>
              </property>
             </widget>
            </item>
@@ -895,20 +919,20 @@
         <item>
          <widget class="QGroupBox" name="groupBox_7">
           <property name="title">
-           <string>Enable muxing of tracks by their language</string>
+           <string>Enable copying of tracks by their language</string>
           </property>
           <layout class="QVBoxLayout" name="verticalLayout_21">
            <item>
             <widget class="QCheckBox" name="cbMEnableMuxingTracksByLanguage">
              <property name="text">
-              <string>&amp;Only enable muxing of tracks with specific languages by default</string>
+              <string>&amp;Only enable copying of tracks with specific languages by default</string>
              </property>
             </widget>
            </item>
            <item>
             <widget class="QLabel" name="lMEnableMuxingAllTracksOfType">
              <property name="text">
-              <string>Always enable muxing for all tracks of the following types regardless of their language:</string>
+              <string>Always enable copying for all tracks of the following types regardless of their language:</string>
              </property>
             </widget>
            </item>
@@ -1193,6 +1217,30 @@
              </property>
             </widget>
            </item>
+           <item>
+            <layout class="QHBoxLayout" name="horizontalLayout_12">
+             <item>
+              <widget class="QLabel" name="label_17">
+               <property name="text">
+                <string>&amp;Character set for text files:</string>
+               </property>
+               <property name="buddy">
+                <cstring>cbCETextFileCharacterSet</cstring>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="mtx::gui::Util::CharacterSetComboBox" name="cbCETextFileCharacterSet">
+               <property name="sizePolicy">
+                <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+                 <horstretch>0</horstretch>
+                 <verstretch>0</verstretch>
+                </sizepolicy>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </item>
           </layout>
          </widget>
         </item>
@@ -1344,7 +1392,7 @@
                </item>
                <item>
                 <property name="text">
-                 <string>Always remove the job afterwards</string>
+                 <string>Even if there were errors</string>
                 </property>
                </item>
               </widget>
@@ -1406,7 +1454,7 @@
         <item>
          <widget class="QGroupBox" name="groupBox_14">
           <property name="title">
-           <string>Executing programs after certain events</string>
+           <string>Executing actions after certain events</string>
           </property>
           <layout class="QVBoxLayout" name="verticalLayout_27">
            <item>
@@ -1427,7 +1475,7 @@
              <item>
               <widget class="QPushButton" name="pbJobsAddProgram">
                <property name="text">
-                <string>&amp;Add program</string>
+                <string>&amp;Add action</string>
                </property>
                <property name="icon">
                 <iconset resource="../../qt_resources.qrc">
@@ -1474,7 +1522,7 @@
                  <item>
                   <widget class="QLabel" name="label_8">
                    <property name="text">
-                    <string>No programs have been added yet.</string>
+                    <string>No actions have been added yet.</string>
                    </property>
                   </widget>
                  </item>
@@ -1523,7 +1571,7 @@
                 <number>0</number>
                </property>
                <item>
-                <widget class="QTabWidget" name="twJobsPrograms">
+                <widget class="mtx::gui::Util::BasicTabWidget" name="twJobsPrograms">
                  <property name="currentIndex">
                   <number>-1</number>
                  </property>
@@ -1581,6 +1629,12 @@
    <extends>QComboBox</extends>
    <header>mkvtoolnix-gui/util/country_combo_box.h</header>
   </customwidget>
+  <customwidget>
+   <class>mtx::gui::Util::BasicTabWidget</class>
+   <extends>QTabWidget</extends>
+   <header>mkvtoolnix-gui/util/basic_tab_widget.h</header>
+   <container>1</container>
+  </customwidget>
  </customwidgets>
  <tabstops>
   <tabstop>pageSelector</tabstop>
@@ -1596,6 +1650,9 @@
   <tabstop>cbGuiWarnBeforeAbortingJobs</tabstop>
   <tabstop>cbGuiWarnBeforeOverwriting</tabstop>
   <tabstop>tbOftenUsedXYZ</tabstop>
+  <tabstop>cbOftenUsedLanguagesOnly</tabstop>
+  <tabstop>cbOftenUsedCountriesOnly</tabstop>
+  <tabstop>cbOftenUsedCharacterSetsOnly</tabstop>
   <tabstop>cbMClearMergeSettings</tabstop>
   <tabstop>cbMAddingAppendingFilesPolicy</tabstop>
   <tabstop>cbMProcessPriority</tabstop>
@@ -1617,6 +1674,7 @@
   <tabstop>cbMDefaultSubtitleTrackLanguage</tabstop>
   <tabstop>cbMWhenToSetDefaultLanguage</tabstop>
   <tabstop>cbMAutoSetOutputFileName</tabstop>
+  <tabstop>cbMAutoDestinationOnlyForVideoFiles</tabstop>
   <tabstop>rbMAutoSetSameDirectory</tabstop>
   <tabstop>rbMAutoSetPreviousDirectory</tabstop>
   <tabstop>rbMAutoSetRelativeDirectory</tabstop>
@@ -1632,11 +1690,12 @@
   <tabstop>cbMEnableMuxingAllSubtitleTracks</tabstop>
   <tabstop>cbMScanPlaylistsPolicy</tabstop>
   <tabstop>sbMMinPlaylistDuration</tabstop>
+  <tabstop>cbHEDroppedFilesPolicy</tabstop>
   <tabstop>cbCEDropLastFromBlurayPlaylist</tabstop>
+  <tabstop>cbCETextFileCharacterSet</tabstop>
   <tabstop>leCENameTemplate</tabstop>
   <tabstop>cbCEDefaultLanguage</tabstop>
   <tabstop>cbCEDefaultCountry</tabstop>
-  <tabstop>cbHEDroppedFilesPolicy</tabstop>
   <tabstop>cbGuiSwitchToJobOutputAfterStarting</tabstop>
   <tabstop>cbGuiUseDefaultJobDescription</tabstop>
   <tabstop>cbGuiShowOutputOfAllJobs</tabstop>

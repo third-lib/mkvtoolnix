@@ -8,8 +8,7 @@
    Written by Moritz Bunkus <moritz@bunkus.org>.
 */
 
-#ifndef MTX_INFO_INFO_CLI_PARSER_H
-#define MTX_INFO_INFO_CLI_PARSER_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -17,7 +16,7 @@
 #include "info/mkvinfo.h"
 #include "info/options.h"
 
-class info_cli_parser_c: public cli_parser_c {
+class info_cli_parser_c: public mtx::cli::parser_c {
 protected:
   options_c m_options;
 
@@ -39,6 +38,5 @@ protected:
   void set_size();
   void set_file_name();
   void set_track_info();
+  void set_hex_positions();
 };
-
-#endif // MTX_INFO_INFO_CLI_PARSER_H

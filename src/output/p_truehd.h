@@ -11,8 +11,7 @@
    Written by Moritz Bunkus <moritz@bunkus.org>.
 */
 
-#ifndef MTX_P_TRUEHD_H
-#define MTX_P_TRUEHD_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -25,7 +24,7 @@ protected:
   bool m_first_frame;
   truehd_frame_t m_first_truehd_header;
 
-  int64_t m_current_samples_per_frame, m_ref_timecode;
+  int64_t m_current_samples_per_frame, m_ref_timestamp;
   timestamp_calculator_c m_timestamp_calculator;
   truehd_parser_c m_parser;
 
@@ -34,7 +33,7 @@ public:
   virtual ~truehd_packetizer_c();
 
   virtual int process(packet_cptr packet);
-  virtual void process_framed(truehd_frame_cptr const &frame, int64_t provided_timecode);
+  virtual void process_framed(truehd_frame_cptr const &frame, int64_t provided_timestamp);
   virtual void set_headers();
 
   virtual translatable_string_c get_format_name() const {
@@ -49,5 +48,3 @@ protected:
   virtual void flush_impl();
   virtual void flush_frames();
 };
-
-#endif // MTX_P_TRUEHD_H

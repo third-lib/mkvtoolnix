@@ -8,6 +8,7 @@
 #include "mkvtoolnix-gui/jobs/tool.h"
 #include "mkvtoolnix-gui/main_window/main_window.h"
 #include "mkvtoolnix-gui/merge/command_line_dialog.h"
+#include "mkvtoolnix-gui/merge/file_identification_thread.h"
 #include "mkvtoolnix-gui/merge/tab.h"
 #include "mkvtoolnix-gui/merge/tool.h"
 #include "mkvtoolnix-gui/forms/main_window/main_window.h"
@@ -35,6 +36,7 @@ using namespace mtx::gui;
 
 Tab::Tab(QWidget *parent)
   : QWidget{parent}
+  , m_lastAddAppendFileIdx{-1}
   , ui{new Ui::Tab}
   , m_mouseButtonsForFilesToAddDelayed{}
   , m_filesModel{new SourceFileModel{this}}
@@ -48,6 +50,7 @@ Tab::Tab(QWidget *parent)
   , m_addAdditionalPartsAction2{new QAction{this}}
   , m_removeFilesAction{new QAction{this}}
   , m_removeAllFilesAction{new QAction{this}}
+  , m_setDestinationFileNameAction{new QAction{this}}
   , m_selectAllTracksAction{new QAction{this}}
   , m_enableAllTracksAction{new QAction{this}}
   , m_disableAllTracksAction{new QAction{this}}
@@ -56,15 +59,18 @@ Tab::Tab(QWidget *parent)
   , m_selectAllSubtitlesTracksAction{new QAction{this}}
   , m_openFilesInMediaInfoAction{new QAction{this}}
   , m_openTracksInMediaInfoAction{new QAction{this}}
+  , m_selectTracksFromFilesAction{new QAction{this}}
   , m_enableAllAttachedFilesAction{new QAction{this}}
   , m_disableAllAttachedFilesAction{new QAction{this}}
   , m_enableSelectedAttachedFilesAction{new QAction{this}}
   , m_disableSelectedAttachedFilesAction{new QAction{this}}
   , m_startMuxingLeaveAsIs{new QAction{this}}
   , m_startMuxingCreateNewSettings{new QAction{this}}
+  , m_startMuxingCloseSettings{new QAction{this}}
   , m_startMuxingRemoveInputFiles{new QAction{this}}
   , m_addToJobQueueLeaveAsIs{new QAction{this}}
   , m_addToJobQueueCreateNewSettings{new QAction{this}}
+  , m_addToJobQueueCloseSettings{new QAction{this}}
   , m_addToJobQueueRemoveInputFiles{new QAction{this}}
   , m_filesMenu{new QMenu{this}}
   , m_tracksMenu{new QMenu{this}}
@@ -80,6 +86,7 @@ Tab::Tab(QWidget *parent)
   , m_removeAttachmentsAction{new QAction{this}}
   , m_removeAllAttachmentsAction{new QAction{this}}
   , m_selectAllAttachmentsAction{new QAction{this}}
+  , m_identifier{new FileIdentificationThread{this}}
   , m_debugTrackModel{"track_model"}
 {
   // Setup UI controls.
@@ -94,6 +101,7 @@ Tab::Tab(QWidget *parent)
   setupOutputControls();
   setupAttachmentsControls();
   setupTabPositions();
+  setupFileIdentificationThread();
 
   setControlValuesFromConfig();
 
@@ -107,6 +115,9 @@ Tab::Tab(QWidget *parent)
 }
 
 Tab::~Tab() {
+  m_identifier->abortPlaylistScan();
+  m_identifier->quit();
+  m_identifier->wait();
 }
 
 QString const &
@@ -118,7 +129,7 @@ Tab::fileName()
 QString
 Tab::title()
   const {
-  auto title = m_config.m_destination.isEmpty() ? QY("<no output file>") : QFileInfo{m_config.m_destination}.fileName();
+  auto title = m_config.m_destination.isEmpty() ? QY("<No destination file>") : QFileInfo{m_config.m_destination}.fileName();
   if (!m_config.m_configFileName.isEmpty())
     title = Q("%1 (%2)").arg(title).arg(QFileInfo{m_config.m_configFileName}.fileName());
 
@@ -187,7 +198,7 @@ Tab::onSaveConfig() {
 void
 Tab::onSaveOptionFile() {
   auto &settings = Util::Settings::get();
-  auto fileName  = Util::getSaveFileName(this, QY("Save option file"), settings.m_lastConfigDir.path(), QY("All files") + Q(" (*)"));
+  auto fileName  = Util::getSaveFileName(this, QY("Save option file"), settings.m_lastConfigDir.path(), QY("MKVToolNix option files (JSON-formatted)") + Q(" (*.json);;") + QY("All files") + Q(" (*)"));
   if (fileName.isEmpty())
     return;
 
@@ -201,7 +212,7 @@ Tab::onSaveOptionFile() {
 void
 Tab::onSaveConfigAs() {
   auto &settings = Util::Settings::get();
-  auto fileName  = Util::getSaveFileName(this, QY("Save settings file as"), settings.m_lastConfigDir.path(), QY("MKVToolnix GUI config files") + Q(" (*.mtxcfg);;") + QY("All files") + Q(" (*)"));
+  auto fileName  = Util::getSaveFileName(this, QY("Save settings file as"), settings.m_lastConfigDir.path(), QY("MKVToolNix GUI config files") + Q(" (*.mtxcfg);;") + QY("All files") + Q(" (*)"));
   if (fileName.isEmpty())
     return;
 
@@ -331,12 +342,12 @@ Tab::retranslateUi() {
 bool
 Tab::isReadyForMerging() {
   if (m_config.m_destination.isEmpty()) {
-    Util::MessageBox::critical(this)->title(QY("Cannot start merging")).text(QY("You have to set the output file name before you can start merging or add a job to the job queue.")).exec();
+    Util::MessageBox::critical(this)->title(QY("Cannot start multiplexing")).text(QY("You have to set the destination file name before you can start multiplexing or add a job to the job queue.")).exec();
     return false;
   }
 
   if (m_config.m_destination != Util::removeInvalidPathCharacters(m_config.m_destination)) {
-    Util::MessageBox::critical(this)->title(QY("Cannot start merging")).text(QY("The output file name is invalid and must be fixed before you can start merging or add a job to the job queue.")).exec();
+    Util::MessageBox::critical(this)->title(QY("Cannot start multiplexing")).text(QY("The destination file name is invalid and must be fixed before you can start multiplexing or add a job to the job queue.")).exec();
     return false;
   }
 
@@ -393,7 +404,7 @@ Tab::checkIfOverwritingIsOK() {
   auto nativeDestination            = QDir::toNativeSeparators(m_config.m_destination);
   auto jobWithSameDestinationExists = false;
 
-  MainWindow::jobTool()->model()->withAllJobs([this, &jobWithSameDestinationExists, &nativeDestination](Jobs::Job &job) {
+  MainWindow::jobTool()->model()->withAllJobs([&jobWithSameDestinationExists, &nativeDestination](Jobs::Job &job) {
     auto muxJob = qobject_cast<Jobs::MuxJob *>(&job);
 
     if (   muxJob
@@ -423,6 +434,7 @@ void
 Tab::addToJobQueue(bool startNow,
                    boost::optional<Util::Settings::ClearMergeSettingsAction> clearSettings) {
   updateConfigFromControlValues();
+  setOutputFileNameMaybe();
 
   if (!isReadyForMerging() || !checkIfOverwritingIsOK())
     return;
@@ -472,6 +484,11 @@ Tab::handleClearingMergeSettings(Util::Settings::ClearMergeSettingsAction action
 
   if (Util::Settings::ClearMergeSettingsAction::RemoveInputFiles == action) {
     onRemoveAllFiles();
+    return;
+  }
+
+  if (Util::Settings::ClearMergeSettingsAction::CloseSettings == action) {
+    QTimer::singleShot(0, this, SLOT(signalRemovalOfThisTab()));
     return;
   }
 

@@ -11,8 +11,7 @@
    Written by Moritz Bunkus <moritz@bunkus.org>.
 */
 
-#ifndef MTX_COMMON_OUTPUT_H
-#define MTX_COMMON_OUTPUT_H
+#pragma once
 
 #include "common/os.h"
 
@@ -20,9 +19,9 @@
 
 #include <ebml/EbmlElement.h>
 
+#include "common/json.h"
 #include "common/locale.h"
 #include "common/mm_io.h"
-#include "nlohmann-json/src/json.hpp"
 
 using namespace libebml;
 
@@ -141,5 +140,3 @@ mxverb_tid(unsigned int level,
 extern const std::string empty_string;
 
 std::string fourcc_to_string(uint32_t fourcc);
-
-#endif  // MTX_COMMON_OUTPUT_H

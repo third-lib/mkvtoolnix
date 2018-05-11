@@ -45,6 +45,11 @@ set_environment_variable(const std::string &key,
   _putenv(env_buf.c_str());
 }
 
+void
+unset_environment_variable(std::string const &key) {
+  SetEnvironmentVariableA(key.c_str(), nullptr);
+}
+
 std::string
 get_environment_variable(const std::string &key) {
   auto size   = 100u;
@@ -142,6 +147,31 @@ bool
 is_installed() {
   auto file_to_test = get_installation_path() / "data" / "portable-app";
   return !bfs::exists(file_to_test);
+}
+
+uint64_t
+get_memory_usage() {
+  // This only works on Linux and other systems that implement a
+  // Linux-compatible procfs on /proc. Not implemented for other
+  // systems yet, as it's a debugging tool.
+
+  return 0;
+}
+
+std::string
+format_windows_message(uint64_t message_id) {
+  char *buffer = nullptr;
+
+  FormatMessage(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, nullptr, message_id, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), (LPTSTR)&buffer, 0, nullptr);
+
+  if (!buffer)
+    return Y("unknown");
+
+  auto message = g_cc_local_utf8->utf8(buffer);
+
+  LocalFree(buffer);
+
+  return chomp(message);
 }
 
 }}

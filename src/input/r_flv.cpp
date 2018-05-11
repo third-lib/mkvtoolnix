@@ -15,16 +15,17 @@
 
 #include "avilib.h"
 #include "common/amf.h"
-#include "common/bit_cursor.h"
+#include "common/avc_es_parser.h"
+#include "common/avcc.h"
+#include "common/bit_reader.h"
 #include "common/codec.h"
 #include "common/endian.h"
 #include "common/mm_io_x.h"
-#include "common/mpeg4_p10.h"
 #include "common/id_info.h"
 #include "input/r_flv.h"
 #include "merge/input_x.h"
 #include "output/p_aac.h"
-#include "output/p_mpeg4_p10.h"
+#include "output/p_avc.h"
 #include "output/p_mp3.h"
 #include "output/p_video_for_windows.h"
 
@@ -77,8 +78,8 @@ flv_tag_c::flv_tag_c()
   : m_previous_tag_size{}
   , m_flags{}
   , m_data_size{}
-  , m_timecode{}
-  , m_timecode_extended{}
+  , m_timestamp{}
+  , m_timestamp_extended{}
   , m_next_position{}
   , m_ok{}
   , m_debug{"flv_full|flv_tags|flv_tag"}
@@ -112,16 +113,16 @@ flv_tag_c::is_script_data()
 bool
 flv_tag_c::read(mm_io_cptr const &in) {
   try {
-    auto position       = in->getFilePointer();
-    m_ok                = false;
-    m_previous_tag_size = in->read_uint32_be();
-    m_flags             = in->read_uint8();
-    m_data_size         = in->read_uint24_be();
-    m_timecode          = in->read_uint24_be();
-    m_timecode_extended = in->read_uint8();
+    auto position        = in->getFilePointer();
+    m_ok                 = false;
+    m_previous_tag_size  = in->read_uint32_be();
+    m_flags              = in->read_uint8();
+    m_data_size          = in->read_uint24_be();
+    m_timestamp          = in->read_uint24_be();
+    m_timestamp_extended = in->read_uint8();
     in->skip(3);
-    m_next_position     = in->getFilePointer() + m_data_size;
-    m_ok                = true;
+    m_next_position      = in->getFilePointer() + m_data_size;
+    m_ok                 = true;
 
     mxdebug_if(m_debug, boost::format("Tag @ %1%: %2%\n") % position % *this);
 
@@ -138,7 +139,7 @@ flv_track_c::flv_track_c(char type)
   : m_type{type}
   , m_headers_read{}
   , m_ptzr{-1}
-  , m_timecode{}
+  , m_timestamp{}
   , m_v_version{}
   , m_v_width{}
   , m_v_height{}
@@ -203,7 +204,7 @@ flv_track_c::extract_flv1_width_and_height() {
     return;
 
   try {
-    auto r = bit_reader_c{m_payload->get_buffer(), static_cast<unsigned int>(m_payload->get_size())};
+    auto r = mtx::bits::reader_c{m_payload->get_buffer(), static_cast<unsigned int>(m_payload->get_size())};
     if (r.get_bits(17) != 1)
       return;                     // bad picture start code
 
@@ -389,7 +390,7 @@ flv_reader_c::create_packetizer(int64_t id) {
 void
 flv_reader_c::create_v_avc_packetizer(flv_track_cptr &track) {
   m_ti.m_private_data = track->m_private_data;
-  track->m_ptzr       = add_packetizer(new mpeg4_p10_video_packetizer_c(this, m_ti, track->m_v_frame_rate, track->m_v_width, track->m_v_height));
+  track->m_ptzr       = add_packetizer(new avc_video_packetizer_c(this, m_ti, track->m_v_frame_rate, track->m_v_width, track->m_v_height));
   show_packetizer_info(m_video_track_idx, PTZR(track->m_ptzr));
 }
 
@@ -414,7 +415,13 @@ flv_reader_c::create_v_generic_packetizer(flv_track_cptr &track) {
 
 void
 flv_reader_c::create_a_aac_packetizer(flv_track_cptr &track) {
-  track->m_ptzr = add_packetizer(new aac_packetizer_c(this, m_ti, track->m_a_profile, track->m_a_sample_rate, track->m_a_channels, true));
+  mtx::aac::audio_config_t audio_config{};
+
+  audio_config.profile     = track->m_a_profile;
+  audio_config.sample_rate = track->m_a_sample_rate;
+  audio_config.channels    = track->m_a_channels;
+  track->m_ptzr            = add_packetizer(new aac_packetizer_c(this, m_ti, audio_config, aac_packetizer_c::headerless));
+
   show_packetizer_info(m_audio_track_idx, PTZR(track->m_ptzr));
 }
 
@@ -434,7 +441,7 @@ bool
 flv_reader_c::new_stream_v_avc(flv_track_cptr &track,
                                memory_cptr const &data) {
   try {
-    auto avcc = mpeg4::p10::avcc_c::unpack(data);
+    auto avcc = mtx::avc::avcc_c::unpack(data);
     avcc.parse_sps_list(true);
 
     for (auto &sps_info : avcc.m_sps_info_list) {
@@ -508,18 +515,17 @@ flv_reader_c::process_audio_tag_sound_format(flv_track_cptr &track,
     if (m_in->read(specific_codec_buf, size) != size)
        return false;
 
-    int profile, channels, sample_rate, output_sample_rate;
-    bool sbr;
-    if (!aac::parse_audio_specific_config(specific_codec_buf, size, profile, channels, sample_rate, output_sample_rate, sbr))
+    auto audio_config = mtx::aac::parse_audio_specific_config(specific_codec_buf, size);
+    if (!audio_config)
       return false;
 
-    mxdebug_if(m_debug, boost::format("  AAC sub type: sequence header (profile: %1%, channels: %2%, s_rate: %3%, out_s_rate: %4%, sbr %5%)\n") % profile % channels % sample_rate % output_sample_rate % sbr);
-    if (sbr)
-      profile = AAC_PROFILE_SBR;
+    mxdebug_if(m_debug,
+               boost::format("  AAC sub type: sequence header (profile: %1%, channels: %2%, s_rate: %3%, out_s_rate: %4%, sbr %5%)\n")
+               % audio_config->profile % audio_config->channels % audio_config->sample_rate % audio_config->output_sample_rate % audio_config->sbr);
 
-    track->m_a_profile     = profile;
-    track->m_a_channels    = channels;
-    track->m_a_sample_rate = sample_rate;
+    track->m_a_profile     = audio_config->sbr ? AAC_PROFILE_SBR : audio_config->profile;
+    track->m_a_channels    = audio_config->channels;
+    track->m_a_sample_rate = audio_config->sample_rate;
 
     return true;
   }
@@ -765,9 +771,9 @@ flv_reader_c::process_tag(bool skip_payload) {
   else if (m_tag.is_video() && !process_video_tag(track))
     return false;
 
-  track->m_timecode = m_tag.m_timecode + (m_tag.m_timecode_extended << 24);
+  track->m_timestamp = m_tag.m_timestamp + (m_tag.m_timestamp_extended << 24);
 
-  mxdebug_if(m_debug, boost::format("Data size after processing: %1%; timecode in ms: %2%\n") % m_tag.m_data_size % track->m_timecode);
+  mxdebug_if(m_debug, boost::format("Data size after processing: %1%; timestamp in ms: %2%\n") % m_tag.m_data_size % track->m_timestamp);
 
   if (!m_tag.m_data_size)
     return true;
@@ -813,14 +819,14 @@ flv_reader_c::read(generic_packetizer_c *,
     return FILE_STATUS_MOREDATA;
 
   if (-1 != track->m_ptzr) {
-    track->m_timecode = (track->m_timecode + track->m_v_cts_offset) * 1000000ll;
-    mxdebug_if(m_debug, boost::format(" PTS in nanoseconds: %1%\n") % track->m_timecode);
+    track->m_timestamp = (track->m_timestamp + track->m_v_cts_offset) * 1000000ll;
+    mxdebug_if(m_debug, boost::format(" PTS in nanoseconds: %1%\n") % track->m_timestamp);
 
     int64_t duration = -1;
     if (track->m_v_frame_rate && track->m_fourcc.equiv("AVC1"))
       duration = 1000000000ll / track->m_v_frame_rate;
 
-    auto packet = new packet_t(track->m_payload, track->m_timecode, duration, 'I' == track->m_v_frame_type ? VFT_IFRAME : VFT_PFRAMEAUTOMATIC, VFT_NOBFRAME);
+    auto packet = new packet_t(track->m_payload, track->m_timestamp, duration, 'I' == track->m_v_frame_type ? VFT_IFRAME : VFT_PFRAMEAUTOMATIC, VFT_NOBFRAME);
 
     if (track->m_extra_data)
       packet->codec_state = track->m_extra_data;

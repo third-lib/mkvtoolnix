@@ -11,8 +11,7 @@
    Written by Moritz Bunkus <moritz@bunkus.org>.
 */
 
-#ifndef MTX_COMMON_LOCALE_H
-#define MTX_COMMON_LOCALE_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -40,14 +39,13 @@ protected:
   bool handle_string_with_bom(const std::string &source, std::string &recoded);
 
 public:                         // Static members
-  static charset_converter_cptr init(const std::string &charset);
+  static charset_converter_cptr init(const std::string &charset, bool ignore_errors = false);
   static bool is_utf8_charset_name(const std::string &charset);
 
 private:
   static std::map<std::string, charset_converter_cptr> s_converters;
 };
 
-#if defined(HAVE_ICONV_H)
 class iconv_charset_converter_c: public charset_converter_c {
 private:
   bool m_is_utf8;
@@ -66,7 +64,6 @@ public:                         // Static functions
 private:                        // Static functions
   static std::string convert(iconv_t handle, const std::string &source);
 };
-# endif  // HAVE_ICONV_H
 
 #if defined(SYS_WINDOWS)
 class windows_charset_converter_c: public charset_converter_c {
@@ -94,7 +91,3 @@ extern charset_converter_cptr g_cc_local_utf8;
 
 std::string get_local_charset();
 std::string get_local_console_charset();
-
-std::vector<std::string> command_line_utf8(int argc, char **argv);
-
-#endif  // MTX_COMMON_LOCALE_H

@@ -51,7 +51,7 @@ function create_directories {
 
   cd ${tgt_dir}
   rm -rf *
-  mkdir -p examples data doc locale/libqt
+  mkdir -p examples data/sounds doc/licenses locale/libqt
 
   print -- " done"
 }
@@ -68,12 +68,14 @@ function copy_files {
   cp share/icons/windows/mkvtoolnix-gui.ico ${tgt_dir}/installer/
 
   cp ${mxe_usr_dir}/share/misc/magic.mgc ${tgt_dir}/data/
+  cp share/sounds/* ${tgt_dir}/data/sounds/
   touch ${tgt_dir}/data/portable-app
 
   cp README.md ${tgt_dir}/doc/README.txt
   cp COPYING ${tgt_dir}/doc/COPYING.txt
-  cp ChangeLog ${tgt_dir}/doc/ChangeLog.txt
+  cp NEWS.md ${tgt_dir}/doc/NEWS.txt
   cp doc/command_line_references.html ${tgt_dir}/doc/
+  cp doc/licenses/*.txt ${tgt_dir}/doc/licenses/
 
   for mo in po/*.mo ; do
     language=${${mo:t}:r}

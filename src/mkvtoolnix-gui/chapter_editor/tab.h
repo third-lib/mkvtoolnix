@@ -1,5 +1,4 @@
-#ifndef MTX_MKVTOOLNIX_GUI_CHAPTER_EDITOR_TAB_H
-#define MTX_MKVTOOLNIX_GUI_CHAPTER_EDITOR_TAB_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -12,7 +11,6 @@
 #include "mkvtoolnix-gui/chapter_editor/renumber_sub_chapters_parameters_dialog.h"
 #include "mkvtoolnix-gui/types.h"
 
-class QAction;
 class QItemSelection;
 
 namespace libebml {
@@ -27,6 +25,22 @@ class Tab;
 
 class ChapterModel;
 class NameModel;
+class TabPrivate;
+
+struct ChapterAtomData {
+  KaxChapterAtom *atom, *parentAtom;
+  timestamp_c start, end, calculatedEnd;
+  QString primaryName;
+  int level;
+
+  ChapterAtomData()
+    : atom{}
+    , parentAtom{}
+    , level{}
+  {
+  }
+};
+using ChapterAtomDataPtr = std::shared_ptr<ChapterAtomData>;
 
 class Tab : public QWidget {
   Q_OBJECT;
@@ -41,27 +55,15 @@ protected:
   using LoadResult       = std::pair<ChaptersPtr, bool>;
 
 protected:
-  // UI stuff:
-  std::unique_ptr<Ui::Tab> ui;
+  Q_DECLARE_PRIVATE(Tab);
 
-  QString m_fileName, m_originalFileName;
-  std::unique_ptr<QtKaxAnalyzer> m_analyzer;
-  QDateTime m_fileModificationTime;
+  QScopedPointer<TabPrivate> const d_ptr;
 
-  ChapterModel *m_chapterModel;
-  NameModel *m_nameModel;
-
-  QAction *m_expandAllAction, *m_collapseAllAction, *m_addEditionBeforeAction, *m_addEditionAfterAction, *m_addChapterBeforeAction, *m_addChapterAfterAction, *m_addSubChapterAction, *m_removeElementAction;
-  QAction *m_duplicateAction, *m_massModificationAction, *m_generateSubChaptersAction, *m_renumberSubChaptersAction;
-  QList<QWidget *> m_nameWidgets;
-
-  bool m_ignoreChapterSelectionChanges{};
-
-  QString m_savedState;
+  explicit Tab(QWidget *parent, TabPrivate &d);
 
 public:
   explicit Tab(QWidget *parent, QString const &fileName = QString{});
-  ~Tab();
+  virtual ~Tab();
 
   virtual void retranslateUi();
   virtual QString const &fileName() const;
@@ -116,6 +118,7 @@ public slots:
   virtual void closeTab();
 
 protected:
+  void setup();
   void setupUi();
   void resetData();
   void expandCollapseAll(bool expand, QModelIndex const &parentIdx = {});
@@ -124,6 +127,8 @@ protected:
   LoadResult loadFromMatroskaFile();
   LoadResult loadFromMplsFile();
   LoadResult checkSimpleFormatForBomAndNonAscii(ChaptersPtr const &chapters);
+
+  bool readFileEndTimestampForMatroska();
 
   void resizeChapterColumnsToContents() const;
   void resizeNameColumnsToContents() const;
@@ -157,22 +162,26 @@ protected:
   void saveToMatroskaImpl(bool requireNewFileName);
   void updateFileNameDisplay();
 
-  void applyModificationToTimecodes(QStandardItem *item, std::function<int64_t(int64_t)> const &unaryOp);
-  void multiplyTimecodes(QStandardItem *item, double factor);
-  void shiftTimecodes(QStandardItem *item, int64_t delta);
-  void constrictTimecodes(QStandardItem *item, boost::optional<uint64_t> const &constrictStart, boost::optional<uint64_t> const &constrictEnd);
-  std::pair<boost::optional<uint64_t>, boost::optional<uint64_t>> expandTimecodes(QStandardItem *item);
+  void applyModificationToTimestamps(QStandardItem *item, std::function<int64_t(int64_t)> const &unaryOp);
+  void multiplyTimestamps(QStandardItem *item, double factor);
+  void shiftTimestamps(QStandardItem *item, int64_t delta);
+  void constrictTimestamps(QStandardItem *item, boost::optional<uint64_t> const &constrictStart, boost::optional<uint64_t> const &constrictEnd);
+  std::pair<boost::optional<uint64_t>, boost::optional<uint64_t>> expandTimestamps(QStandardItem *item);
   void setLanguages(QStandardItem *item, QString const &language);
   void setCountries(QStandardItem *item, QString const &country);
+  void setEndTimestamps(QStandardItem *startItem);
 
 protected:
+  void setupToolTips();
+
   void chaptersLoaded(ChaptersPtr const &chapters, bool canBeWritten);
 
   QString currentState() const;
   QStringList usedNameLanguages(QStandardItem *parentItem = nullptr);
   QStringList usedNameCountryCodes(QStandardItem *parentItem = nullptr);
-  ChaptersPtr timecodesToChapters(std::vector<timestamp_c> const &timecodes) const;
-  QString formatChapterName(QString const &nameTemplate, int chapterNumber, timestamp_c const &startTimecode) const;
+  ChaptersPtr timestampsToChapters(std::vector<timestamp_c> const &timestamps) const;
+  QHash<KaxChapterAtom *, ChapterAtomDataPtr> collectChapterAtomDataForEdition(QStandardItem *item);
+  QString formatChapterName(QString const &nameTemplate, int chapterNumber, timestamp_c const &startTimestamp) const;
   bool changeChapterName(QModelIndex const &parentIdx, int row, int chapterNumber, QString const &nameTemplate, RenumberSubChaptersParametersDialog::NameMatch nameMatchingMode, QString const &languageOfNamesToReplace,
                          bool skipHidden);
 
@@ -184,5 +193,3 @@ protected:
 };
 
 }}}
-
-#endif // MTX_MKVTOOLNIX_GUI_CHAPTER_EDITOR_TAB_H

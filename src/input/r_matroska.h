@@ -12,8 +12,7 @@
    Modified by Steve Lhomme <s.lhomme@free.fr>.
 */
 
-#ifndef MTX_INPUT_R_MATROSKA_H
-#define MTX_INPUT_R_MATROSKA_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -25,7 +24,6 @@
 #include "common/error.h"
 #include "common/kax_file.h"
 #include "common/mm_io.h"
-#include "common/mpeg4_p10.h"
 #include "merge/generic_reader.h"
 #include "merge/track_info.h"
 
@@ -53,7 +51,7 @@ struct kax_track_t {
   char sub_type;                // 't' = text, 'v' = VobSub
   bool passthrough;             // No special packetizer available.
 
-  uint32_t min_cache, max_cache, max_blockadd_id;
+  uint32_t max_blockadd_id;
   bool lacing_flag;
   uint64_t default_duration;
   timestamp_c seek_pre_roll, codec_delay;
@@ -74,14 +72,15 @@ struct kax_track_t {
   stereo_mode_c::mode v_stereo_mode;
   double v_frate;
   char v_fourcc[5];
-  bool v_bframes;
+  boost::optional<uint64_t> v_projection_type;
+  memory_cptr v_projection_private;
+  boost::optional<double> v_projection_pose_yaw, v_projection_pose_pitch, v_projection_pose_roll;
 
   // Parameters for audio tracks
   uint64_t a_channels, a_bps, a_formattag;
   double a_sfreq, a_osfreq;
 
-  void *private_data;
-  unsigned int private_size;
+  memory_cptr private_data;
 
   unsigned char *headers[3];
   uint32_t header_sizes[3];
@@ -95,7 +94,7 @@ struct kax_track_t {
 
   bool ok;
 
-  int64_t previous_timecode;
+  int64_t previous_timestamp;
 
   content_decoder_c content_decoder;
 
@@ -119,8 +118,6 @@ struct kax_track_t {
     , type(' ')
     , sub_type(' ')
     , passthrough(false)
-    , min_cache(0)
-    , max_cache(0)
     , max_blockadd_id(0)
     , lacing_flag(true)
     , default_duration(0)
@@ -150,21 +147,18 @@ struct kax_track_t {
     , v_field_order{-1}
     , v_stereo_mode(stereo_mode_c::unspecified)
     , v_frate(0.0)
-    , v_bframes(false)
     , a_channels(0)
     , a_bps(0)
     , a_formattag(0)
     , a_sfreq(8000.0)
     , a_osfreq(0.0)
-    , private_data(nullptr)
-    , private_size(0)
     , default_track(true)
     , forced_track(boost::logic::indeterminate)
     , enabled_track(true)
     , language("eng")
     , units_processed(0)
     , ok(false)
-    , previous_timecode(0)
+    , previous_timestamp(0)
     , tags(nullptr)
     , ptzr(-1)
     , ptzr_ptr(nullptr)
@@ -177,7 +171,6 @@ struct kax_track_t {
   }
 
   ~kax_track_t() {
-    safefree(private_data);
     if (tags)
       delete tags;
   }
@@ -189,6 +182,8 @@ struct kax_track_t {
   void handle_packetizer_stereo_mode();
   void handle_packetizer_pixel_dimensions();
   void handle_packetizer_default_duration();
+  void handle_packetizer_output_sampling_freq();
+  void handle_packetizer_codec_delay();
   void fix_display_dimension_parameters();
   void add_track_tags_to_identification(mtx::id::info_c &info);
   void discard_track_statistics_tags();
@@ -209,6 +204,7 @@ private:
 
   std::vector<kax_track_cptr> m_tracks;
   std::map<generic_packetizer_c *, kax_track_t *> m_ptzr_to_track_map;
+  std::unordered_map<uint64_t, timestamp_c> m_minimum_timestamps_by_track_number;
 
   int64_t m_tc_scale;
 
@@ -216,7 +212,7 @@ private:
 
   std::shared_ptr<EbmlStream> m_es;
 
-  int64_t m_segment_duration, m_last_timecode, m_first_timecode;
+  int64_t m_segment_duration, m_last_timestamp, m_first_timestamp, m_global_timestamp_offset;
   std::string m_title;
 
   using deferred_positions_t = std::map<deferred_l1_type_e, std::vector<int64_t> >;
@@ -224,7 +220,7 @@ private:
 
   std::string m_writing_app, m_raw_writing_app, m_muxing_app;
   int64_t m_writing_app_ver;
-  std::time_t m_muxing_date_epoch{};
+  boost::optional<std::time_t> m_muxing_date_epoch;
 
   memory_cptr m_segment_uid, m_next_segment_uid, m_previous_segment_uid;
 
@@ -240,8 +236,8 @@ public:
   kax_reader_c(const track_info_c &ti, const mm_io_cptr &in);
   virtual ~kax_reader_c();
 
-  virtual file_type_e get_format_type() const {
-    return FILE_TYPE_MATROSKA;
+  virtual mtx::file_type_e get_format_type() const {
+    return mtx::file_type_e::matroska;
   }
 
   virtual void read_headers();
@@ -265,6 +261,7 @@ protected:
   virtual kax_track_t *find_track_by_uid(uint64_t uid, kax_track_t *c = nullptr);
 
   virtual bool verify_acm_audio_track(kax_track_t *t);
+  virtual bool verify_ac3_audio_track(kax_track_t *t);
   virtual bool verify_alac_audio_track(kax_track_t *t);
   virtual bool verify_dts_audio_track(kax_track_t *t);
   virtual bool verify_flac_audio_track(kax_track_t *t);
@@ -275,6 +272,8 @@ protected:
   virtual bool verify_mscomp_video_track(kax_track_t *t);
   virtual bool verify_theora_video_track(kax_track_t *t);
   virtual void verify_video_track(kax_track_t *t);
+  virtual bool verify_dvb_subtitle_track(kax_track_t *t);
+  virtual bool verify_hdmv_textst_subtitle_track(kax_track_t *t);
   virtual bool verify_kate_subtitle_track(kax_track_t *t);
   virtual bool verify_vobsub_subtitle_track(kax_track_t *t);
   virtual void verify_subtitle_track(kax_track_t *t);
@@ -314,8 +313,8 @@ protected:
   virtual void create_wavpack_audio_packetizer(kax_track_t *t, track_info_c &nti);
 
   virtual void create_vc1_video_packetizer(kax_track_t *t, track_info_c &nti);
-  virtual void create_mpeg4_p10_video_packetizer(kax_track_t *t, track_info_c &nti);
-  virtual void create_mpeg4_p10_es_video_packetizer(kax_track_t *t, track_info_c &nti);
+  virtual void create_avc_video_packetizer(kax_track_t *t, track_info_c &nti);
+  virtual void create_avc_es_video_packetizer(kax_track_t *t, track_info_c &nti);
 
   virtual void read_headers_info(mm_io_c *io, EbmlElement *l0, int64_t position);
   virtual void read_headers_info_writing_app(KaxWritingApp *&kwriting_app);
@@ -333,7 +332,6 @@ protected:
   void init_l1_position_storage(deferred_positions_t &storage);
   virtual bool has_deferred_element_been_processed(deferred_l1_type_e type, int64_t position);
 
-  virtual std::unordered_map<uint64_t, timestamp_c> determine_minimum_timestamps();
+  virtual void determine_minimum_timestamps();
+  virtual void determine_global_timestamp_offset_to_apply();
 };
-
-#endif  // MTX_INPUT_R_MATROSKA_H

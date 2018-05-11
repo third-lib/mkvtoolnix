@@ -1,5 +1,4 @@
-#ifndef MTX_MKVTOOLNIX_GUI_CHAPTER_EDITOR_TOOL_H
-#define MTX_MKVTOOLNIX_GUI_CHAPTER_EDITOR_TOOL_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -33,6 +32,7 @@ public:
 
   virtual void setupUi() override;
   virtual void setupActions() override;
+  virtual std::pair<QString, QString> nextPreviousWindowActionTexts() const override;
 
 public slots:
   virtual void retranslateUi();
@@ -44,6 +44,7 @@ public slots:
   virtual void save();
   virtual void saveAsXml();
   virtual void saveToMatroska();
+  virtual void saveAllTabs();
   virtual bool closeTab(int index);
   virtual void closeCurrentTab();
   virtual void closeSendingTab();
@@ -56,11 +57,12 @@ public slots:
   virtual void removeChaptersFromExistingMatroskaFile();
 
 protected:
-  Tab * appendTab(Tab *tab);
+  virtual Tab *appendTab(Tab *tab);
+  virtual Tab *currentTab();
+  virtual void forEachTab(std::function<void(Tab &)> const &worker);
 
   virtual void openFile(QString const &fileName);
   virtual void showChapterEditorsWidget();
-  virtual Tab *currentTab();
 
   virtual void dragEnterEvent(QDragEnterEvent *event) override;
   virtual void dropEvent(QDropEvent *event) override;
@@ -70,5 +72,3 @@ public:
 };
 
 }}}
-
-#endif // MTX_MKVTOOLNIX_GUI_CHAPTER_EDITOR_TOOL_H

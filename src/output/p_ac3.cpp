@@ -28,13 +28,12 @@ ac3_packetizer_c::ac3_packetizer_c(generic_reader_c *p_reader,
                                    track_info_c &p_ti,
                                    int samples_per_sec,
                                    int channels,
-                                   int bsid,
-                                   bool framed)
+                                   int bsid)
   : generic_packetizer_c(p_reader, p_ti)
   , m_timestamp_calculator{samples_per_sec}
   , m_samples_per_packet{1536}
   , m_packet_duration{m_timestamp_calculator.get_duration(m_samples_per_packet).to_ns()}
-  , m_framed{framed}
+  , m_stream_position{}
   , m_first_packet{true}
 {
   m_first_ac3_header.m_sample_rate = samples_per_sec;
@@ -48,12 +47,14 @@ ac3_packetizer_c::ac3_packetizer_c(generic_reader_c *p_reader,
 ac3_packetizer_c::~ac3_packetizer_c() {
 }
 
-ac3::frame_c
+mtx::ac3::frame_c
 ac3_packetizer_c::get_frame() {
-  ac3::frame_c frame = m_parser.get_frame();
+  mtx::ac3::frame_c frame = m_parser.get_frame();
 
   if (0 == frame.m_garbage_size)
     return frame;
+
+  m_timestamp_calculator.drop_timestamps_before_position(frame.m_stream_position);
 
   bool warning_printed = false;
   if (m_first_packet) {
@@ -73,11 +74,11 @@ ac3_packetizer_c::get_frame() {
 
   if (!warning_printed) {
     auto bytes = frame.m_garbage_size;
-    m_packet_extensions.push_back(std::make_shared<before_adding_to_cluster_cb_packet_extension_c>([this, bytes](packet_cptr const &packet, int64_t timecode_offset) {
+    m_packet_extensions.push_back(std::make_shared<before_adding_to_cluster_cb_packet_extension_c>([this, bytes](packet_cptr const &packet, int64_t timestamp_offset) {
       mxwarn_tid(m_ti.m_fname, m_ti.m_id,
                  boost::format("%1% %2%\n")
-                 % (boost::format(NY("This audio track contains %1% byte of invalid data which was skipped before timecode %2%.",
-                                     "This audio track contains %1% bytes of invalid data which were skipped before timecode %2%.", bytes)) % bytes % format_timestamp(packet->assigned_timecode - timecode_offset))
+                 % (boost::format(NY("This audio track contains %1% byte of invalid data which was skipped before timestamp %2%.",
+                                     "This audio track contains %1% bytes of invalid data which were skipped before timestamp %2%.", bytes)) % bytes % format_timestamp(packet->assigned_timestamp - timestamp_offset))
                  % Y("The audio/video synchronization may have been lost."));
     }));
   }
@@ -105,14 +106,10 @@ ac3_packetizer_c::set_headers() {
 
 int
 ac3_packetizer_c::process(packet_cptr packet) {
-  // if (packet->has_timecode())
-  //   mxinfo(boost::format("tc %1% %2% %3% %4%\n") % format_timestamp(packet->timecode) % to_hex(packet->data->get_buffer(), std::min<size_t>(packet->data->get_size(), 16))
-  //          % mtx::checksum::calculate_as_uint(mtx::checksum::adler32, packet->data->get_buffer(), std::min<size_t>(packet->data->get_size(), 512)) % packet->data->get_size());
+  // mxinfo(boost::format("tc %1% size %2%\n") % format_timestamp(packet->timestamp) % packet->data->get_size());
 
-  m_timestamp_calculator.add_timecode(packet);
-
-  if (m_framed)
-    return process_framed(packet);
+  m_timestamp_calculator.add_timestamp(packet, m_stream_position);
+  m_stream_position += packet->data->get_size();
 
   add_to_buffer(packet->data->get_buffer(), packet->data->get_size());
 
@@ -121,27 +118,14 @@ ac3_packetizer_c::process(packet_cptr packet) {
   return FILE_STATUS_MOREDATA;
 }
 
-int
-ac3_packetizer_c::process_framed(packet_cptr const &packet) {
-  if (m_first_packet) {
-    m_parser.add_bytes(packet->data);
-    m_parser.flush();
-    if (m_parser.frame_available())
-      adjust_header_values(get_frame());
-  }
-
-  set_timecode_and_add_packet(packet);
-
-  return FILE_STATUS_MOREDATA;
-}
-
 void
-ac3_packetizer_c::set_timecode_and_add_packet(packet_cptr const &packet) {
-  // mxinfo(boost::format(" →                    %1% %2% %3%\n") % to_hex(packet->data->get_buffer(), std::min<size_t>(packet->data->get_size(), 16))
-  //        % mtx::checksum::calculate_as_uint(mtx::checksum::adler32, packet->data->get_buffer(), std::min<size_t>(packet->data->get_size(), 512)) % packet->data->get_size());
+ac3_packetizer_c::set_timestamp_and_add_packet(packet_cptr const &packet,
+                                              uint64_t packet_stream_position) {
+  packet->timestamp = m_timestamp_calculator.get_next_timestamp(m_samples_per_packet, packet_stream_position).to_ns();
+  packet->duration  = m_packet_duration;
 
-  packet->timecode = m_timestamp_calculator.get_next_timecode(m_samples_per_packet).to_ns();
-  packet->duration = m_packet_duration;
+  // if (packet_stream_position)
+  //   mxinfo(boost::format("  ts %1% position in %2% out %3%\n") % format_timestamp(packet->timestamp) % format_number(m_stream_position) % format_number(*packet_stream_position));
 
   add_packet(packet);
 
@@ -156,9 +140,6 @@ ac3_packetizer_c::add_to_buffer(unsigned char *const buf,
 
 void
 ac3_packetizer_c::flush_impl() {
-  if (m_framed)
-    return;
-
   m_parser.flush();
   flush_packets();
 }
@@ -172,14 +153,14 @@ ac3_packetizer_c::flush_packets() {
     auto packet = std::make_shared<packet_t>(frame.m_data);
     packet->add_extensions(m_packet_extensions);
 
-    set_timecode_and_add_packet(packet);
+    set_timestamp_and_add_packet(packet, frame.m_stream_position);
 
     m_packet_extensions.clear();
   }
 }
 
 void
-ac3_packetizer_c::adjust_header_values(ac3::frame_c const &ac3_header) {
+ac3_packetizer_c::adjust_header_values(mtx::ac3::frame_c const &ac3_header) {
   if (!m_first_packet)
     return;
 

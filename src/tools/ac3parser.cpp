@@ -11,11 +11,11 @@
 #include "common/common_pch.h"
 
 #include "common/ac3.h"
-#include "common/bit_cursor.h"
 #include "common/byte_buffer.h"
 #include "common/checksums/base.h"
-#include "common/common_pch.h"
+#include "common/command_line.h"
 #include "common/endian.h"
+#include "common/mm_io_x.h"
 #include "common/translation.h"
 
 static bool g_opt_checksum      = false;
@@ -61,7 +61,7 @@ parse_args(std::vector<std::string> &args) {
       g_opt_frame_headers = true;
 
     else if (!file_name.empty())
-      mxerror(Y("More than one input file given\n"));
+      mxerror(Y("More than one source was file given.\n"));
 
     else
       file_name = arg;
@@ -86,7 +86,7 @@ parse_file(const std::string &file_name) {
   memory_cptr mem    = memory_c::alloc(buf_size);
   unsigned char *ptr = mem->get_buffer();
 
-  ac3::parser_c parser;
+  mtx::ac3::parser_c parser;
 
   size_t num_read;
   do {
@@ -97,8 +97,8 @@ parse_file(const std::string &file_name) {
       parser.flush();
 
     while (parser.frame_available()) {
-      ac3::frame_c frame = parser.get_frame();
-      std::string output = frame.to_string(g_opt_frame_headers);
+      auto frame  = parser.get_frame();
+      auto output = frame.to_string(g_opt_frame_headers);
 
       if (g_opt_checksum) {
         uint32_t adler32  = mtx::checksum::calculate_as_uint(mtx::checksum::algorithm_e::adler32, *frame.m_data);
@@ -116,7 +116,7 @@ main(int argc,
      char **argv) {
   mtx_common_init("ac3parser", argv[0]);
 
-  std::vector<std::string> args = command_line_utf8(argc, argv);
+  std::vector<std::string> args = mtx::cli::args_in_utf8(argc, argv);
   std::string file_name         = parse_args(args);
 
   try {

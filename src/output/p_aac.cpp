@@ -16,57 +16,94 @@
 #include "common/aac.h"
 #include "common/codec.h"
 #include "merge/connection_checks.h"
+#include "merge/output_control.h"
 #include "output/p_aac.h"
 
 using namespace libmatroska;
 
 aac_packetizer_c::aac_packetizer_c(generic_reader_c *p_reader,
                                    track_info_c &p_ti,
-                                   int profile,
-                                   int samples_per_sec,
-                                   int channels,
-                                   bool headerless)
+                                   mtx::aac::audio_config_t const &config,
+                                   mode_e mode)
   : generic_packetizer_c(p_reader, p_ti)
-  , m_samples_per_sec(samples_per_sec)
-  , m_channels(channels)
-  , m_profile(profile)
-  , m_headerless(headerless)
-  , m_timestamp_calculator{static_cast<int64_t>(m_samples_per_sec)}
-  , m_packet_duration{m_timestamp_calculator.get_duration(ms_samples_per_packet).to_ns()}
+  , m_config(config)            // Due to a bug in gcc 4.9.x with (…) instead of {…}.
+  , m_mode{mode}
+  , m_timestamp_calculator{static_cast<int64_t>(config.sample_rate)}
+  , m_packet_duration{}
+  , m_first_packet{true}
 {
   set_track_type(track_audio);
-  set_track_default_duration(m_packet_duration);
+
+  if (m_ti.m_private_data && (0 < m_ti.m_private_data->get_size())) {
+    auto parsed_config = mtx::aac::parse_audio_specific_config(m_ti.m_private_data->get_buffer(), m_ti.m_private_data->get_size());
+    if (parsed_config)
+      m_config = *parsed_config;
+  }
+
+  if (!m_config.samples_per_frame)
+    m_config.samples_per_frame = 1024;
+
+  m_packet_duration = m_timestamp_calculator.get_duration(m_config.samples_per_frame).to_ns();
 }
 
 aac_packetizer_c::~aac_packetizer_c() {
 }
 
 void
+aac_packetizer_c::handle_parsed_audio_config() {
+  if (!m_first_packet)
+    return;
+
+  m_first_packet  = false;
+  auto raw_config = m_parser.get_audio_specific_config();
+
+  if (!raw_config)
+    return;
+
+  auto parsed_config = mtx::aac::parse_audio_specific_config(raw_config->get_buffer(), raw_config->get_size());
+
+  if (!parsed_config || (parsed_config->samples_per_frame == m_config.samples_per_frame))
+    return;
+
+  m_config.samples_per_frame = parsed_config->samples_per_frame;
+  m_ti.m_private_data        = raw_config;
+  m_packet_duration          = m_timestamp_calculator.get_duration(m_config.samples_per_frame).to_ns();
+
+  set_headers();
+
+  rerender_track_headers();
+}
+
+void
 aac_packetizer_c::set_headers() {
   set_codec_id(MKV_A_AAC);
-  set_audio_sampling_freq((float)m_samples_per_sec);
-  set_audio_channels(m_channels);
+  set_audio_sampling_freq(m_config.sample_rate);
+  set_audio_channels(m_config.channels);
+  set_track_default_duration(m_packet_duration);
+
+  if (m_config.sbr || (m_config.profile == AAC_PROFILE_SBR)) {
+    m_config.profile            = AAC_PROFILE_LC;
+    m_config.sbr                = true;
+    m_config.output_sample_rate = std::max<unsigned int>(m_config.sample_rate * 2, m_config.output_sample_rate);
+
+    set_audio_output_sampling_freq(m_config.output_sample_rate);
+  }
 
   if (m_ti.m_private_data && (0 < m_ti.m_private_data->get_size()))
     set_codec_private(m_ti.m_private_data);
 
-  else {
-    unsigned char buffer[5];
-    int length = aac::create_audio_specific_config(buffer,
-                                                   AAC_PROFILE_SBR == m_profile ? AAC_PROFILE_LC : m_profile,
-                                                   m_channels, m_samples_per_sec,
-                                                   AAC_PROFILE_SBR == m_profile ? m_samples_per_sec * 2 : m_samples_per_sec,
-                                                   AAC_PROFILE_SBR == m_profile);
-    set_codec_private(memory_c::clone(buffer, length));
-  }
+  else
+    set_codec_private(mtx::aac::create_audio_specific_config(m_config));
 
   generic_packetizer_c::set_headers();
 }
 
 int
 aac_packetizer_c::process_headerless(packet_cptr packet) {
-  packet->timecode = m_timestamp_calculator.get_next_timecode(ms_samples_per_packet).to_ns();
-  packet->duration = m_packet_duration;
+  handle_parsed_audio_config();
+
+  packet->timestamp = m_timestamp_calculator.get_next_timestamp(m_config.samples_per_frame).to_ns();
+  packet->duration  = m_packet_duration;
 
   add_packet(packet);
 
@@ -75,9 +112,9 @@ aac_packetizer_c::process_headerless(packet_cptr packet) {
 
 int
 aac_packetizer_c::process(packet_cptr packet) {
-  m_timestamp_calculator.add_timecode(packet);
+  m_timestamp_calculator.add_timestamp(packet);
 
-  if (m_headerless)
+  if (m_mode == mode_e::headerless)
     return process_headerless(packet);
 
   m_parser.add_bytes(packet->data);
@@ -104,10 +141,10 @@ aac_packetizer_c::can_connect_to(generic_packetizer_c *src,
   if (!asrc)
     return CAN_CONNECT_NO_FORMAT;
 
-  connect_check_a_samplerate(m_samples_per_sec, asrc->m_samples_per_sec);
-  connect_check_a_channels(m_channels, asrc->m_channels);
-  if (m_profile != asrc->m_profile) {
-    error_message = (boost::format(Y("The AAC profiles are different: %1% and %2%")) % m_profile % asrc->m_profile).str();
+  connect_check_a_samplerate(m_config.sample_rate, asrc->m_config.sample_rate);
+  connect_check_a_channels(m_config.channels, asrc->m_config.channels);
+  if (m_config.profile != asrc->m_config.profile) {
+    error_message = (boost::format(Y("The AAC profiles are different: %1% and %2%")) % m_config.profile % asrc->m_config.profile).str();
     return CAN_CONNECT_NO_PARAMETERS;
   }
 

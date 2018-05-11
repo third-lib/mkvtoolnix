@@ -11,8 +11,7 @@
    Written by Moritz Bunkus <moritz@bunkus.org>.
 */
 
-#ifndef MTX_COMMON_STRING_PARSING_H
-#define MTX_COMMON_STRING_PARSING_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -20,7 +19,6 @@
 
 #include <boost/lexical_cast.hpp>
 
-#include "common/at_scope_exit.h"
 #include "common/math.h"
 #include "common/strings/editing.h"
 #include "common/timestamp.h"
@@ -140,12 +138,10 @@ parse_property_to_value(std::string const &s,
 
 bool parse_duration_number_with_unit(const std::string &s, int64_t &value);
 
-extern std::string timecode_parser_error;
-extern bool parse_timecode(const std::string &s, int64_t &timecode, bool allow_negative = false);
-extern bool parse_timecode(const std::string &s, timestamp_c &timecode, bool allow_negative = false);
+extern std::string timestamp_parser_error;
+extern bool parse_timestamp(const std::string &s, int64_t &timestamp, bool allow_negative = false);
+extern bool parse_timestamp(const std::string &s, timestamp_c &timestamp, bool allow_negative = false);
 
 bool parse_bool(std::string value);
 
 uint64_t from_hex(const std::string &data);
-
-#endif  // MTX_COMMON_STRING_PARSING_H

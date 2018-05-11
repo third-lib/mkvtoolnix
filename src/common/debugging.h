@@ -11,8 +11,7 @@
    Written by Moritz Bunkus <moritz@bunkus.org>.
 */
 
-#ifndef MTX_COMMON_DEBUGGING_H
-#define MTX_COMMON_DEBUGGING_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -79,10 +78,19 @@ public:
   }
 
   operator bool() const {
+    return ms_registered_options.at(get_idx()).get();
+  }
+
+  void set(boost::tribool requested) {
+    ms_registered_options.at(get_idx()).m_requested = requested;
+  }
+
+protected:
+  std::size_t get_idx() const {
     if (m_registered_idx == std::numeric_limits<size_t>::max())
       m_registered_idx = register_option(m_option);
 
-    return ms_registered_options.at(m_registered_idx).get();
+    return m_registered_idx;
   }
 
 public:
@@ -90,7 +98,7 @@ public:
   static void invalidate_cache();
 };
 
-#define mxdebug(msg) debugging_c::output((boost::format("Debug> %1%:%2%: %3%") % __FILE__ % __LINE__ % (msg)).str())
+#define mxdebug(msg) debugging_c::output((boost::format("Debug> %1%:%|2$04d|: %3%") % __FILE__ % __LINE__ % (msg)).str())
 
 #define mxdebug_if(condition, msg) \
   if (condition) {                 \
@@ -148,5 +156,3 @@ private:
 };
 
 void dump_ebml_elements(libebml::EbmlElement *element, bool with_values = false);
-
-#endif  // MTX_COMMON_DEBUGGING_H

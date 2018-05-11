@@ -1,9 +1,8 @@
-#ifndef MTX_MKVTOOLNIX_GUI_UTIL_JSON_H
-#define MTX_MKVTOOLNIX_GUI_UTIL_JSON_H
+#pragma once
 
 #include "common/common_pch.h"
 
-#include "nlohmann-json/src/json.hpp"
+#include "common/json.h"
 
 class QVariant;
 
@@ -13,5 +12,3 @@ QVariant nlohmannJsonToVariant(nlohmann::json const &json);
 nlohmann::json variantToNlohmannJson(QVariant const &variant);
 
 }}}
-
-#endif  // MTX_MKVTOOLNIX_GUI_UTIL_JSON_H

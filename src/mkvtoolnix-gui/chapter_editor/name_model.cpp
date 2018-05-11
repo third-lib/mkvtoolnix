@@ -80,7 +80,7 @@ NameModel::addNew() {
   auto &cfg     = Util::Settings::get();
   auto display = new KaxChapterDisplay;
 
-  GetChild<KaxChapterString>(display).SetValueUTF8(Y("<unnamed>"));
+  GetChild<KaxChapterString>(display).SetValueUTF8(Y("<Unnamed>"));
   GetChild<KaxChapterLanguage>(display).SetValue(to_utf8(cfg.m_defaultChapterLanguage));
   GetChild<KaxChapterCountry>(display).SetValue(to_utf8(cfg.m_defaultChapterCountry));
 
@@ -181,7 +181,11 @@ NameModel::dropMimeData(QMimeData const *data,
     return false;
 
   auto isInside = (-1 == row) && (-1 == column);
-  return QStandardItemModel::dropMimeData(data, action, isInside ? -1 : row, isInside ? -1 : 0, parent.sibling(parent.row(), 0));
+  auto result   = QStandardItemModel::dropMimeData(data, action, isInside ? -1 : row, isInside ? -1 : 0, parent.sibling(parent.row(), 0));
+
+  Util::requestAllItems(*this);
+
+  return result;
 }
 
 }}}

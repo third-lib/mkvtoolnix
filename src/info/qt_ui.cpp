@@ -33,18 +33,6 @@
 #include <QMouseEvent>
 #include <QFileDialog>
 
-#if defined(HAVE_STATIC_QT)
-# if defined(SYS_APPLE)
-#  include <QtPlugin>
-Q_IMPORT_PLUGIN(QCocoaIntegrationPlugin);
-
-# elif defined(SYS_WINDOWS)
-#  include <QtPlugin>
-Q_IMPORT_PLUGIN(QWindowsIntegrationPlugin);
-
-# endif  // SYS_APPLE, SYS_WINDOWS
-#endif   // HAVE_STATIC_QT
-
 using namespace libebml;
 using namespace libmatroska;
 
@@ -301,11 +289,7 @@ rightclick_tree_widget::mousePressEvent(QMouseEvent *event) {
 
   QTreeWidgetItem *item = itemAt(event->pos());
   if (item) {
-#if QT_VERSION >= 0x040200
     gui->expand_all_elements(item, !item->isExpanded());
-#else   // QT_VERSION >= 0x040200
-    gui->expand_all_elements(item, !item->treeWidget()->isItemExpanded(item));
-#endif  // QT_VERSION >= 0x040200
   }
 }
 
@@ -346,6 +330,15 @@ ui_run(int argc,
 #endif
 
   QApplication app(argc, argv);
+
+  QCoreApplication::setOrganizationName("bunkus.org");
+  QCoreApplication::setOrganizationDomain("bunkus.org");
+  QCoreApplication::setApplicationName("mkvinfo");
+
+#ifdef SYS_WINDOWS
+  QApplication::setStyle(Q("windowsvista"));
+#endif
+
   main_window_c main_window;
   gui = &main_window;
   main_window.show();

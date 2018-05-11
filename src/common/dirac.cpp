@@ -14,9 +14,10 @@
 
 #include "common/common_pch.h"
 
-#include "common/bit_cursor.h"
+#include "common/bit_reader.h"
 #include "common/dirac.h"
 #include "common/endian.h"
+#include "common/memory_slice_cursor.h"
 
 #define MAX_STANDARD_VIDEO_FORMAT 23
 
@@ -25,22 +26,22 @@ dirac::sequence_header_t::sequence_header_t() {
 }
 
 dirac::frame_t::frame_t()
-  : timecode(-1)
-  , duration(0)
-  , contains_sequence_header(false)
+  : timestamp{-1}
+  , duration{}
+  , contains_sequence_header{}
 {
 }
 
 void
 dirac::frame_t::init() {
   data.reset();
-  timecode                 = -1;
+  timestamp                = -1;
   duration                 = 0;
   contains_sequence_header = false;
 }
 
 static unsigned int
-read_uint(bit_reader_c &bc) {
+read_uint(mtx::bits::reader_c &bc) {
   int count          = 0;
   unsigned int value = 0;
 
@@ -123,7 +124,7 @@ dirac::parse_sequence_header(const unsigned char *buf,
   };
 
   try {
-    bit_reader_c bc(buf, size);
+    mtx::bits::reader_c bc(buf, size);
     dirac::sequence_header_t hdr;
 
     bc.skip_bits((4 + 1 + 4 + 4) * 8); // Marker, type, next offset, previous offset
@@ -208,13 +209,13 @@ dirac::parse_sequence_header(const unsigned char *buf,
 //
 
 dirac::es_parser_c::es_parser_c()
-  : m_stream_pos(0)
-  , m_seqhdr_found(false)
-  , m_previous_timecode(0)
-  , m_num_timecodes(0)
-  , m_num_repeated_fields(0)
-  , m_default_duration_forced(false)
-  , m_default_duration(1000000000ll / 25)
+  : m_stream_pos{}
+  , m_seqhdr_found{}
+  , m_previous_timestamp{}
+  , m_num_timestamps{}
+  , m_num_repeated_fields{}
+  , m_default_duration_forced{}
+  , m_default_duration{1000000000ll / 25}
 {
 }
 
@@ -224,7 +225,7 @@ dirac::es_parser_c::~es_parser_c() {
 void
 dirac::es_parser_c::add_bytes(unsigned char *buffer,
                               size_t size) {
-  memory_slice_cursor_c cursor;
+  mtx::mem::slice_cursor_c cursor;
 
   bool previous_found         = false;
   size_t previous_pos         = 0;
@@ -385,8 +386,8 @@ dirac::es_parser_c::flush_frame() {
   if (!m_pre_frame_extra_data.empty() || !m_post_frame_extra_data.empty())
     combine_extra_data_with_packet();
 
-  m_current_frame->timecode = get_next_timecode();
-  m_current_frame->duration = get_default_duration();
+  m_current_frame->timestamp = get_next_timestamp();
+  m_current_frame->duration  = get_default_duration();
 
   m_frames.push_back(m_current_frame);
 
@@ -428,21 +429,21 @@ dirac::es_parser_c::combine_extra_data_with_packet() {
 }
 
 int64_t
-dirac::es_parser_c::get_next_timecode() {
-  if (!m_timecodes.empty()) {
-    m_previous_timecode   = m_timecodes.front();
-    m_num_timecodes       = 0;
-    m_timecodes.pop_front();
+dirac::es_parser_c::get_next_timestamp() {
+  if (!m_timestamps.empty()) {
+    m_previous_timestamp   = m_timestamps.front();
+    m_num_timestamps       = 0;
+    m_timestamps.pop_front();
   }
 
-  ++m_num_timecodes;
+  ++m_num_timestamps;
 
-  return m_previous_timecode + (m_num_timecodes - 1) * m_default_duration;
+  return m_previous_timestamp + (m_num_timestamps - 1) * m_default_duration;
 }
 
 int64_t
-dirac::es_parser_c::peek_next_calculated_timecode() {
-  return m_previous_timecode + m_num_timecodes * m_default_duration;
+dirac::es_parser_c::peek_next_calculated_timestamp() {
+  return m_previous_timestamp + m_num_timestamps * m_default_duration;
 }
 
 void

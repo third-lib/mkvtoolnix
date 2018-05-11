@@ -8,8 +8,7 @@
    Written by Moritz Bunkus <moritz@bunkus.org>.
 */
 
-#ifndef MTX_PROPEDIT_TRACK_TARGET_H
-#define MTX_PROPEDIT_TRACK_TARGET_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -39,6 +38,7 @@ public:
   virtual ~track_target_c() override;
 
   virtual void validate() override;
+  virtual void look_up_property_elements();
 
   virtual void add_change(change_c::change_type_e type, const std::string &spec) override;
   virtual void parse_spec(std::string const &spec);
@@ -60,5 +60,3 @@ protected:
   virtual bool sub_master_is_track() const;
   virtual bool requires_sub_master() const;
 };
-
-#endif // MTX_PROPEDIT_TRACK_TARGET_H

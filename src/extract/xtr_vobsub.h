@@ -10,8 +10,7 @@
    Written by Moritz Bunkus <moritz@bunkus.org>.
 */
 
-#ifndef MTX_XTR_VOBSUB_H
-#define MTX_XTR_VOBSUB_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -20,7 +19,7 @@
 
 class xtr_vobsub_c: public xtr_base_c {
 public:
-  std::vector<int64_t> m_positions, m_timecodes;
+  std::vector<int64_t> m_positions, m_timestamps;
   std::vector<xtr_vobsub_c *> m_slaves;
   memory_cptr m_private_data;
   bfs::path m_idx_file_name, m_sub_file_name;
@@ -43,5 +42,3 @@ public:
 protected:
   void fix_spu_duration(memory_c &buffer, timestamp_c const &duration) const;
 };
-
-#endif

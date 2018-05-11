@@ -11,20 +11,20 @@
   Written by Moritz Bunkus <moritz@bunkus.org>.
 */
 
-#ifndef MTX_COMMON_CLPI_COMMON_H
-#define MTX_COMMON_CLPI_COMMON_H
+#pragma once
 
 #include "common/common_pch.h"
 
-#include <vector>
-
-#include "common/bit_cursor.h"
+namespace mtx { namespace bits {
+class reader_c;
+}}
 
 #define CLPI_FILE_MAGIC   FOURCC('H', 'D', 'M', 'V')
 #define CLPI_FILE_MAGIC2A FOURCC('0', '2', '0', '0')
 #define CLPI_FILE_MAGIC2B FOURCC('0', '1', '0', '0')
+#define CLPI_FILE_MAGIC2C FOURCC('0', '3', '0', '0')
 
-namespace clpi {
+namespace mtx { namespace bluray { namespace clpi {
   struct program_stream_t {
     uint16_t pid;
     unsigned char coding_type;
@@ -77,11 +77,10 @@ namespace clpi {
     virtual void dump();
 
   protected:
-    virtual void parse_header(bit_reader_cptr &bc);
-    virtual void parse_program_info(bit_reader_cptr &bc);
-    virtual void parse_program_stream(bit_reader_cptr &bc, program_cptr &program);
+    virtual void parse_header(mtx::bits::reader_c &bc);
+    virtual void parse_program_info(mtx::bits::reader_c &bc);
+    virtual void parse_program_stream(mtx::bits::reader_c &bc, program_cptr &program);
   };
   using parser_cptr = std::shared_ptr<parser_c>;
 
-};
-#endif // MTX_COMMON_CLPI_COMMON_H
+}}}                             // namespace mtx::bluray::clpi

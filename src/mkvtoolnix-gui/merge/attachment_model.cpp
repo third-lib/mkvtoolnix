@@ -48,10 +48,12 @@ AttachmentModel::setRowData(QList<QStandardItem *> const &items,
   items[NameColumn       ]->setText(attachment.m_name);
   items[MIMETypeColumn   ]->setText(attachment.m_MIMEType);
   items[DescriptionColumn]->setText(attachment.m_description);
-  items[StyleColumn      ]->setText(attachment.m_style == Attachment::ToAllFiles ? QY("to all output files") : QY("only to the first output file"));
+  items[StyleColumn      ]->setText(attachment.m_style == Attachment::ToAllFiles ? QY("To all destination files") : QY("Only to the first destination file"));
   items[SourceFileColumn ]->setText(info.fileName());
   items[SourceDirColumn  ]->setText(QDir::toNativeSeparators(info.path()));
   items[SizeColumn       ]->setText(size);
+
+  items[SizeColumn       ]->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
 }
 
 void
@@ -59,12 +61,14 @@ AttachmentModel::retranslateUi() {
   Util::setDisplayableAndSymbolicColumnNames(*this, {
     { QY("Name"),             Q("name")           },
     { QY("MIME type"),        Q("mimeType")       },
-    { QY("Description"),      Q("description")    },
     { QY("Attach to"),        Q("attachTo")       },
+    { QY("Description"),      Q("description")    },
     { QY("Source file name"), Q("sourceFileName") },
     { QY("Directory"),        Q("directory")      },
     { QY("Size"),             Q("size")           },
   });
+
+  horizontalHeaderItem(SizeColumn)->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
 
   for (auto row = 0, numRows = rowCount(); row < numRows; ++row)
     setRowData(itemsForRow(row), *attachmentForRow(row));
@@ -194,7 +198,11 @@ AttachmentModel::dropMimeData(QMimeData const *data,
   if (!ok)
     return false;
 
-  return QStandardItemModel::dropMimeData(data, action, row, 0, parent);
+  auto result = QStandardItemModel::dropMimeData(data, action, row, 0, parent);
+
+  Util::requestAllItems(*this);
+
+  return result;
 }
 
 Qt::ItemFlags

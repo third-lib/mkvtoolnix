@@ -116,8 +116,8 @@ coreaudio_reader_c::dump_headers()
           % (m_magic_cookie ? (boost::format("present, size %1%") % m_magic_cookie->get_size()).str() : std::string{"not present"})
           );
 
-  if (m_codec.is(codec_c::type_e::A_ALAC) && m_magic_cookie && (m_magic_cookie->get_size() >= sizeof(alac::codec_config_t))) {
-    auto cfg = reinterpret_cast<alac::codec_config_t *>(m_magic_cookie->get_buffer());
+  if (m_codec.is(codec_c::type_e::A_ALAC) && m_magic_cookie && (m_magic_cookie->get_size() >= sizeof(mtx::alac::codec_config_t))) {
+    auto cfg = reinterpret_cast<mtx::alac::codec_config_t *>(m_magic_cookie->get_buffer());
 
     mxdebug(boost::format("ALAC magic cookie dump:\n"
                           "  frame length:         %1%\n"
@@ -177,7 +177,7 @@ coreaudio_reader_c::read(generic_packetizer_c *,
     if (m_in->read(mem, m_current_packet->m_size) != m_current_packet->m_size)
       throw false;
 
-    PTZR0->process(new packet_t(mem, m_current_packet->m_timecode * m_frames_to_timecode, m_current_packet->m_duration * m_frames_to_timecode));
+    PTZR0->process(new packet_t(mem, m_current_packet->m_timestamp * m_frames_to_timestamp, m_current_packet->m_duration * m_frames_to_timestamp));
 
     ++m_current_packet;
 
@@ -225,7 +225,7 @@ coreaudio_chunk_itr
 coreaudio_reader_c::find_chunk(std::string const &type,
                                bool throw_on_error,
                                coreaudio_chunk_itr start) {
-  auto chunk = std::find_if(start, m_chunks.end(), [&](coreaudio_chunk_t const &chunk) { return chunk.m_type == type; });
+  auto chunk = std::find_if(start, m_chunks.end(), [&type](auto const &chunk) { return chunk.m_type == type; });
 
   if (throw_on_error && (chunk == m_chunks.end()))
     debug_error_and_throw(boost::format("Chunk type '%1%' not found") % type);
@@ -272,7 +272,7 @@ coreaudio_reader_c::parse_desc_chunk() {
 
   try {
     m_sample_rate = chunk.read_double();
-    m_frames_to_timecode.set(1000000000, m_sample_rate);
+    m_frames_to_timestamp.set(1000000000, m_sample_rate);
 
     if (4 != chunk.read(m_codec_name, 4)) {
       m_codec_name.clear();
@@ -309,7 +309,7 @@ coreaudio_reader_c::parse_pakt_chunk() {
                       + mem.read_uint32_be(); // remainder frames
     auto data_chunk   = find_chunk("data");
     auto position     = data_chunk->m_data_position + 4; // skip the "edit count" field
-    uint64_t timecode = 0;
+    uint64_t timestamp = 0;
 
     mxdebug_if(m_debug_headers, boost::format("Number of packets: %1%, number of frames: %2%\n") % num_packets % num_frames);
 
@@ -319,16 +319,16 @@ coreaudio_reader_c::parse_pakt_chunk() {
       packet.m_position  = position;
       packet.m_size      = m_bytes_per_packet  ? m_bytes_per_packet  : mem.read_mp4_descriptor_len();
       packet.m_duration  = m_frames_per_packet ? m_frames_per_packet : mem.read_mp4_descriptor_len();
-      packet.m_timecode  = timecode;
+      packet.m_timestamp  = timestamp;
       position          += packet.m_size;
-      timecode          += packet.m_duration;
+      timestamp          += packet.m_duration;
 
       m_packets.push_back(packet);
 
       mxdebug_if(m_debug_packets,
-                 boost::format("  %4%) position %1% size %2% raw duration %3% raw timecode %6% duration %7% timecode %8% position in 'pakt' %5%\n")
-                 % packet.m_position % packet.m_size % packet.m_duration % packet_num % mem.getFilePointer() % packet.m_timecode
-                 % format_timestamp(packet.m_duration * m_frames_to_timecode) % format_timestamp(packet.m_timecode * m_frames_to_timecode));
+                 boost::format("  %4%) position %1% size %2% raw duration %3% raw timestamp %6% duration %7% timestamp %8% position in 'pakt' %5%\n")
+                 % packet.m_position % packet.m_size % packet.m_duration % packet_num % mem.getFilePointer() % packet.m_timestamp
+                 % format_timestamp(packet.m_duration * m_frames_to_timestamp) % format_timestamp(packet.m_timestamp * m_frames_to_timestamp));
     }
 
     mxdebug_if(m_debug_headers, boost::format("Final value for 'position': %1% data chunk end: %2%\n") % position % (data_chunk->m_position + 12 + data_chunk->m_size));
@@ -357,8 +357,8 @@ coreaudio_reader_c::parse_kuki_chunk() {
 
 void
 coreaudio_reader_c::handle_alac_magic_cookie(memory_cptr chunk) {
-  if (chunk->get_size() < sizeof(alac::codec_config_t))
-    debug_error_and_throw(boost::format("Invalid ALAC magic cookie; size: %1% < %2%") % chunk->get_size() % sizeof(alac::codec_config_t));
+  if (chunk->get_size() < sizeof(mtx::alac::codec_config_t))
+    debug_error_and_throw(boost::format("Invalid ALAC magic cookie; size: %1% < %2%") % chunk->get_size() % sizeof(mtx::alac::codec_config_t));
 
   // Convert old-style magic cookie
   if (!memcmp(chunk->get_buffer() + 4, "frmaalac", 8)) {
@@ -367,12 +367,12 @@ coreaudio_reader_c::handle_alac_magic_cookie(memory_cptr chunk) {
     auto const old_style_min_size
       = 12                            // format atom
       + 12                            // ALAC specific info (size, ID, version, flags)
-      + sizeof(alac::codec_config_t); // the magic cookie itself
+      + sizeof(mtx::alac::codec_config_t); // the magic cookie itself
 
     if (chunk->get_size() < old_style_min_size)
       debug_error_and_throw(boost::format("Invalid old-style ALAC magic cookie; size: %1% < %2%") % chunk->get_size() % old_style_min_size);
 
-    m_magic_cookie = memory_c::clone(chunk->get_buffer() + 12 + 12, sizeof(alac::codec_config_t));
+    m_magic_cookie = memory_c::clone(chunk->get_buffer() + 12 + 12, sizeof(mtx::alac::codec_config_t));
 
   } else
     m_magic_cookie = chunk;

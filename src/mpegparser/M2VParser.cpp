@@ -111,7 +111,7 @@ M2VParser::M2VParser()
   mpgBuf = new MPEGVideoBuffer(BUFF_SIZE);
 
   notReachedFirstGOP = true;
-  previousTimecode = 0;
+  previousTimestamp = 0;
   previousDuration = 0;
   waitExpectedTime = 0;
   probing = false;
@@ -135,7 +135,7 @@ int32_t M2VParser::InitParser(){
   //Gotta find a sequence header now
   MPEGChunk* chunk;
   //MPEGChunk* seqHdrChunk;
-  for(size_t i = 0; i < chunks.size(); i++){
+  for (int i = 0, numChunks = chunks.size(); i < numChunks; i++){
     chunk = chunks[i];
     if(chunk->GetType() == MPEG_VIDEO_SEQUENCE_START_CODE){
       //Copy the header for later, we must copy because the actual chunk will be deleted in a bit
@@ -146,7 +146,7 @@ int32_t M2VParser::InitParser(){
 
       //Look for sequence extension to identify mpeg2
       binary* pData = chunk->GetPointer();
-      for(size_t j = 3; j < chunk->GetSize() - 4; j++){
+      for (int j = 3, chunkSize = chunk->GetSize() - 4; j < chunkSize; j++){
         if(pData[j] == 0x00 && pData[j+1] == 0x00 && pData[j+2] == 0x01 && pData[j+3] == 0xb5 && ((pData[j+4] & 0xF0) == 0x10)){
           mpegVersion = 2;
           break;
@@ -208,47 +208,47 @@ void M2VParser::FlushWaitQueue(){
   }
 
   waitQueue.clear();
-  m_timecodes.clear();
+  m_timestamps.clear();
 }
 
 void M2VParser::StampFrame(MPEGFrame* frame){
   MediaTime timeunit;
 
   timeunit = (MediaTime)(1000000000/(m_seqHdr.frameOrFieldRate*2));
-  if (m_timecodes.empty())
-    frame->timecode = previousTimecode + previousDuration;
+  if (m_timestamps.empty())
+    frame->timestamp = previousTimestamp + previousDuration;
   else {
-    frame->timecode = m_timecodes.front();
-    m_timecodes.pop_front();
+    frame->timestamp = m_timestamps.front();
+    m_timestamps.pop_front();
   }
-  previousTimecode = frame->timecode;
+  previousTimestamp = frame->timestamp;
   frame->duration = (MediaTime)(frame->duration * timeunit);
   previousDuration = frame->duration;
 
   frame->stamped = true;
-  frameTimecodes[frame->frameNumber] = frame->timecode;
+  frameTimestamps[frame->frameNumber] = frame->timestamp;
 
-  // update affected ref timecodes
+  // update affected ref timestamps
   for (int i = 0; i < 2; i++)
     if (refs[i].frameNumber == frame->frameNumber)
       TryUpdate(refs[i]);
 }
 
 void M2VParser::UpdateFrame(MPEGFrame* frame){
-  // derive ref timecodes
+  // derive ref timestamps
   for (int i = 0; i < 2; i++) {
     if (!frame->tmpRefs[i].HasFrameNumber())
       continue;
     TryUpdate(frame->tmpRefs[i]);
-    assert(frame->tmpRefs[i].HasTimecode()); // ensure the timecode indeed has been set (sometime before)
-    frame->refs[i] = frame->tmpRefs[i].timecode;
+    assert(frame->tmpRefs[i].HasTimestamp()); // ensure the timestamp indeed has been set (sometime before)
+    frame->refs[i] = frame->tmpRefs[i].timestamp;
   }
 }
 
 int32_t M2VParser::OrderFrame(MPEGFrame* frame){
   MPEGFrame *p = frame;
 
-  // mxinfo(boost::format("picStr %1% frame type %2% qt tc %3%\n") % p->timecode % static_cast<int>(p->pictureStructure) % p->frameType);
+  // mxinfo(boost::format("picStr %1% frame type %2% qt tc %3%\n") % p->timestamp % static_cast<int>(p->pictureStructure) % p->frameType);
 
   if (waitSecondField && (p->pictureStructure == MPEG2_PICTURE_TYPE_FRAME)){
     auto error = Y("Unexpected picture frame after single field frame. Fix the MPEG2 video stream before attempting to multiplex it.\n");
@@ -272,10 +272,10 @@ void
 M2VParser::TimestampWaitingFrames() {
   // mxinfo(boost::format("  flushing %1%\n") % waitQueue.size());
 
-  for (std::size_t idx = 0, numFrames = waitQueue.size(); idx < numFrames; ++idx)
+  for (int idx = 0, numFrames = waitQueue.size(); idx < numFrames; ++idx)
     waitQueue[idx]->decodingOrder = idx;
 
-  brng::sort(waitQueue, [](MPEGFrame *a, MPEGFrame *b) { return a->timecode < b->timecode; });
+  brng::sort(waitQueue, [](MPEGFrame *a, MPEGFrame *b) { return a->timestamp < b->timestamp; });
 
   for (auto const &frame : waitQueue)
     StampFrame(frame);
@@ -289,7 +289,7 @@ M2VParser::TimestampWaitingFrames() {
   waitQueue.clear();
 }
 
-int32_t M2VParser::PrepareFrame(MPEGChunk* chunk, MediaTime timecode, MPEG2PictureHeader picHdr){
+int32_t M2VParser::PrepareFrame(MPEGChunk* chunk, MediaTime timestamp, MPEG2PictureHeader picHdr){
   MPEGFrame* outBuf;
   bool bCopy = true;
   binary* pData = chunk->GetPointer();
@@ -340,7 +340,7 @@ int32_t M2VParser::PrepareFrame(MPEGChunk* chunk, MediaTime timecode, MPEG2Pictu
     outBuf->frameType = 'B';
   }
 
-  outBuf->timecode = timecode; // Still the sequence number
+  outBuf->timestamp = timestamp; // Still the sequence number
 
   outBuf->invisible = invisible;
   outBuf->duration = GetFrameDuration(picHdr);
@@ -475,11 +475,11 @@ MPEGFrame* M2VParser::ReadFrame(){
 }
 
 void
-M2VParser::AddTimecode(int64_t timecode) {
-  std::list<int64_t>::iterator idx = m_timecodes.begin();
-  while ((idx != m_timecodes.end()) && (timecode > *idx))
+M2VParser::AddTimestamp(int64_t timestamp) {
+  std::list<int64_t>::iterator idx = m_timestamps.begin();
+  while ((idx != m_timestamps.end()) && (timestamp > *idx))
     idx++;
-  m_timecodes.insert(idx, timecode);
+  m_timestamps.insert(idx, timestamp);
 }
 
 void
@@ -489,11 +489,11 @@ M2VParser::SetThrowOnError(bool doThrow) {
 
 void
 M2VParser::TryUpdate(MPEGFrameRef &frame){
-  // if frame set, stamped and no timecode yet, derive it
-  if (frame.HasTimecode() || !frame.HasFrameNumber())
+  // if frame set, stamped and no timestamp yet, derive it
+  if (frame.HasTimestamp() || !frame.HasFrameNumber())
     return;
 
-  auto itr = frameTimecodes.find(frame.frameNumber);
-  if (itr != frameTimecodes.end())
-    frame.timecode = itr->second;
+  auto itr = frameTimestamps.find(frame.frameNumber);
+  if (itr != frameTimestamps.end())
+    frame.timestamp = itr->second;
 }

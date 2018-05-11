@@ -11,8 +11,7 @@
    Written by Moritz Bunkus <moritz@bunkus.org>.
 */
 
-#ifndef MTX_COMMON_HACKS_H
-#define MTX_COMMON_HACKS_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -31,7 +30,7 @@
 #define ENGAGE_KEEP_BITSTREAM_AR_INFO       10
 #define ENGAGE_NO_SIMPLE_BLOCKS             11
 #define ENGAGE_USE_CODEC_STATE_ONLY         12
-#define ENGAGE_ENABLE_TIMECODE_WARNING      13
+#define ENGAGE_ENABLE_TIMESTAMP_WARNING      13
 #define ENGAGE_REMOVE_BITSTREAM_AR_INFO     14
 #define ENGAGE_VOBSUB_SUBPIC_STOP_CMDS      15
 #define ENGAGE_NO_CUE_DURATION              16
@@ -39,11 +38,10 @@
 #define ENGAGE_NO_DELAY_FOR_GARBAGE_IN_AVI  18
 #define ENGAGE_KEEP_LAST_CHAPTER_IN_MPLS    19
 #define ENGAGE_KEEP_TRACK_STATISTICS_TAGS   20
-#define ENGAGE_MAX_IDX                      20
+#define ENGAGE_ALL_I_SLICES_ARE_KEY_FRAMES  21
+#define ENGAGE_MAX_IDX                      21
 
 void engage_hacks(const std::string &hacks);
 void engage_hack(unsigned int id);
 bool hack_engaged(unsigned int id);
 void init_hacks();
-
-#endif // MTX_COMMON_HACKS_H

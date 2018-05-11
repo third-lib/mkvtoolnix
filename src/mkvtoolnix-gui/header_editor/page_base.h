@@ -1,5 +1,4 @@
-#ifndef MTX_MKVTOOLNIX_GUI_HEADER_EDITOR_PAGE_BASE_H
-#define MTX_MKVTOOLNIX_GUI_HEADER_EDITOR_PAGE_BASE_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -30,7 +29,7 @@ public:
   PageBase(Tab &parent, translatable_string_c const &title);
   virtual ~PageBase();
 
-  virtual bool hasBeenModified() const;
+  virtual PageBase *hasBeenModified();
   virtual bool hasThisBeenModified() const = 0;
   virtual void doModifications();
   virtual void modifyThis() = 0;
@@ -42,5 +41,3 @@ public:
 };
 
 }}}
-
-#endif  // MTX_MKVTOOLNIX_GUI_HEADER_EDITOR_PAGE_BASE_H

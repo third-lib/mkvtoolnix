@@ -34,20 +34,19 @@ else
 fi
 
 if test x"$enable_optimization" = xyes; then
-  if test x"$ac_cv_compiler_is_clang" = xyes; then
+  if test $COMPILER_TYPE = clang && ! check_version 3.8.0 $COMPILER_VERSION; then
     opt_features_no="$opt_features_no\n   * full optimization: due to bug 11962 in LLVM/clang only -O1 will be used for optimization"
-    opt_features_yes="$opt_features_yes\n   * compiler optimizations (-O1)"
     OPTIMIZATION_CFLAGS="-O1"
 
-  elif test "x$ac_cv_mingw32" = "xyes" -a "x$MINGW_PROCESSOR_ARCH" = "xx86" && check_version 5.1.0 $ac_cv_gcc_version; then
-    OPTIMIZATION_CFLAGS="-O2"
-    opt_features_no="$opt_features_no\n   * full optimization: due to an issue in mingw g++ only -O2 will be used for optimization"
-    opt_features_yes="$opt_features_yes\n   * compiler optimizations (-O2)"
+  elif test "x$ac_cv_mingw32" = "xyes" -a "x$MINGW_PROCESSOR_ARCH" = "xx86" && check_version 5.1.0 $COMPILER_VERSION && ! check_version 7.2.0 $COMPILER_VERSION; then
+    OPTIMIZATION_CFLAGS="-O2 -fno-ipa-icf"
+    opt_features_no="$opt_features_no\n   * full optimization: due to an issue in mingw g++ >= 5.1.0 and < 7.2.0 full optimization cannot be used"
 
   else
     OPTIMIZATION_CFLAGS="-O3"
-    opt_features_yes="$opt_features_yes\n   * compiler optimizations (-O3)"
   fi
+
+  opt_features_yes="$opt_features_yes\n   * compiler optimizations ($OPTIMIZATION_CFLAGS)"
 else
   opt_features_no="$opt_features_no\n   * compiler optimizations"
 fi
@@ -60,7 +59,29 @@ else
   opt_features_no="$opt_features_no\n   * profiling support"
 fi
 
+AC_ARG_ENABLE([addrsan],
+  AC_HELP_STRING([--enable-addrsan],[compile with address sanitization turned on (no)]),
+  [ADDRSAN=yes],[ADDRSAN=no])
+
+if test x"$ADDRSAN" = xyes ; then
+  opt_features_yes="$opt_features_yes\n   * development technique 'address sanitizer'"
+else
+  opt_features_no="$opt_features_no\n   * development technique 'address sanitizer'"
+fi
+
+AC_ARG_ENABLE([ubsan],
+  AC_HELP_STRING([--enable-ubsan],[compile with sanitization for undefined behavior turned on (no)]),
+  [UBSAN=yes],[UBSAN=no])
+
+if test x"$UBSAN" = xyes ; then
+  opt_features_yes="$opt_features_yes\n   * development technique 'undefined behavior sanitizer'"
+else
+  opt_features_no="$opt_features_no\n   * development technique 'undefined behavior sanitizer'"
+fi
+
 AC_SUBST(DEBUG_CFLAGS)
 AC_SUBST(PROFILING_CFLAGS)
 AC_SUBST(PROFILING_LIBS)
 AC_SUBST(OPTIMIZATION_CFLAGS)
+AC_SUBST(ADDRSAN)
+AC_SUBST(UBSAN)

@@ -12,8 +12,7 @@
    \author Written by Moritz Bunkus <moritz@bunkus.org>.
 */
 
-#ifndef MTX_COMMON_DIRAC_COMMON_H
-#define MTX_COMMON_DIRAC_COMMON_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -57,7 +56,7 @@ namespace dirac {
 
   struct frame_t {
     memory_cptr data;
-    int64_t     timecode;
+    int64_t     timestamp;
     int64_t     duration;
     bool        contains_sequence_header;
 
@@ -85,9 +84,9 @@ namespace dirac {
     std::deque<frame_cptr> m_frames;
     frame_cptr m_current_frame;
 
-    std::deque<int64_t> m_timecodes;
-    int64_t m_previous_timecode;
-    int64_t m_num_timecodes;
+    std::deque<int64_t> m_timestamps;
+    int64_t m_previous_timestamp;
+    int64_t m_num_timestamps;
     int64_t m_num_repeated_fields;
 
     bool m_default_duration_forced;
@@ -142,8 +141,8 @@ namespace dirac {
       return frame;
     }
 
-    virtual void add_timecode(int64_t timecode) {
-      m_timecodes.push_back(timecode);
+    virtual void add_timestamp(int64_t timestamp) {
+      m_timestamps.push_back(timestamp);
     }
 
     virtual void set_default_duration(int64_t default_duration) {
@@ -163,8 +162,8 @@ namespace dirac {
     virtual void handle_sequence_header_unit(memory_cptr packet);
     virtual void handle_unknown_unit(memory_cptr packet);
 
-    virtual int64_t get_next_timecode();
-    virtual int64_t peek_next_calculated_timecode();
+    virtual int64_t get_next_timestamp();
+    virtual int64_t peek_next_calculated_timestamp();
 
     virtual void add_pre_frame_extra_data(memory_cptr packet);
     virtual void add_post_frame_extra_data(memory_cptr packet);
@@ -173,5 +172,3 @@ namespace dirac {
     virtual void flush_frame();
   };
 };
-
-#endif  // MTX_COMMON_DIRAC_COMMON_H

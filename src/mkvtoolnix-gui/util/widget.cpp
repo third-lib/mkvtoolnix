@@ -93,7 +93,7 @@ QPushButton *
 buttonForRole(QDialogButtonBox *box,
               QDialogButtonBox::ButtonRole role) {
   auto buttons = box->buttons();
-  auto button  = boost::find_if(buttons, [&](QAbstractButton *b) { return box->buttonRole(b) == role; });
+  auto button  = boost::find_if(buttons, [box, role](auto *b) { return box->buttonRole(b) == role; });
   return button == buttons.end() ? nullptr : static_cast<QPushButton *>(*button);
 }
 
@@ -185,7 +185,7 @@ addSegmentUIDFromFileToLineEdit(QWidget &parent,
     auto uidString  = QString{};
     auto src        = segmentUID->data();
 
-    for (unsigned int idx = 0u, numBytes = segmentUID->byte_size(); idx < numBytes; ++idx)
+    for (int idx = 0, numBytes = segmentUID->byte_size(); idx < numBytes; ++idx)
       uidString += Q("%1").arg(QString::number(src[idx], 16), 2, '0').toUpper();
 
     if (!append || lineEdit.text().isEmpty())

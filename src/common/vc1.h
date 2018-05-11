@@ -1,4 +1,4 @@
-/** MPEG video helper functions (MPEG 1, 2 and 4)
+/** VC-1 video helper functions
 
    mkvmerge -- utility for splicing together matroska files
    from component media subtypes
@@ -12,12 +12,13 @@
    \author Written by Moritz Bunkus <moritz@bunkus.org>.
 */
 
-#ifndef MTX_COMMON_VC1_COMMON_H
-#define MTX_COMMON_VC1_COMMON_H
+#pragma once
 
 #include "common/common_pch.h"
 
 #include <deque>
+
+#include "common/vc1_fwd.h"
 
 #define VC1_PROFILE_SIMPLE    0x00000000
 #define VC1_PROFILE_MAIN      0x00000001
@@ -31,7 +32,7 @@
 #define VC1_MARKER_ENTRYPOINT 0x0000010e
 #define VC1_MARKER_SEQHDR     0x0000010f
 
-namespace vc1 {
+namespace mtx { namespace vc1 {
 
 enum frame_type_e {
   FRAME_TYPE_I,
@@ -118,7 +119,7 @@ struct frame_header_t {
 struct frame_t {
   frame_header_t header;
   memory_cptr    data;
-  int64_t        timecode;
+  int64_t        timestamp;
   int64_t        duration;
   bool           contains_field, contains_entry_point;
 
@@ -126,7 +127,6 @@ struct frame_t {
   void init();
   bool is_key() const;
 };
-using frame_cptr = std::shared_ptr<frame_t>;
 
 inline bool is_marker(uint32_t value) {
   return (value & 0xffffff00) == 0x00000100;
@@ -164,10 +164,10 @@ protected:
 
   std::deque<memory_cptr> m_unparsed_packets;
 
-  std::deque<int64_t> m_timecodes;
-  std::deque<int64_t> m_timecode_positions;
-  int64_t m_previous_timecode;
-  int64_t m_num_timecodes;
+  std::deque<int64_t> m_timestamps;
+  std::deque<int64_t> m_timestamp_positions;
+  int64_t m_previous_timestamp;
+  int64_t m_num_timestamps;
   int64_t m_num_repeated_fields;
 
   bool m_default_duration_forced;
@@ -226,7 +226,7 @@ public:
     return frame;
   }
 
-  virtual void add_timecode(int64_t timecode, int64_t position);
+  virtual void add_timestamp(int64_t timestamp, int64_t position);
 
   virtual void set_default_duration(int64_t default_duration) {
     m_default_duration        = default_duration;
@@ -246,8 +246,8 @@ protected:
   virtual void handle_slice_packet(memory_cptr packet);
   virtual void handle_unknown_packet(uint32_t marker, memory_cptr packet);
 
-  virtual int64_t get_next_timecode();
-  virtual int64_t peek_next_calculated_timecode() const;
+  virtual int64_t get_next_timestamp();
+  virtual int64_t peek_next_calculated_timestamp() const;
 
   virtual void add_pre_frame_extra_data(memory_cptr packet);
   virtual void add_post_frame_extra_data(memory_cptr packet);
@@ -258,12 +258,10 @@ protected:
 
   virtual void flush_frame();
 
-  virtual bool is_timecode_available() const;
+  virtual bool is_timestamp_available() const;
 
 protected:
   static void add_extra_data_if_not_present(std::deque<memory_cptr> &extra_data, memory_cptr const &packet);
 };
 
-};
-
-#endif  // MTX_COMMON_VC1_COMMON_H
+}}

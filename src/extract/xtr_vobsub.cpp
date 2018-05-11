@@ -127,12 +127,12 @@ xtr_vobsub_c::handle_frame(xtr_frame_t &f) {
   size_t size         = f.frame->get_size();
 
   m_positions.push_back(vmaster->m_out->getFilePointer());
-  m_timecodes.push_back(f.timecode);
+  m_timestamps.push_back(f.timestamp);
 
   uint32_t padding = (2048 - (size + sizeof(mpeg_ps_header_t) + sizeof(mpeg_es_header_t))) & 2047;
   uint32_t first   = size + sizeof(mpeg_ps_header_t) + sizeof(mpeg_es_header_t) > 2048 ? 2048 - sizeof(mpeg_ps_header_t) - sizeof(mpeg_es_header_t) : size;
 
-  uint64_t c       = f.timecode * 9 / 100000;
+  uint64_t c       = f.timestamp * 9 / 100000;
 
   mpeg_ps_header_t ps;
   memset(&ps, 0, sizeof(mpeg_ps_header_t));
@@ -229,9 +229,22 @@ xtr_vobsub_c::finish_file() {
     mm_write_buffer_io_c idx(new mm_file_io_c(m_idx_file_name.string(), MODE_CREATE), 128 * 1024);
     mxinfo(boost::format(Y("Writing the VobSub index file '%1%'.\n")) % m_idx_file_name.string());
 
-    if ((25 > m_private_data->get_size()) || strncasecmp((char *)m_private_data->get_buffer(), header_line, 25))
+    auto buffer = reinterpret_cast<char const *>(m_private_data->get_buffer());
+    auto size   = m_private_data->get_size();
+
+    while ((size > 0) && (buffer[size - 1] == 0))
+      --size;
+
+    auto header = std::string{ buffer, size };
+    strip(header, true);
+
+    if (!balg::istarts_with(header, header_line))
       idx.puts(header_line);
-    idx.write(m_private_data->get_buffer(), m_private_data->get_size());
+
+    idx.puts(header + "\n");
+
+    if (!balg::find_first(header, "langidx:"))
+      idx.puts("langidx: 0\n");
 
     write_idx(idx, 0);
     size_t slave;
@@ -251,13 +264,13 @@ xtr_vobsub_c::write_idx(mm_io_c &idx,
 
   size_t i;
   for (i = 0; i < m_positions.size(); i++) {
-    int64_t timecode = m_timecodes[i] / 1000000;
+    int64_t timestamp = m_timestamps[i] / 1000000;
 
     idx.puts(boost::format("timestamp: %|1$02d|:%|2$02d|:%|3$02d|:%|4$03d|, filepos: %|5$1x|%|6$08x|\n")
-             % ((timecode / 60 / 60 / 1000) % 60)
-             % ((timecode / 60 / 1000) % 60)
-             % ((timecode / 1000) % 60)
-             % (timecode % 1000)
+             % ((timestamp / 60 / 60 / 1000) % 60)
+             % ((timestamp / 60 / 1000) % 60)
+             % ((timestamp / 1000) % 60)
+             % (timestamp % 1000)
              % (m_positions[i] >> 32)
              % (m_positions[i] & 0xffffffff));
   }

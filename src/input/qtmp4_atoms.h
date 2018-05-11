@@ -11,8 +11,7 @@
    Written by Moritz Bunkus <moritz@bunkus.org>.
 */
 
-#ifndef MTX_INPUT_QTMP4_ATOMS_H
-#define MTX_INPUT_QTMP4_ATOMS_H
+#pragma once
 
 // 'Movie header' atom
 #if defined(COMP_MSC)
@@ -161,6 +160,14 @@ struct PACKED_STRUCTURE video_stsd_atom_t {
   uint16_t         color_table_id;
 };
 
+// 'colour information' atom
+struct PACKED_STRUCTURE colr_atom_t {
+  uint32_t colour_type;
+  uint16_t colour_primaries;
+  uint16_t transfer_characteristics;
+  uint16_t matrix_coefficients;
+};
+
 struct PACKED_STRUCTURE qt_image_description_t {
   uint32_t size;
   video_stsd_atom_t id;
@@ -204,5 +211,3 @@ typedef struct {
   memory_cptr    decoder_config;
   memory_cptr    sl_config;
 } esds_t;
-
-#endif // MTX_INPUT_QTMP4_ATOMS_H

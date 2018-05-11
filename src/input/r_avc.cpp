@@ -21,14 +21,12 @@
 #include "input/r_avc.h"
 #include "merge/input_x.h"
 #include "merge/file_status.h"
-#include "output/p_avc.h"
+#include "output/p_avc_es.h"
 
 
 #define PROBESIZE 4
 #define READ_SIZE 1024 * 1024
 #define MAX_PROBE_BUFFERS 50
-
-using namespace mpeg4::p10;
 
 debugging_option_c avc_es_reader_c::ms_debug{"avc_reader"};
 
@@ -43,7 +41,7 @@ avc_es_reader_c::probe_file(mm_io_c *in,
     int num_read, i;
     bool first = true;
 
-    avc_es_parser_c parser;
+    mtx::avc::es_parser_c parser;
     parser.ignore_nalu_size_length_errors();
     parser.set_nalu_size_length(4);
 
@@ -84,7 +82,7 @@ avc_es_reader_c::avc_es_reader_c(const track_info_c &ti,
 void
 avc_es_reader_c::read_headers() {
   try {
-    avc_es_parser_c parser;
+    mtx::avc::es_parser_c parser;
     parser.ignore_nalu_size_length_errors();
 
     int num_read, i;
@@ -118,7 +116,7 @@ avc_es_reader_c::create_packetizer(int64_t) {
   if (!demuxing_requested('v', 0) || (NPTZR() != 0))
     return;
 
-  add_packetizer(new mpeg4_p10_es_video_packetizer_c(this, m_ti));
+  add_packetizer(new avc_es_video_packetizer_c(this, m_ti));
   PTZR0->set_video_pixel_dimensions(m_width, m_height);
 
   show_packetizer_info(0, PTZR0);

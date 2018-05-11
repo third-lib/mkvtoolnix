@@ -11,8 +11,7 @@
    Written by Moritz Bunkus <moritz@bunkus.org>.
 */
 
-#ifndef MTX_COMMON_STRINGS_FORMATTING_H
-#define MTX_COMMON_STRINGS_FORMATTING_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -81,11 +80,13 @@ to_string(std::string const &value) {
 
 std::string to_string(double value, unsigned int precision);
 std::string to_string(int64_t numerator, int64_t denominator, unsigned int precision);
+std::string format_number(int64_t number);
+std::string format_number(uint64_t number);
 
 template<typename T>
 std::string
-to_string(basic_timestamp_c<T> const &timecode) {
-  return format_timestamp(timecode.to_ns());
+to_string(basic_timestamp_c<T> const &timestamp) {
+  return format_timestamp(timestamp.to_ns());
 }
 
 
@@ -120,5 +121,3 @@ to_hex(EbmlBinary &bin,
 }
 
 std::string create_minutes_seconds_time_string(unsigned int seconds, bool omit_minutes_if_zero = false);
-
-#endif  // MTX_COMMON_STRINGS_FORMATTING_H

@@ -34,7 +34,7 @@ static const struct {
   { ENGAGE_KEEP_BITSTREAM_AR_INFO,       "keep_bitstream_ar_info"       },
   { ENGAGE_NO_SIMPLE_BLOCKS,             "no_simpleblocks"              },
   { ENGAGE_USE_CODEC_STATE_ONLY,         "use_codec_state_only"         },
-  { ENGAGE_ENABLE_TIMECODE_WARNING,      "enable_timecode_warning"      },
+  { ENGAGE_ENABLE_TIMESTAMP_WARNING,     "enable_timestamp_warning"     },
   { ENGAGE_REMOVE_BITSTREAM_AR_INFO,     "remove_bitstream_ar_info"     },
   { ENGAGE_VOBSUB_SUBPIC_STOP_CMDS,      "vobsub_subpic_stop_cmds"      },
   { ENGAGE_NO_CUE_DURATION,              "no_cue_duration"              },
@@ -42,6 +42,7 @@ static const struct {
   { ENGAGE_NO_DELAY_FOR_GARBAGE_IN_AVI,  "no_delay_for_garbage_in_avi"  },
   { ENGAGE_KEEP_LAST_CHAPTER_IN_MPLS,    "keep_last_chapter_in_mpls"    },
   { ENGAGE_KEEP_TRACK_STATISTICS_TAGS,   "keep_track_statistics_tags"   },
+  { ENGAGE_ALL_I_SLICES_ARE_KEY_FRAMES,  "all_i_slices_are_key_frames"  },
   { 0,                                   nullptr },
 };
 static std::vector<bool> s_engaged_hacks(ENGAGE_MAX_IDX + 1, false);
@@ -74,7 +75,7 @@ engage_hacks(const std::string &hacks) {
         "IE9oIGhvbmV5LCB0aGF0J3Mgc28gc3dlZXQhCiAgIC8tLS0tLS0tXC8gICBPZiB"
         "jb3Vyc2UgSSdsbCBtYXJyeSB5b3UhCiAgLyB8ICAgICB8fAogKiAgfHwtLS0tfH"
         "wKICAgIF5eICAgIF5eCg==";
-      auto correction = base64_decode(initial);
+      auto correction = mtx::base64::decode(initial);
       mxinfo(correction);
       mxexit();
     }

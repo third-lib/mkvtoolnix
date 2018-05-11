@@ -21,12 +21,15 @@
 
 #include "common/command_line.h"
 #include "common/hacks.h"
+#include "common/json.h"
 #include "common/mm_io_x.h"
 #include "common/mm_write_buffer_io.h"
 #include "common/strings/editing.h"
 #include "common/strings/utf8.h"
 #include "common/translation.h"
 #include "common/version.h"
+
+namespace mtx { namespace cli {
 
 bool g_gui_mode = false;
 
@@ -37,15 +40,14 @@ bool g_gui_mode = false;
    \c args.
 */
 static void
-read_args_from_file(std::vector<std::string> &args,
-                    const std::string &filename) {
-  mm_text_io_c *mm_io;
+read_args_from_old_option_file(std::vector<std::string> &args,
+                               std::string const &filename) {
+  mm_text_io_cptr mm_io;
   std::string buffer;
   bool skip_next;
 
-  mm_io = nullptr;
   try {
-    mm_io = new mm_text_io_c(new mm_file_io_c(filename));
+    mm_io = std::make_shared<mm_text_io_c>(new mm_file_io_c(filename));
   } catch (mtx::mm_io::exception &ex) {
     mxerror(boost::format(Y("The file '%1%' could not be opened for reading: %2%.\n")) % filename % ex);
   }
@@ -72,8 +74,59 @@ read_args_from_file(std::vector<std::string> &args,
     }
     args.push_back(unescape(buffer));
   }
+}
 
-  delete mm_io;
+static void
+read_args_from_json_file(std::vector<std::string> &args,
+                         std::string const &filename) {
+  std::string buffer;
+
+  try {
+    auto io = std::make_shared<mm_text_io_c>(new mm_file_io_c(filename));
+    io->read(buffer, io->get_size());
+
+  } catch (mtx::mm_io::exception &ex) {
+    mxerror(boost::format(Y("The file '%1%' could not be opened for reading: %2%.\n")) % filename % ex);
+  }
+
+  try {
+    auto doc       = mtx::json::parse(buffer);
+    auto skip_next = false;
+
+    if (!doc.is_array())
+      throw std::domain_error{Y("JSON option files must contain a JSON array consisting solely of JSON strings")};
+
+    for (auto const &val : doc) {
+      if (!val.is_string())
+        throw std::domain_error{Y("JSON option files must contain a JSON array consisting solely of JSON strings")};
+
+      if (skip_next) {
+        skip_next = false;
+        continue;
+      }
+
+      auto string = val.get<std::string>();
+      if (string == "--command-line-charset")
+        skip_next = true;
+
+      else
+        args.push_back(string);
+    }
+
+  } catch (std::exception const &ex) {
+    mxerror(boost::format("The JSON option file '%1%' contains an error: %2%.\n") % filename % ex.what());
+  }
+}
+
+static void
+read_args_from_file(std::vector<std::string> &args,
+                    std::string const &filename) {
+  auto path = bfs::path{filename};
+  if (balg::to_lower_copy(path.extension().string()) == ".json")
+    read_args_from_json_file(args, filename);
+
+  else
+    read_args_from_old_option_file(args, filename);
 }
 
 static std::vector<std::string>
@@ -112,8 +165,8 @@ command_line_args_from_environment() {
 */
 #if !defined(SYS_WINDOWS)
 std::vector<std::string>
-command_line_utf8(int argc,
-                  char **argv) {
+args_in_utf8(int argc,
+             char **argv) {
   int i;
   std::vector<std::string> args = command_line_args_from_environment();
 
@@ -138,8 +191,8 @@ command_line_utf8(int argc,
 #else  // !defined(SYS_WINDOWS)
 
 std::vector<std::string>
-command_line_utf8(int,
-                  char **) {
+args_in_utf8(int,
+             char **) {
   std::vector<std::string> args = command_line_args_from_environment();
   std::string utf8;
 
@@ -166,7 +219,7 @@ command_line_utf8(int,
 }
 #endif // !defined(SYS_WINDOWS)
 
-std::string usage_text, version_info;
+std::string g_usage_text, g_version_info;
 
 /** Handle command line arguments common to all programs
 
@@ -184,8 +237,8 @@ std::string usage_text, version_info;
      called again and \c false otherwise.
 */
 bool
-handle_common_cli_args(std::vector<std::string> &args,
-                       const std::string &redirect_output_short) {
+handle_common_args(std::vector<std::string> &args,
+                   const std::string &redirect_output_short) {
   size_t i = 0;
 
   while (args.size() > i) {
@@ -278,7 +331,7 @@ handle_common_cli_args(std::vector<std::string> &args,
   i = 0;
   while (args.size() > i) {
     if ((args[i] == "-V") || (args[i] == "--version")) {
-      mxinfo(boost::format("%1%\n") % version_info);
+      mxinfo(boost::format("%1%\n") % g_version_info);
       mxexit();
 
     } else if ((args[i] == "-v") || (args[i] == "--verbose")) {
@@ -291,27 +344,7 @@ handle_common_cli_args(std::vector<std::string> &args,
       args.erase(args.begin() + i, args.begin() + i + 1);
 
     } else if ((args[i] == "-h") || (args[i] == "-?") || (args[i] == "--help"))
-      usage();
-
-#if defined(HAVE_CURL_EASY_H)
-    else if (args[i] == "--check-for-updates") {
-      mtx_release_version_t rel = get_latest_release_version();
-      if (!rel.latest_source.valid)
-        mxerror(boost::format(Y("The update information could not be retrieved from %1%.\n")) % MTX_VERSION_CHECK_URL);
-
-      std::vector<std::string> keys;
-      brng::push_back(keys, rel.urls | badap::map_keys | badap::filtered(+[](std::string const &key) { return key != "general"; }));
-      brng::sort(keys);
-
-      std::string urls;
-      for (auto &key : keys)
-        urls += key + "_download_url=" + rel.urls[key] + "\n";
-
-      mxinfo(boost::format("version_check_url=%1%\nrunning_version=%2%\navailable_version=%3%\ndownload_url=%4%\n%5%")
-             % MTX_VERSION_CHECK_URL % rel.current_version.to_string() % rel.latest_source.to_string() % rel.urls["general"] % urls);
-      mxexit(rel.current_version < rel.latest_source ? 1 : 0);
-    }
-#endif  // defined(HAVE_CURL_EASY_H)
+      display_usage();
 
     else
       ++i;
@@ -321,7 +354,9 @@ handle_common_cli_args(std::vector<std::string> &args,
 }
 
 void
-usage(int exit_code) {
-  mxinfo(boost::format("%1%\n") % usage_text);
+display_usage(int exit_code) {
+  mxinfo(boost::format("%1%\n") % g_usage_text);
   mxexit(exit_code);
 }
+
+}}

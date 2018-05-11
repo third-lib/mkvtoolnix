@@ -14,53 +14,56 @@
 
 #include "common/common_pch.h"
 
-#include "common/bit_cursor.h"
+#include "common/bit_reader.h"
 #include "common/endian.h"
+#include "common/memory_slice_cursor.h"
 #include "common/strings/formatting.h"
 #include "common/vc1.h"
 
-vc1::sequence_header_t::sequence_header_t() {
-  memset(this, 0, sizeof(vc1::sequence_header_t));
+namespace mtx { namespace vc1 {
+
+sequence_header_t::sequence_header_t() {
+  memset(this, 0, sizeof(sequence_header_t));
 }
 
-vc1::entrypoint_t::entrypoint_t() {
-  memset(this, 0, sizeof(vc1::entrypoint_t));
+entrypoint_t::entrypoint_t() {
+  memset(this, 0, sizeof(entrypoint_t));
 }
 
-vc1::frame_header_t::frame_header_t() {
+frame_header_t::frame_header_t() {
   init();
 }
 
 void
-vc1::frame_header_t::init() {
-  memset(this, 0, sizeof(vc1::frame_header_t));
+frame_header_t::init() {
+  memset(this, 0, sizeof(frame_header_t));
 }
 
-vc1::frame_t::frame_t(frame_header_t const &p_header)
+frame_t::frame_t(frame_header_t const &p_header)
   : header{p_header}
 {
   init();
 }
 
 void
-vc1::frame_t::init() {
+frame_t::init() {
   data.reset();
-  timecode             = -1;
+  timestamp             = -1;
   duration             = 0;
   contains_field       = false;
   contains_entry_point = false;
 }
 
 bool
-vc1::frame_t::is_key()
+frame_t::is_key()
   const {
   return contains_entry_point || (header.frame_type == FRAME_TYPE_I);
 }
 
 bool
-vc1::parse_sequence_header(const unsigned char *buf,
-                           int size,
-                           vc1::sequence_header_t &seqhdr) {
+parse_sequence_header(const unsigned char *buf,
+                      int size,
+                      sequence_header_t &seqhdr) {
   try {
     static const struct { int n, d; } s_aspect_ratios[13] = {
       {   1,  1 },
@@ -81,8 +84,8 @@ vc1::parse_sequence_header(const unsigned char *buf,
     static const int s_framerate_nr[5] = { 24, 25, 30, 50, 60 };
     static const int s_framerate_dr[2] = { 1000, 1001 };
 
-    bit_reader_c bc(buf, size);
-    vc1::sequence_header_t hdr;
+    mtx::bits::reader_c bc(buf, size);
+    sequence_header_t hdr;
 
     bc.skip_bits(32);           // Marker
     hdr.profile = bc.get_bits(2);
@@ -161,7 +164,7 @@ vc1::parse_sequence_header(const unsigned char *buf,
       bc.skip_bits(hdr.hrd_num_leaky_buckets * (16 + 16)); // hrd_rate, hrd_buffer
     }
 
-    memcpy(&seqhdr, &hdr, sizeof(vc1::sequence_header_t));
+    memcpy(&seqhdr, &hdr, sizeof(sequence_header_t));
 
     return true;
   } catch (...) {
@@ -170,13 +173,13 @@ vc1::parse_sequence_header(const unsigned char *buf,
 }
 
 bool
-vc1::parse_entrypoint(const unsigned char *buf,
-                      int size,
-                      vc1::entrypoint_t &entrypoint,
-                      vc1::sequence_header_t &seqhdr) {
+parse_entrypoint(const unsigned char *buf,
+                 int size,
+                 entrypoint_t &entrypoint,
+                 sequence_header_t &seqhdr) {
   try {
-    bit_reader_c bc(buf, size);
-    vc1::entrypoint_t ep;
+    mtx::bits::reader_c bc(buf, size);
+    entrypoint_t ep;
 
     bc.skip_bits(32);           // marker
     ep.broken_link_flag  = bc.get_bit();
@@ -211,7 +214,7 @@ vc1::parse_entrypoint(const unsigned char *buf,
     if (ep.chroma_scaling_flag)
       ep.chroma_scaling = bc.get_bits(3);
 
-    memcpy(&entrypoint, &ep, sizeof(vc1::entrypoint_t));
+    memcpy(&entrypoint, &ep, sizeof(entrypoint_t));
 
     return true;
   } catch (...) {
@@ -220,13 +223,13 @@ vc1::parse_entrypoint(const unsigned char *buf,
 }
 
 bool
-vc1::parse_frame_header(const unsigned char *buf,
-                        int size,
-                        frame_header_t &frame_header,
-                        vc1::sequence_header_t &seqhdr) {
+parse_frame_header(const unsigned char *buf,
+                   int size,
+                   frame_header_t &frame_header,
+                   sequence_header_t &seqhdr) {
   try {
-    bit_reader_c bc(buf, size);
-    vc1::frame_header_t fh;
+    mtx::bits::reader_c bc(buf, size);
+    frame_header_t fh;
 
     bc.skip_bits(32);           // marker
 
@@ -247,13 +250,13 @@ vc1::parse_frame_header(const unsigned char *buf,
     } else {
       auto type = bc.get_unary(false, 4);
       if (type >= 4) {
-        fh.frame_type = vc1::FRAME_TYPE_P_SKIPPED;
-        memcpy(&frame_header, &fh, sizeof(vc1::frame_header_t));
+        fh.frame_type = FRAME_TYPE_P_SKIPPED;
+        memcpy(&frame_header, &fh, sizeof(frame_header_t));
 
         return true;
       }
 
-      static frame_type_e s_type_map[4] = { vc1::FRAME_TYPE_P, vc1::FRAME_TYPE_B, vc1::FRAME_TYPE_I, vc1::FRAME_TYPE_BI };
+      static frame_type_e s_type_map[4] = { FRAME_TYPE_P, FRAME_TYPE_B, FRAME_TYPE_I, FRAME_TYPE_BI };
       fh.frame_type = s_type_map[type];
     }
 
@@ -269,7 +272,7 @@ vc1::parse_frame_header(const unsigned char *buf,
       }
     }
 
-    memcpy(&frame_header, &fh, sizeof(vc1::frame_header_t));
+    memcpy(&frame_header, &fh, sizeof(frame_header_t));
 
     return true;
   } catch (...) {
@@ -281,25 +284,25 @@ vc1::parse_frame_header(const unsigned char *buf,
 //  -------------------------------------------------
 //
 
-vc1::es_parser_c::es_parser_c()
+es_parser_c::es_parser_c()
   : m_stream_pos(0)
   , m_seqhdr_found(false)
   , m_seqhdr_changed{false}
-  , m_previous_timecode(0)
-  , m_num_timecodes(0)
+  , m_previous_timestamp(0)
+  , m_num_timestamps(0)
   , m_num_repeated_fields(0)
   , m_default_duration_forced(false)
   , m_default_duration(1000000000ll / 25)
 {
 }
 
-vc1::es_parser_c::~es_parser_c() {
+es_parser_c::~es_parser_c() {
 }
 
 void
-vc1::es_parser_c::add_bytes(unsigned char *buffer,
-                            int size) {
-  memory_slice_cursor_c cursor;
+es_parser_c::add_bytes(unsigned char *buffer,
+                       int size) {
+  mtx::mem::slice_cursor_c cursor;
 
   int previous_pos            = -1;
   int64_t previous_stream_pos = m_stream_pos;
@@ -312,7 +315,7 @@ vc1::es_parser_c::add_bytes(unsigned char *buffer,
     uint32_t marker = (1 << 24) | ((unsigned int)cursor.get_char() << 16) | ((unsigned int)cursor.get_char() << 8) | (unsigned int)cursor.get_char();
 
     while (1) {
-      if (vc1::is_marker(marker)) {
+      if (is_marker(marker)) {
         if (-1 != previous_pos) {
           int new_size = cursor.get_position() - 4 - previous_pos;
 
@@ -348,10 +351,10 @@ vc1::es_parser_c::add_bytes(unsigned char *buffer,
 }
 
 void
-vc1::es_parser_c::flush() {
+es_parser_c::flush() {
   if (m_unparsed_buffer && (4 <= m_unparsed_buffer->get_size())) {
     uint32_t marker = get_uint32_be(m_unparsed_buffer->get_buffer());
-    if (vc1::is_marker(marker))
+    if (is_marker(marker))
       handle_packet(memory_c::clone(m_unparsed_buffer->get_buffer(), m_unparsed_buffer->get_size()));
   }
 
@@ -361,7 +364,7 @@ vc1::es_parser_c::flush() {
 }
 
 void
-vc1::es_parser_c::handle_packet(memory_cptr packet) {
+es_parser_c::handle_packet(memory_cptr packet) {
   uint32_t marker = get_uint32_be(packet->get_buffer());
 
   switch (marker) {
@@ -396,11 +399,11 @@ vc1::es_parser_c::handle_packet(memory_cptr packet) {
 }
 
 void
-vc1::es_parser_c::handle_end_of_sequence_packet(memory_cptr) {
+es_parser_c::handle_end_of_sequence_packet(memory_cptr) {
 }
 
 void
-vc1::es_parser_c::handle_entrypoint_packet(memory_cptr packet) {
+es_parser_c::handle_entrypoint_packet(memory_cptr packet) {
   if (!postpone_processing(packet))
     add_pre_frame_extra_data(packet);
 
@@ -409,7 +412,7 @@ vc1::es_parser_c::handle_entrypoint_packet(memory_cptr packet) {
 }
 
 void
-vc1::es_parser_c::handle_field_packet(memory_cptr packet) {
+es_parser_c::handle_field_packet(memory_cptr packet) {
   if (postpone_processing(packet))
     return;
 
@@ -417,40 +420,40 @@ vc1::es_parser_c::handle_field_packet(memory_cptr packet) {
 }
 
 void
-vc1::es_parser_c::handle_frame_packet(memory_cptr packet) {
+es_parser_c::handle_frame_packet(memory_cptr packet) {
   if (postpone_processing(packet))
     return;
 
   flush_frame();
 
-  vc1::frame_header_t frame_header;
-  if (!vc1::parse_frame_header(packet->get_buffer(), packet->get_size(), frame_header, m_seqhdr))
+  frame_header_t frame_header;
+  if (!parse_frame_header(packet->get_buffer(), packet->get_size(), frame_header, m_seqhdr))
     return;
 
   m_current_frame        = std::make_shared<frame_t>(frame_header);
   m_current_frame->data  = packet;
   m_current_frame->data->grab();
 
-  if (!m_timecodes.empty())
+  if (!m_timestamps.empty())
     mxverb(2,
-           boost::format("vc1::es_parser_c::handle_frame_packet: next provided timecode %1% next calculated timecode %2%\n")
-           % format_timestamp(m_timecodes.front()) % format_timestamp(peek_next_calculated_timecode()));
+           boost::format("es_parser_c::handle_frame_packet: next provided timestamp %1% next calculated timestamp %2%\n")
+           % format_timestamp(m_timestamps.front()) % format_timestamp(peek_next_calculated_timestamp()));
 
 }
 
 void
-vc1::es_parser_c::handle_sequence_header_packet(memory_cptr packet) {
+es_parser_c::handle_sequence_header_packet(memory_cptr packet) {
   flush_frame();
 
   add_pre_frame_extra_data(packet);
 
-  vc1::sequence_header_t seqhdr;
-  if (!vc1::parse_sequence_header(packet->get_buffer(), packet->get_size(), seqhdr))
+  sequence_header_t seqhdr;
+  if (!parse_sequence_header(packet->get_buffer(), packet->get_size(), seqhdr))
     return;
 
   m_seqhdr_changed = !m_seqhdr_found || (packet->get_size() != m_raw_seqhdr->get_size()) || memcmp(packet->get_buffer(), m_raw_seqhdr->get_buffer(), packet->get_size());
 
-  memcpy(&m_seqhdr, &seqhdr, sizeof(vc1::sequence_header_t));
+  memcpy(&m_seqhdr, &seqhdr, sizeof(sequence_header_t));
   m_raw_seqhdr   = memory_cptr(packet->clone());
   m_seqhdr_found = true;
 
@@ -461,7 +464,7 @@ vc1::es_parser_c::handle_sequence_header_packet(memory_cptr packet) {
 }
 
 void
-vc1::es_parser_c::handle_slice_packet(memory_cptr packet) {
+es_parser_c::handle_slice_packet(memory_cptr packet) {
   if (postpone_processing(packet))
     return;
 
@@ -469,8 +472,8 @@ vc1::es_parser_c::handle_slice_packet(memory_cptr packet) {
 }
 
 void
-vc1::es_parser_c::handle_unknown_packet(uint32_t,
-                                        memory_cptr packet) {
+es_parser_c::handle_unknown_packet(uint32_t,
+                                   memory_cptr packet) {
   if (postpone_processing(packet))
     return;
 
@@ -478,14 +481,14 @@ vc1::es_parser_c::handle_unknown_packet(uint32_t,
 }
 
 void
-vc1::es_parser_c::flush_frame() {
+es_parser_c::flush_frame() {
   if (!m_current_frame)
     return;
 
   if (!m_pre_frame_extra_data.empty() || !m_post_frame_extra_data.empty())
     combine_extra_data_with_packet();
 
-  m_current_frame->timecode = get_next_timecode();
+  m_current_frame->timestamp = get_next_timestamp();
   m_current_frame->duration = get_default_duration();
 
   m_frames.push_back(m_current_frame);
@@ -494,7 +497,7 @@ vc1::es_parser_c::flush_frame() {
 }
 
 bool
-vc1::es_parser_c::postpone_processing(memory_cptr &packet) {
+es_parser_c::postpone_processing(memory_cptr &packet) {
   if (m_seqhdr_found)
     return false;
 
@@ -504,7 +507,7 @@ vc1::es_parser_c::postpone_processing(memory_cptr &packet) {
 }
 
 void
-vc1::es_parser_c::process_unparsed_packets() {
+es_parser_c::process_unparsed_packets() {
   for (auto &packet : m_unparsed_packets)
     handle_frame_packet(packet);
 
@@ -512,7 +515,7 @@ vc1::es_parser_c::process_unparsed_packets() {
 }
 
 void
-vc1::es_parser_c::combine_extra_data_with_packet() {
+es_parser_c::combine_extra_data_with_packet() {
   auto sum_fn     = [](size_t size, const memory_cptr &buffer) { return size + buffer->get_size(); };
   auto extra_size = boost::accumulate(m_pre_frame_extra_data, 0, sum_fn) + boost::accumulate(m_post_frame_extra_data, 0, sum_fn);
 
@@ -545,53 +548,53 @@ vc1::es_parser_c::combine_extra_data_with_packet() {
 }
 
 int64_t
-vc1::es_parser_c::get_next_timecode() {
-  int64_t next_timecode = m_previous_timecode
-                        + (m_num_timecodes + m_num_repeated_fields) * m_default_duration
+es_parser_c::get_next_timestamp() {
+  int64_t next_timestamp = m_previous_timestamp
+                        + (m_num_timestamps + m_num_repeated_fields) * m_default_duration
                         - m_num_repeated_fields                     * m_default_duration / 2;
 
-  if (is_timecode_available()) {
+  if (is_timestamp_available()) {
     mxverb(3,
-           boost::format("\nvc1::es_parser_c::get_next_timecode(): provided timecode available; original next %1%, provided %2%\n")
-           % format_timestamp(next_timecode) % format_timestamp(m_timecodes.front()));
+           boost::format("\nes_parser_c::get_next_timestamp(): provided timestamp available; original next %1%, provided %2%\n")
+           % format_timestamp(next_timestamp) % format_timestamp(m_timestamps.front()));
 
-    next_timecode         = m_timecodes.front();
-    m_previous_timecode   = m_timecodes.front();
-    m_num_timecodes       = 0;
+    next_timestamp         = m_timestamps.front();
+    m_previous_timestamp   = m_timestamps.front();
+    m_num_timestamps       = 0;
     m_num_repeated_fields = 0;
 
-    m_timecodes.pop_front();
-    m_timecode_positions.pop_front();
+    m_timestamps.pop_front();
+    m_timestamp_positions.pop_front();
   }
 
-  m_num_timecodes += 1 + m_current_frame->header.repeat_frame;
+  m_num_timestamps += 1 + m_current_frame->header.repeat_frame;
   if (m_seqhdr.interlace_flag && m_current_frame->header.repeat_first_field_flag && !m_current_frame->contains_field)
     ++m_num_repeated_fields;
 
-  return next_timecode;
+  return next_timestamp;
 }
 
 int64_t
-vc1::es_parser_c::peek_next_calculated_timecode()
+es_parser_c::peek_next_calculated_timestamp()
   const {
-  return m_previous_timecode
-    + (m_num_timecodes + m_num_repeated_fields) * m_default_duration
+  return m_previous_timestamp
+    + (m_num_timestamps + m_num_repeated_fields) * m_default_duration
     - m_num_repeated_fields                     * m_default_duration / 2;
 }
 
 void
-vc1::es_parser_c::add_pre_frame_extra_data(memory_cptr packet) {
+es_parser_c::add_pre_frame_extra_data(memory_cptr packet) {
   add_extra_data_if_not_present(m_pre_frame_extra_data, packet);
 }
 
 void
-vc1::es_parser_c::add_post_frame_extra_data(memory_cptr packet) {
+es_parser_c::add_post_frame_extra_data(memory_cptr packet) {
   add_extra_data_if_not_present(m_post_frame_extra_data, packet);
 }
 
 void
-vc1::es_parser_c::add_extra_data_if_not_present(std::deque<memory_cptr> &extra_data,
-                                                memory_cptr const &packet) {
+es_parser_c::add_extra_data_if_not_present(std::deque<memory_cptr> &extra_data,
+                                           memory_cptr const &packet) {
   for (auto const &existing_packet : extra_data)
     if (*existing_packet == *packet)
       return;
@@ -600,18 +603,20 @@ vc1::es_parser_c::add_extra_data_if_not_present(std::deque<memory_cptr> &extra_d
 }
 
 void
-vc1::es_parser_c::add_timecode(int64_t timecode,
-                               int64_t position) {
+es_parser_c::add_timestamp(int64_t timestamp,
+                          int64_t position) {
   position += m_stream_pos;
   if (m_unparsed_buffer)
     position += m_unparsed_buffer->get_size();
 
-  m_timecodes.push_back(timecode);
-  m_timecode_positions.push_back(position);
+  m_timestamps.push_back(timestamp);
+  m_timestamp_positions.push_back(position);
 }
 
 bool
-vc1::es_parser_c::is_timecode_available()
+es_parser_c::is_timestamp_available()
   const {
-  return !m_timecodes.empty() && (m_timecode_positions.front() <= m_stream_pos);
+  return !m_timestamps.empty() && (m_timestamp_positions.front() <= m_stream_pos);
 }
+
+}}

@@ -12,68 +12,79 @@
    and Moritz Bunkus <moritz@bunkus.org>.
 */
 
-#ifndef MTX_R_MPEG_TS_H
-#define MTX_R_MPEG_TS_H
+#pragma once
 
 #include "common/common_pch.h"
 
 #include "common/aac.h"
+#include "common/avc_es_parser.h"
 #include "common/byte_buffer.h"
 #include "common/codec.h"
 #include "common/endian.h"
 #include "common/dts.h"
 #include "common/hevc.h"
 #include "common/mm_io.h"
-#include "common/mpeg4_p10.h"
 #include "common/truehd.h"
+#include "common/vc1_fwd.h"
 #include "input/packet_converter.h"
 #include "merge/generic_reader.h"
 #include "mpegparser/M2VParser.h"
 
-namespace vc1 {
-class es_parser_c;
-}
+namespace mtx { namespace mpeg_ts {
 
-enum mpeg_ts_pid_type_e {
-  PAT_TYPE      = 0,
-  PMT_TYPE      = 1,
-  ES_VIDEO_TYPE = 2,
-  ES_AUDIO_TYPE = 3,
-  ES_SUBT_TYPE  = 4,
-  ES_UNKNOWN    = 5,
+enum class processing_state_e {
+  probing,
+  determining_timestamp_offset,
+  muxing,
 };
 
-enum mpeg_ts_stream_type_e {
-  ISO_11172_VIDEO           = 0x01, // ISO/IEC 11172 Video
-  ISO_13818_VIDEO           = 0x02, // ISO/IEC 13818-2 Video
-  ISO_11172_AUDIO           = 0x03, // ISO/IEC 11172 Audio
-  ISO_13818_AUDIO           = 0x04, // ISO/IEC 13818-3 Audio
-  ISO_13818_PRIVATE         = 0x05, // ISO/IEC 13818-1 private sections
-  ISO_13818_PES_PRIVATE     = 0x06, // ISO/IEC 13818-1 PES packets containing private data
-  ISO_13522_MHEG            = 0x07, // ISO/IEC 13512 MHEG
-  ISO_13818_DSMCC           = 0x08, // ISO/IEC 13818-1 Annex A  DSM CC
-  ISO_13818_TYPE_A          = 0x0a, // ISO/IEC 13818-6 Multiprotocol encapsulation
-  ISO_13818_TYPE_B          = 0x0b, // ISO/IEC 13818-6 DSM-CC U-N Messages
-  ISO_13818_TYPE_C          = 0x0c, // ISO/IEC 13818-6 Stream Descriptors
-  ISO_13818_TYPE_D          = 0x0d, // ISO/IEC 13818-6 Sections (any type, including private data)
-  ISO_13818_AUX             = 0x0e, // ISO/IEC 13818-1 auxiliary
-  ISO_13818_PART7_AUDIO     = 0x0f, // ISO/IEC 13818-7 Audio with ADTS transport sytax
-  ISO_14496_PART2_VIDEO     = 0x10, // ISO/IEC 14496-2 Visual (MPEG-4)
-  ISO_14496_PART3_AUDIO     = 0x11, // ISO/IEC 14496-3 Audio with LATM transport syntax
-  ISO_14496_PART10_VIDEO    = 0x1b, // ISO/IEC 14496-10 Video (MPEG-4 part 10/AVC, aka H.264)
-  ISO_23008_PART2_VIDEO     = 0x24, // ISO/IEC 14496-10 Video (MPEG-H part 2/HEVC, aka H.265)
-  STREAM_AUDIO_PCM          = 0x80, // PCM
-  STREAM_AUDIO_AC3          = 0x81, // Audio AC-3 (A/52)
-  STREAM_AUDIO_DTS          = 0x82, // Audio DTS
-  STREAM_AUDIO_AC3_LOSSLESS = 0x83, // Audio AC-3 - Dolby lossless
-  STREAM_AUDIO_EAC3         = 0x84, // Audio AC-3 - Dolby Digital Plus (E-AC-3)
-  STREAM_AUDIO_DTS_HD       = 0x85, // Audio DTS HD
-  STREAM_AUDIO_DTS_HD_MA    = 0x86, // Audio DTS HD Master Audio
-  STREAM_AUDIO_EAC3_ATSC    = 0x87, // Audio AC-3 - Dolby Digital Plus (E-AC-3) as defined in ATSC A/52:2012 Annex G
-  STREAM_AUDIO_EAC3_2       = 0xa1, // Audio AC-3 - Dolby Digital Plus (E-AC-3); secondary stream
-  STREAM_AUDIO_DTS_HD2      = 0xa2, // Audio DTS HD Express; secondary stream
-  STREAM_VIDEO_VC1          = 0xEA, // Video VC-1
-  STREAM_SUBTITLES_HDMV_PGS = 0x90, // HDMV PGS subtitles
+enum class pid_type_e {
+  pat,
+  pmt,
+  sdt,
+  video,
+  audio,
+  subtitles,
+  unknown,
+};
+
+enum class stream_type_e : unsigned char {
+  iso_11172_video              = 0x01, // ISO/IEC 11172 Video
+  iso_13818_video              = 0x02, // ISO/IEC 13818-2 Video
+  iso_11172_audio              = 0x03, // ISO/IEC 11172 Audio
+  iso_13818_audio              = 0x04, // ISO/IEC 13818-3 Audio
+  iso_13818_private            = 0x05, // ISO/IEC 13818-1 private sections
+  iso_13818_pes_private        = 0x06, // ISO/IEC 13818-1 PES packets containing private data
+  iso_13522_mheg               = 0x07, // ISO/IEC 13512 MHEG
+  iso_13818_dsmcc              = 0x08, // ISO/IEC 13818-1 Annex A  DSM CC
+  iso_13818_type_a             = 0x0a, // ISO/IEC 13818-6 Multiprotocol encapsulation
+  iso_13818_type_b             = 0x0b, // ISO/IEC 13818-6 DSM-CC U-N Messages
+  iso_13818_type_c             = 0x0c, // ISO/IEC 13818-6 Stream Descriptors
+  iso_13818_type_d             = 0x0d, // ISO/IEC 13818-6 Sections (any type, including private data)
+  iso_13818_aux                = 0x0e, // ISO/IEC 13818-1 auxiliary
+  iso_13818_part7_audio        = 0x0f, // ISO/IEC 13818-7 Audio with ADTS transport sytax
+  iso_14496_part2_video        = 0x10, // ISO/IEC 14496-2 Visual (MPEG-4)
+  iso_14496_part3_audio        = 0x11, // ISO/IEC 14496-3 Audio with LATM transport syntax
+  iso_14496_part10_video       = 0x1b, // ISO/IEC 14496-10 Video (MPEG-4 part 10/AVC, aka H.264)
+  iso_23008_part2_video        = 0x24, // ISO/IEC 14496-10 Video (MPEG-H part 2/HEVC, aka H.265)
+  stream_audio_pcm             = 0x80, // PCM
+  stream_audio_ac3             = 0x81, // Audio AC-3 (A/52)
+  stream_audio_dts             = 0x82, // Audio DTS
+  stream_audio_ac3_lossless    = 0x83, // Audio AC-3 - Dolby lossless
+  stream_audio_eac3            = 0x84, // Audio AC-3 - Dolby Digital Plus (E-AC-3)
+  stream_audio_dts_hd          = 0x85, // Audio DTS HD
+  stream_audio_dts_hd_ma       = 0x86, // Audio DTS HD Master Audio
+  stream_audio_eac3_atsc       = 0x87, // Audio AC-3 - Dolby Digital Plus (E-AC-3) as defined in ATSC A/52:2012 Annex G
+  stream_audio_eac3_2          = 0xa1, // Audio AC-3 - Dolby Digital Plus (E-AC-3); secondary stream
+  stream_audio_dts_hd2         = 0xa2, // Audio DTS HD Express; secondary stream
+  stream_video_vc1             = 0xea, // Video VC-1
+  stream_subtitles_hdmv_pgs    = 0x90, // HDMV PGS subtitles
+  stream_subtitles_hdmv_textst = 0x92, // HDMV TextST subtitles
+};
+
+enum class drop_decision_e {
+  keep,
+  drop,
 };
 
 #if defined(COMP_MSC)
@@ -81,7 +92,7 @@ enum mpeg_ts_stream_type_e {
 #endif
 
 // TS packet header
-struct PACKED_STRUCTURE mpeg_ts_packet_header_t {
+struct PACKED_STRUCTURE packet_header_t {
   unsigned char sync_byte;
   unsigned char pid_msb_flags1; // 0x80:transport_error_indicator 0x40:payload_unit_start_indicator 0x20:transport_priority 0x1f:pid_msb
   unsigned char pid_lsb;
@@ -109,7 +120,7 @@ struct PACKED_STRUCTURE mpeg_ts_packet_header_t {
 };
 
 // PAT header
-struct PACKED_STRUCTURE mpeg_ts_pat_t {
+struct PACKED_STRUCTURE pat_t {
   unsigned char table_id;
   unsigned char section_length_msb_flags1; // 0x80:section_syntax_indicator 0x40:zero 0x30:reserved 0x0f:section_length_msb
   unsigned char section_length_lsb;
@@ -133,7 +144,7 @@ struct PACKED_STRUCTURE mpeg_ts_pat_t {
 };
 
 // PAT section
-struct PACKED_STRUCTURE mpeg_ts_pat_section_t {
+struct PACKED_STRUCTURE pat_section_t {
   uint16_t program_number;
   unsigned char pid_msb_flags;
   unsigned char pid_lsb;
@@ -148,7 +159,7 @@ struct PACKED_STRUCTURE mpeg_ts_pat_section_t {
 };
 
 // PMT header
-struct PACKED_STRUCTURE mpeg_ts_pmt_t {
+struct PACKED_STRUCTURE pmt_t {
   unsigned char table_id;
   unsigned char section_length_msb_flags1; // 0x80:section_syntax_indicator 0x40:zero 0x30:reserved 0x0f:section_length_msb
   unsigned char section_length_lsb;
@@ -187,14 +198,14 @@ struct PACKED_STRUCTURE mpeg_ts_pmt_t {
 };
 
 // PMT descriptor
-struct PACKED_STRUCTURE mpeg_ts_pmt_descriptor_t {
+struct PACKED_STRUCTURE pmt_descriptor_t {
   unsigned char tag;
   unsigned char length;
 };
 
 // PMT pid info
-struct PACKED_STRUCTURE mpeg_ts_pmt_pid_info_t {
-  unsigned char stream_type;
+struct PACKED_STRUCTURE pmt_pid_info_t {
+  stream_type_e stream_type;
   unsigned char pid_msb_flags;
   unsigned char pid_lsb;
   unsigned char es_info_length_msb_flags;
@@ -210,7 +221,7 @@ struct PACKED_STRUCTURE mpeg_ts_pmt_pid_info_t {
 };
 
 // PES header
-struct PACKED_STRUCTURE mpeg_ts_pes_header_t {
+struct PACKED_STRUCTURE pes_header_t {
   unsigned char packet_start_code[3];
   unsigned char stream_id;
   uint16_t pes_packet_length;
@@ -256,52 +267,66 @@ struct PACKED_STRUCTURE mpeg_ts_pes_header_t {
 #pragma pack(pop)
 #endif
 
-class mpeg_ts_reader_c;
+struct program_t {
+  uint16_t program_number;
+  std::string service_provider, service_name;
 
-class mpeg_ts_track_c;
-using mpeg_ts_track_ptr = std::shared_ptr<mpeg_ts_track_c>;
+  bool operator<(program_t const &other) const {
+    return program_number < other.program_number;
+  };
+};
 
-class mpeg_ts_track_c {
+class reader_c;
+
+class track_c;
+using track_ptr = std::shared_ptr<track_c>;
+
+class track_c {
 public:
-  mpeg_ts_reader_c &reader;
+  reader_c &reader;
+  std::size_t m_file_num;
+  uint64_t m_id;
 
   bool processed;
-  mpeg_ts_pid_type_e type;          //can be PAT_TYPE, PMT_TYPE, ES_VIDEO_TYPE, ES_AUDIO_TYPE, ES_SUBT_TYPE, ES_UNKNOWN
+  pid_type_e type;
   codec_c codec;
   uint16_t pid;
+  boost::optional<uint16_t> program_number;
   boost::optional<int> m_ttx_wanted_page;
   std::size_t pes_payload_size_to_read; // size of the current PID payload in bytes
-  byte_buffer_cptr pes_payload_read;    // buffer with the current PID payload
+  mtx::bytes::buffer_cptr pes_payload_read;    // buffer with the current PID payload
 
   bool probed_ok;
   int ptzr;                         // the actual packetizer instance
 
-  timestamp_c m_timestamp, m_previous_timestamp, m_previous_valid_timestamp, m_timestamp_wrap_add;
+  timestamp_c m_timestamp, m_previous_timestamp, m_previous_valid_timestamp, m_timestamp_wrap_add, m_subtitle_timestamp_correction;
 
   // video related parameters
   bool v_interlaced;
   int v_version, v_width, v_height, v_dwidth, v_dheight;
   double v_frame_rate, v_aspect_ratio;
-  memory_cptr raw_seq_hdr;
+  memory_cptr m_codec_private_data;
 
   // audio related parameters
   int a_channels, a_sample_rate, a_bits_per_sample, a_bsid;
   mtx::dts::header_t a_dts_header;
   aac::frame_c m_aac_frame;
+  aac::parser_c::multiplex_type_e m_aac_multiplex_type;
 
   bool m_apply_dts_timestamp_fix, m_use_dts, m_timestamps_wrapped, m_truehd_found_truehd, m_truehd_found_ac3;
-  std::vector<mpeg_ts_track_ptr> m_coupled_tracks;
+  std::vector<track_ptr> m_coupled_tracks;
+  track_c *m_master;
 
   // general track parameters
   std::string language;
 
   // used for probing for stream types
-  byte_buffer_cptr m_probe_data;
-  mpeg4::p10::avc_es_parser_cptr m_avc_parser;
+  mtx::bytes::buffer_cptr m_probe_data;
+  mtx::avc::es_parser_cptr m_avc_parser;
   mtx::hevc::es_parser_cptr m_hevc_parser;
   truehd_parser_cptr m_truehd_parser;
   std::shared_ptr<M2VParser> m_m2v_parser;
-  std::shared_ptr<vc1::es_parser_c> m_vc1_parser;
+  mtx::vc1::es_parser_cptr m_vc1_parser;
 
   unsigned int skip_packet_data_bytes;
 
@@ -310,39 +335,7 @@ public:
   bool m_debug_delivery, m_debug_timestamp_wrapping;
   debugging_option_c m_debug_headers;
 
-  mpeg_ts_track_c(mpeg_ts_reader_c &p_reader)
-    : reader(p_reader)
-    , processed(false)
-    , type(ES_UNKNOWN)
-    , pid(0)
-    , pes_payload_size_to_read{}
-    , pes_payload_read(new byte_buffer_c)
-    , probed_ok(false)
-    , ptzr(-1)
-    , m_timestamp_wrap_add{timestamp_c::ns(0)}
-    , v_interlaced(false)
-    , v_version(0)
-    , v_width(0)
-    , v_height(0)
-    , v_dwidth(0)
-    , v_dheight(0)
-    , v_frame_rate(0)
-    , v_aspect_ratio(0)
-    , a_channels(0)
-    , a_sample_rate(0)
-    , a_bits_per_sample(0)
-    , a_bsid(0)
-    , m_apply_dts_timestamp_fix(false)
-    , m_use_dts(false)
-    , m_timestamps_wrapped{false}
-    , m_truehd_found_truehd{}
-    , m_truehd_found_ac3{}
-    , skip_packet_data_bytes{}
-    , m_debug_delivery{}
-    , m_debug_timestamp_wrapping{}
-    , m_debug_headers{"mpeg_ts|mpeg_ts_headers"}
-  {
-  }
+  track_c(reader_c &p_reader, pid_type_e p_type = pid_type_e::unknown);
 
   void send_to_packetizer();
   void add_pes_payload(unsigned char *ts_payload, size_t ts_payload_size);
@@ -362,65 +355,88 @@ public:
   int new_stream_a_dts();
   int new_stream_a_pcm();
   int new_stream_a_truehd();
+  int new_stream_s_hdmv_textst();
+  int new_stream_s_dvbsub();
 
-  bool parse_ac3_pmt_descriptor(mpeg_ts_pmt_descriptor_t const &pmt_descriptor, mpeg_ts_pmt_pid_info_t const &pmt_pid_info);
-  bool parse_dts_pmt_descriptor(mpeg_ts_pmt_descriptor_t const &pmt_descriptor, mpeg_ts_pmt_pid_info_t const &pmt_pid_info);
-  bool parse_registration_pmt_descriptor(mpeg_ts_pmt_descriptor_t const &pmt_descriptor, mpeg_ts_pmt_pid_info_t const &pmt_pid_info);
-  bool parse_srt_pmt_descriptor(mpeg_ts_pmt_descriptor_t const &pmt_descriptor, mpeg_ts_pmt_pid_info_t const &pmt_pid_info);
-  bool parse_vobsub_pmt_descriptor(mpeg_ts_pmt_descriptor_t const &pmt_descriptor, mpeg_ts_pmt_pid_info_t const &pmt_pid_info);
+  bool parse_ac3_pmt_descriptor(pmt_descriptor_t const &pmt_descriptor, pmt_pid_info_t const &pmt_pid_info);
+  bool parse_dts_pmt_descriptor(pmt_descriptor_t const &pmt_descriptor, pmt_pid_info_t const &pmt_pid_info);
+  bool parse_registration_pmt_descriptor(pmt_descriptor_t const &pmt_descriptor, pmt_pid_info_t const &pmt_pid_info);
+  bool parse_srt_pmt_descriptor(pmt_descriptor_t const &pmt_descriptor, pmt_pid_info_t const &pmt_pid_info);
+  bool parse_subtitling_pmt_descriptor(pmt_descriptor_t const &pmt_descriptor, pmt_pid_info_t const &pmt_pid_info);
 
   bool has_packetizer() const;
 
   void set_pid(uint16_t new_pid);
 
+  drop_decision_e handle_bogus_subtitle_timestamps(timestamp_c &pts, timestamp_c &dts);
   void handle_timestamp_wrap(timestamp_c &pts, timestamp_c &dts);
-  bool detect_timestamp_wrap(timestamp_c &timestamp);
+  bool detect_timestamp_wrap(timestamp_c const &timestamp) const;
   void adjust_timestamp_for_wrap(timestamp_c &timestamp);
+
+  timestamp_c derive_pts_from_content();
+  timestamp_c derive_hdmv_textst_pts_from_content();
+
+  void determine_codec_from_stream_type(stream_type_e stream_type);
 
   void process(packet_cptr const &packet);
 
   void parse_iso639_language_from(void const *buffer);
+
+  void reset_processing_state();
 };
 
-class mpeg_ts_reader_c: public generic_reader_c {
-protected:
-  enum processing_state_e {
-    ps_probing,
-    ps_determining_timestamp_offset,
-    ps_muxing,
-  };
+struct file_t {
+  mm_io_cptr m_in;
 
-  bool PAT_found, PMT_found;
-  int16_t PMT_pid;
-  int es_to_process;
-  timestamp_c m_global_timestamp_offset, m_stream_timestamp, m_last_non_subtitle_timestamp;
+  std::unordered_map<uint16_t, track_ptr> m_pid_to_track_map;
+  std::unordered_map<uint16_t, bool> m_ignored_pids, m_pmt_pid_seen;
+  std::vector<generic_packetizer_c *> m_packetizers;
+  std::vector<program_t> m_programs;
+
+  bool m_pat_found;
+  unsigned int m_num_pmts_found, m_num_pmts_to_find;
+  int m_es_to_process;
+  timestamp_c m_global_timestamp_offset, m_stream_timestamp, m_timestamp_restriction_min, m_timestamp_restriction_max, m_timestamp_mpls_sync, m_last_non_subtitle_pts, m_last_non_subtitle_dts;
 
   processing_state_e m_state;
   uint64_t m_probe_range;
 
-  bool file_done, m_packet_sent_to_packetizer;
+  bool m_file_done, m_packet_sent_to_packetizer;
 
-  std::vector<mpeg_ts_track_ptr> tracks;
-  std::map<generic_packetizer_c *, mpeg_ts_track_ptr> m_ptzr_to_track_map;
+  unsigned int m_detected_packet_size, m_num_pat_crc_errors, m_num_pmt_crc_errors;
+  bool m_validate_pat_crc, m_validate_pmt_crc, m_has_audio_or_video_track;
+
+  file_t(mm_io_cptr const &in);
+
+  int64_t get_queued_bytes() const;
+  void reset_processing_state(processing_state_e new_state);
+  bool all_pmts_found() const;
+};
+using file_cptr = std::shared_ptr<file_t>;
+
+class reader_c: public generic_reader_c {
+protected:
+  std::vector<file_cptr> m_files;
+  std::size_t m_current_file;
+
+  std::vector<track_ptr> m_tracks, m_all_probed_tracks;
+  std::map<generic_packetizer_c *, track_ptr> m_ptzr_to_track_map;
 
   std::vector<timestamp_c> m_chapter_timestamps;
 
-  debugging_option_c m_dont_use_audio_pts, m_debug_resync, m_debug_pat_pmt, m_debug_headers, m_debug_packet, m_debug_aac, m_debug_timestamp_wrapping, m_debug_clpi;
-
-  unsigned int m_detected_packet_size, m_num_pat_crc_errors, m_num_pmt_crc_errors;
-  bool m_validate_pat_crc, m_validate_pmt_crc;
+  debugging_option_c m_dont_use_audio_pts, m_debug_resync, m_debug_pat_pmt, m_debug_sdt, m_debug_headers, m_debug_packet, m_debug_aac, m_debug_timestamp_wrapping, m_debug_clpi, m_debug_mpls;
 
 protected:
   static int potential_packet_sizes[];
 
 public:
-  mpeg_ts_reader_c(const track_info_c &ti, const mm_io_cptr &in);
-  virtual ~mpeg_ts_reader_c();
+  reader_c(const track_info_c &ti, const mm_io_cptr &in);
+  virtual ~reader_c();
 
   static bool probe_file(mm_io_c *in, uint64_t size);
 
-  virtual file_type_e get_format_type() const {
-    return FILE_TYPE_MPEG_TS;
+  virtual mtx::file_type_e get_format_type() const {
+    return mtx::file_type_e::mpeg_ts;
   }
 
   virtual void read_headers();
@@ -436,36 +452,51 @@ public:
   static int detect_packet_size(mm_io_c *in, uint64_t size);
 
 private:
-  mpeg_ts_track_ptr find_track_for_pid(uint16_t pid) const;
-  std::pair<unsigned char *, std::size_t> determine_ts_payload_start(mpeg_ts_packet_header_t *hdr) const;
+  void read_headers_for_file(std::size_t file_num);
 
-  void handle_ts_payload(mpeg_ts_track_c &track, mpeg_ts_packet_header_t &ts_header, unsigned char *ts_payload, std::size_t ts_payload_size);
-  void handle_pat_pmt_payload(mpeg_ts_track_c &track, mpeg_ts_packet_header_t &ts_header, unsigned char *ts_payload, std::size_t ts_payload_size);
-  void handle_pes_payload(mpeg_ts_track_c &track, mpeg_ts_packet_header_t &ts_header, unsigned char *ts_payload, std::size_t ts_payload_size);
+  track_ptr find_track_for_pid(uint16_t pid) const;
+  std::pair<unsigned char *, std::size_t> determine_ts_payload_start(packet_header_t *hdr) const;
+  void setup_initial_tracks();
 
-  bool parse_pat(mpeg_ts_track_c &track);
-  bool parse_pmt(mpeg_ts_track_c &track);
-  void parse_pes(mpeg_ts_track_c &track);
-  void probe_packet_complete(mpeg_ts_track_c &track);
-  int determine_track_parameters(mpeg_ts_track_c &track);
+  void handle_ts_payload(track_c &track, packet_header_t &ts_header, unsigned char *ts_payload, std::size_t ts_payload_size);
+  void handle_pat_pmt_payload(track_c &track, packet_header_t &ts_header, unsigned char *ts_payload, std::size_t ts_payload_size);
+  void handle_pes_payload(track_c &track, packet_header_t &ts_header, unsigned char *ts_payload, std::size_t ts_payload_size);
+  track_ptr handle_packet_for_pid_not_listed_in_pmt(uint16_t pid);
+
+  bool parse_pat(track_c &track);
+  bool parse_pmt(track_c &track);
+  bool parse_pmt_pid_info(mm_mem_io_c &mem, uint16_t program_number);
+  bool parse_sdt(track_c &track);
+  void parse_sdt_service_desciptor(mtx::bits::reader_c &r, uint16_t program_number);
+  void parse_pes(track_c &track);
+  void probe_packet_complete(track_c &track);
+  int determine_track_parameters(track_c &track);
+  void determine_track_type_by_pes_content(track_c &track);
 
   file_status_e finish();
-  int send_to_packetizer(mpeg_ts_track_ptr &track);
-  void create_mpeg1_2_video_packetizer(mpeg_ts_track_ptr &track);
-  void create_mpeg4_p10_es_video_packetizer(mpeg_ts_track_ptr &track);
-  void create_mpegh_p2_es_video_packetizer(mpeg_ts_track_ptr &track);
-  void create_vc1_video_packetizer(mpeg_ts_track_ptr &track);
-  void create_aac_audio_packetizer(mpeg_ts_track_ptr const &track);
-  void create_ac3_audio_packetizer(mpeg_ts_track_ptr const &track);
-  void create_pcm_audio_packetizer(mpeg_ts_track_ptr const &track);
-  void create_truehd_audio_packetizer(mpeg_ts_track_ptr const &track);
-  void create_hdmv_pgs_subtitles_packetizer(mpeg_ts_track_ptr &track);
-  void create_srt_subtitles_packetizer(mpeg_ts_track_ptr const &track);
+  bool all_files_done() const;
+  int send_to_packetizer(track_ptr &track);
+  void create_mpeg1_2_video_packetizer(track_ptr &track);
+  void create_mpeg4_p10_es_video_packetizer(track_ptr &track);
+  void create_mpegh_p2_es_video_packetizer(track_ptr &track);
+  void create_vc1_video_packetizer(track_ptr &track);
+  void create_aac_audio_packetizer(track_ptr const &track);
+  void create_ac3_audio_packetizer(track_ptr const &track);
+  void create_pcm_audio_packetizer(track_ptr const &track);
+  void create_truehd_audio_packetizer(track_ptr const &track);
+  void create_hdmv_pgs_subtitles_packetizer(track_ptr &track);
+  void create_hdmv_textst_subtitles_packetizer(track_ptr const &track);
+  void create_srt_subtitles_packetizer(track_ptr const &track);
+  void create_dvbsub_subtitles_packetizer(track_ptr const &track);
 
+  void reset_processing_state(processing_state_e new_state);
   void determine_global_timestamp_offset();
 
-  bfs::path find_clip_info_file();
-  void parse_clip_info_file();
+  bfs::path find_file(bfs::path const &source_file, std::string const &sub_directory, std::string const &extension) const;
+  void parse_clip_info_file(std::size_t file_idx);
+
+  void add_external_files_from_mpls(mm_mpls_multi_file_io_c &mpls_in);
+  void add_programs_to_identification_info(mtx::id::info_c &info);
 
   void process_chapter_entries();
 
@@ -473,7 +504,15 @@ private:
 
   uint32_t calculate_crc(void const *buffer, size_t size) const;
 
-  friend class mpeg_ts_track_c;
+  file_t &file();
+
+  void add_multiplexed_ids(std::vector<uint64_t> &multiplexed_ids, track_c &track);
+
+  static memory_cptr read_pmt_descriptor(mm_io_c &io);
+  static std::string read_descriptor_string(mtx::bits::reader_c &r);
+  static charset_converter_cptr get_charset_converter_for_coding_type(unsigned int coding);
+
+  friend class track_c;
 };
 
-#endif  // MTX_R_MPEG_TS_H
+}}

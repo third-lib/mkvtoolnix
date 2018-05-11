@@ -1,5 +1,4 @@
-#ifndef MTX_MKVTOOLNIX_GUI_MERGE_TOOL_H
-#define MTX_MKVTOOLNIX_GUI_MERGE_TOOL_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -34,6 +33,7 @@ public:
 
   virtual void setupUi() override;
   virtual void setupActions() override;
+  virtual std::pair<QString, QString> nextPreviousWindowActionTexts() const override;
   virtual void openConfigFile(QString const &fileName);
   virtual void openFromConfig(MuxConfig const &config);
 
@@ -61,6 +61,7 @@ public slots:
   virtual void showCommandLine();
   virtual void copyFirstFileNameToTitle();
   virtual void copyOutputFileNameToTitle();
+  virtual void copyTitleToOutputFileName();
 
   virtual void toolShown() override;
   virtual void tabTitleChanged();
@@ -88,5 +89,3 @@ protected:
 };
 
 }}}
-
-#endif // MTX_MKVTOOLNIX_GUI_MERGE_TOOL_H

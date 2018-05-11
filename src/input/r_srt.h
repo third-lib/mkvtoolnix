@@ -11,8 +11,7 @@
    Written by Moritz Bunkus <moritz@bunkus.org>.
 */
 
-#ifndef MTX_R_SRT_H
-#define MTX_R_SRT_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -29,8 +28,8 @@ public:
   srt_reader_c(const track_info_c &ti, const mm_io_cptr &in);
   virtual ~srt_reader_c();
 
-  virtual file_type_e get_format_type() const {
-    return FILE_TYPE_SRT;
+  virtual mtx::file_type_e get_format_type() const {
+    return mtx::file_type_e::srt;
   }
 
   virtual void read_headers();
@@ -44,5 +43,3 @@ public:
 
   static int probe_file(mm_text_io_c *in, uint64_t size);
 };
-
-#endif  // MTX_R_SRT_H

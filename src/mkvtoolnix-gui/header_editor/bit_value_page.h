@@ -1,5 +1,4 @@
-#ifndef MTX_MKVTOOLNIX_GUI_HEADER_EDITOR_BIT_VALUE_PAGE_H
-#define MTX_MKVTOOLNIX_GUI_HEADER_EDITOR_BIT_VALUE_PAGE_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -15,7 +14,7 @@ class Tab;
 class BitValuePage: public ValuePage {
 public:
   QLineEdit *m_leValue{};
-  bitvalue_c m_originalValue;
+  mtx::bits::value_c m_originalValue;
   unsigned int m_bitLength;
 
 public:
@@ -28,8 +27,8 @@ public:
   virtual void resetValue() override;
   virtual bool validateValue() const override;
   virtual void copyValueToElement() override;
+
+  virtual mtx::bits::value_c valueToBitvalue() const;
 };
 
 }}}
-
-#endif  // MTX_MKVTOOLNIX_GUI_HEADER_EDITOR_BIT_VALUE_PAGE_H

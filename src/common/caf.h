@@ -11,14 +11,13 @@
    Written by Moritz Bunkus <moritz@bunkus.org>.
 */
 
-#ifndef MTX_COMMON_CAF_H
-#define MTX_COMMON_CAF_H
+#pragma once
 
 #include "common/common_pch.h"
 
 // See http://developer.apple.com/documentation/MusicAudio/Reference/CAFSpec/
 
-namespace caf {
+namespace mtx { namespace caf {
 
 struct defs {
   static unsigned int const channel_atom_size             =   12;
@@ -105,6 +104,4 @@ struct PACKED_STRUCTURE channel_layout_info_t {
 #pragma pack(pop)
 #endif
 
-}
-
-#endif // MTX_COMMON_CAF_H
+}}

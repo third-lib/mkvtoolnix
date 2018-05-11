@@ -11,8 +11,7 @@
    Written by Moritz Bunkus <moritz@bunkus.org>.
 */
 
-#ifndef MTX_R_USF_H
-#define MTX_R_USF_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -66,8 +65,8 @@ public:
   usf_reader_c(const track_info_c &ti, const mm_io_cptr &in);
   virtual ~usf_reader_c();
 
-  virtual file_type_e get_format_type() const {
-    return FILE_TYPE_USF;
+  virtual mtx::file_type_e get_format_type() const {
+    return mtx::file_type_e::usf;
   }
 
   virtual void read_headers();
@@ -83,11 +82,9 @@ public:
   static int probe_file(mm_text_io_c *in, uint64_t size);
 
 protected:
-  virtual int64_t try_to_parse_timecode(const char *s);
+  virtual int64_t try_to_parse_timestamp(const char *s);
   virtual void parse_metadata(mtx::xml::document_cptr &doc);
   virtual void parse_subtitles(mtx::xml::document_cptr &doc);
   virtual void create_codec_private(mtx::xml::document_cptr &doc);
 
 };
-
-#endif  // MTX_R_USF_H

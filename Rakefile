@@ -1,4 +1,3 @@
-#!/usr/bin/env ruby
 # coding: utf-8
 
 if Signal.list.key?('ALRM')
@@ -19,18 +18,27 @@ if FileUtils.pwd != File.dirname(__FILE__)
 end
 
 # Set number of threads to use if it is unset and we're running with
-# drake
+# drake.
 if Rake.application.options.respond_to?(:threads) && [nil, 0, 1].include?(Rake.application.options.threads) && !ENV['DRAKETHREADS'].nil?
   Rake.application.options.threads = ENV['DRAKETHREADS'].to_i
 end
 
+# For newer rake turn on parallel processing, too. Newer rake versions
+# use an OpenStruct, though, so testing with responds_to? won't work.
+version = Rake::VERSION.gsub(%r{[^0-9\.]+}, "").split(%r{\.}).map(&:to_i)
+if (version[0] > 10) || ((version[0] == 10) && (version[1] >= 3))
+  Rake.application.options.always_multitask = true
+end
+
 require "pp"
+
+module Mtx
+end
 
 require_relative "rake.d/extensions"
 require_relative "rake.d/config"
 
-read_config
-
+$config               = read_build_config
 $verbose              = ENV['V'].to_bool
 $build_system_modules = {}
 $have_gtest           = (c(:GTEST_TYPE) == "system") || (c(:GTEST_TYPE) == "internal")
@@ -39,17 +47,20 @@ $gtest_apps           = []
 require_relative "rake.d/helpers"
 require_relative "rake.d/target"
 require_relative "rake.d/application"
+require_relative "rake.d/installer"
 require_relative "rake.d/library"
 require_relative "rake.d/format_string_verifier"
 require_relative "rake.d/pch"
 require_relative "rake.d/po"
+require_relative "rake.d/source_tests"
 require_relative "rake.d/tarball"
 require_relative 'rake.d/gtest' if $have_gtest
 
 def setup_globals
   $building_for = {
-    macos:   %r{darwin}i.match(RbConfig::CONFIG['host_os']),
-    windows: c?(:MINGW)
+    :linux   => %r{linux}i.match(c(:host)),
+    :macos   => %r{darwin}i.match(c(:host)),
+    :windows => %r{mingw}i.match(c(:host)),
   }
 
   $build_mkvtoolnix_gui  ||=  c?(:USE_QT)
@@ -59,7 +70,7 @@ def setup_globals
   $programs                =  %w{mkvmerge mkvinfo mkvextract mkvpropedit}
   $programs                << "mkvinfo-gui"    if $build_mkvinfo_gui
   $programs                << "mkvtoolnix-gui" if $build_mkvtoolnix_gui
-  $tools                   =  %w{ac3parser base64tool checksum diracparser ebml_validator hevc_dump mpls_dump vc1parser}
+  $tools                   =  %w{ac3parser base64tool checksum diracparser ebml_validator hevc_dump hevcc_dump mpls_dump vc1parser}
 
   $application_subdirs     =  { "mkvtoolnix-gui" => "mkvtoolnix-gui/" }
   $applications            =  $programs.collect { |name| "src/#{$application_subdirs[name]}#{name}" + c(:EXEEXT) }
@@ -67,17 +78,9 @@ def setup_globals
   $manpages                << "doc/man/mkvtoolnix-gui.1" if $build_mkvtoolnix_gui
 
   $system_includes         = "-I. -Ilib -Ilib/avilib-0.6.10 -Isrc"
+  $system_includes        += " -Ilib/utf8-cpp/source" if c?(:UTF8CPP_INTERNAL)
+  $system_includes        += " -Ilib/pugixml/src"     if c?(:PUGIXML_INTERNAL)
   $system_libdirs          = "-Llib/avilib-0.6.10 -Llib/librmff -Lsrc/common"
-
-  if c?(:UTF8CPP_INTERNAL)
-    $system_includes      += " -Ilib/utf8-cpp/source"
-  end
-
-  if c?(:PUGIXML_INTERNAL)
-    $system_includes      += " -Ilib/pugixml/src"
-    $system_libdirs       += " -Llib/pugixml/src"
-  end
-
 
   $source_directories      =  %w{lib/avilib-0.6.10 lib/librmff src/common src/extract src/info src/input src/merge src/mkvtoolnix-gui src/mpegparser src/output src/propedit}
   $all_sources             =  $source_directories.collect { |dir| FileList[ "#{dir}/**/*.c", "#{dir}/**/*.cpp" ].to_a }.flatten.sort
@@ -112,36 +115,42 @@ def setup_globals
   $unwrapped_po            = %{ca es eu it nl uk pl sr_RS@latin tr}
   $po_multiple_sources     = %{sv}
 
+  $benchmark_sources       = FileList["src/benchmark/*.cpp"].to_a if c?(:GOOGLE_BENCHMARK)
+
   cflags_common            = "-Wall -Wno-comment -Wfatal-errors #{c(:WLOGICAL_OP)} #{c(:WNO_MISMATCHED_TAGS)} #{c(:WNO_SELF_ASSIGN)} #{c(:QUNUSED_ARGUMENTS)}"
   cflags_common           += " #{c(:WNO_INCONSISTENT_MISSING_OVERRIDE)} #{c(:WNO_POTENTIALLY_EVALUATED_EXPRESSION)}"
   cflags_common           += " #{c(:OPTIMIZATION_CFLAGS)} -D_FILE_OFFSET_BITS=64"
   cflags_common           += " -DMTX_LOCALE_DIR=\\\"#{c(:localedir)}\\\" -DMTX_PKG_DATA_DIR=\\\"#{c(:pkgdatadir)}\\\" -DMTX_DOC_DIR=\\\"#{c(:docdir)}\\\""
   cflags_common           += " #{c(:FSTACK_PROTECTOR)}"
   cflags_common           += " -fsanitize=undefined"                                     if c?(:UBSAN)
+  cflags_common           += " -fsanitize=address -fno-omit-frame-pointer"               if c?(:ADDRSAN)
   cflags_common           += " -Ilib/libebml -Ilib/libmatroska"                          if c?(:EBML_MATROSKA_INTERNAL)
-  cflags_common           += " #{c(:MATROSKA_CFLAGS)} #{c(:EBML_CFLAGS)} #{c(:EXTRA_CFLAGS)} #{c(:DEBUG_CFLAGS)} #{c(:PROFILING_CFLAGS)} #{c(:USER_CPPFLAGS)}"
-  cflags_common           += " -mno-ms-bitfields -DWINVER=0x0500 -D_WIN32_WINNT=0x0500 " if c?(:MINGW)
-  cflags_common           += " -march=i686"                                              if c?(:MINGW) && /i686/.match(c(:host))
-  cflags_common           += " -fPIC "                                                   if c?(:USE_QT) && !c?(:MINGW)
-  cflags_common           += " -DQT_STATICPLUGIN"                                        if c?(:USE_QT) &&  c?(:MINGW)
+  cflags_common           += " #{c(:MATROSKA_CFLAGS)} #{c(:EBML_CFLAGS)} #{c(:PUGIXML_CFLAGS)} #{c(:EXTRA_CFLAGS)} #{c(:DEBUG_CFLAGS)} #{c(:PROFILING_CFLAGS)} #{c(:USER_CPPFLAGS)}"
+  cflags_common           += " -mno-ms-bitfields -DWINVER=0x0601 -D_WIN32_WINNT=0x0601 " if $building_for[:windows] # 0x0601 = Windows 7/Server 2008 R2
+  cflags_common           += " -march=i686"                                              if $building_for[:windows] && /i686/.match(c(:host))
+  cflags_common           += " -fPIC "                                                   if c?(:USE_QT) && !$building_for[:windows]
+  cflags_common           += " -DQT_STATICPLUGIN"                                        if c?(:USE_QT) &&  $building_for[:windows]
+  cflags_common           += " -DMTX_APPIMAGE"                                           if c?(:APPIMAGE_BUILD) && !$building_for[:windows]
 
   cflags                   = "#{cflags_common} #{c(:USER_CFLAGS)}"
 
   cxxflags                 = "#{cflags_common} #{c(:STD_CXX)}"
   cxxflags                += " -Wnon-virtual-dtor -Woverloaded-virtual -Wextra -Wno-missing-field-initializers #{c(:WNO_MAYBE_UNINITIALIZED)}"
-  cxxflags                += " #{c(:QT_CFLAGS)} #{c(:BOOST_CPPFLAGS)} #{c(:CURL_CFLAGS)} #{c(:USER_CXXFLAGS)}"
+  cxxflags                += " #{c(:QT_CFLAGS)} #{c(:BOOST_CPPFLAGS)} #{c(:USER_CXXFLAGS)}"
 
   ldflags                  = ""
+  ldflags                 += " -fuse-ld=lld"                            if (c(:COMPILER_TYPE) == "clang") && !c(:LLVM_LLD).empty?
   ldflags                 += " -Llib/libebml/src -Llib/libmatroska/src" if c?(:EBML_MATROSKA_INTERNAL)
   ldflags                 += " #{c(:EXTRA_LDFLAGS)} #{c(:PROFILING_LIBS)} #{c(:USER_LDFLAGS)} #{c(:LDFLAGS_RPATHS)} #{c(:BOOST_LDFLAGS)}"
-  ldflags                 += " -Wl,--dynamicbase,--nxcompat" if c?(:MINGW)
-  ldflags                 += " -fsanitize=undefined"         if c?(:UBSAN)
+  ldflags                 += " -Wl,--dynamicbase,--nxcompat"               if $building_for[:windows]
+  ldflags                 += " -fsanitize=undefined"                       if c?(:UBSAN)
+  ldflags                 += " -fsanitize=address -fno-omit-frame-pointer" if c?(:ADDRSAN)
   ldflags                 += " #{c(:FSTACK_PROTECTOR)}"
 
   windres                  = ""
   windres                 += " -DMINGW_PROCESSOR_ARCH_AMD64=1" if c(:MINGW_PROCESSOR_ARCH) == 'amd64'
 
-  mocflags                 = c?(:MINGW) ? "-DSYS_WINDOWS" : ""
+  mocflags                 = $building_for[:macos] ? "-DSYS_APPLE" : $building_for[:windows] ? "-DSYS_WINDOWS" : ""
 
   $flags                   = {
     :cflags                => cflags,
@@ -150,6 +159,8 @@ def setup_globals
     :windres               => windres,
     :moc                   => mocflags,
   }
+
+  setup_macos_specifics if $building_for[:macos]
 
   $build_system_modules.values.each { |bsm| bsm[:setup].call if bsm[:setup] }
 end
@@ -161,6 +172,14 @@ def setup_overrides
   end
 end
 
+def setup_macos_specifics
+  $macos_config = read_config_file("tools/macos/config.sh")
+
+  if ENV['MACOSX_DEPLOYMENT_TARGET'].to_s.empty? && !$macos_config[:MACOSX_DEPLOYMENT_TARGET].to_s.empty?
+    ENV['MACOSX_DEPLOYMENT_TARGET'] = $macos_config[:MACOSX_DEPLOYMENT_TARGET]
+  end
+end
+
 def define_default_task
   desc "Build everything"
 
@@ -168,6 +187,7 @@ def define_default_task
   targets = $applications.clone
 
   targets << "apps:tools" if $build_tools
+  targets += (c(:ADDITIONAL_TARGETS) || '').split(%r{ +})
 
   # Build the unit tests only if requested
   targets << ($run_unit_tests ? 'tests:run_unit' : 'tests:unit') if $have_gtest
@@ -182,17 +202,20 @@ def define_default_task
   targets << "doc/development.html" if !c(:PANDOC).empty?
 
   # Build man pages and translations?
-  targets += [ "manpages", "translations:manpages" ] if c?(:XSLTPROC_WORKS)
+  targets << "manpages"
+  targets << "translations:manpages" if c?(:PO4A_WORKS)
 
   # Build translations for the programs
   targets << "translations:programs"
 
   # The Qt translation files: only for Windows
-  targets << "translations:qt" if c?(:MINGW) && !c(:LCONVERT).blank?
+  targets << "translations:qt" if $building_for[:windows] && !c(:LCONVERT).blank?
 
   # Build ebml_validator by default when not cross-compiling as it is
   # needed for running the tests.
   targets << "apps:tools:ebml_validator" if c(:host) == c(:build)
+
+  targets << "src/benchmark/benchmark" if c?(:GOOGLE_BENCHMARK) && !$benchmark_sources.empty?
 
   task :default => targets do
     puts "Done. Enjoy :)"
@@ -232,7 +255,9 @@ namespace :apps do
 end
 
 # Store compiler block for re-use
-cxx_compiler = lambda do |t|
+cxx_compiler = lambda do |*args|
+  t = args.first
+
   create_dependency_dirs
 
   source = t.source ? t.source : t.prerequisites.first
@@ -274,7 +299,7 @@ rule '.o' => '.rc' do |t|
 end
 
 # Resources depend on the manifest.xml file for Windows builds.
-if c?(:MINGW)
+if $building_for[:windows]
   $programs.each do |program|
     path = program.gsub(/^mkv/, '')
     icon = program == 'mkvinfo' ? 'share/icons/windows/mkvinfo.ico' : 'share/icons/windows/mkvtoolnix-gui.ico'
@@ -293,49 +318,46 @@ if !c(:LCONVERT).blank?
 end
 
 # man pages from DocBook XML
-if c?(:XSLTPROC_WORKS)
-  rule '.1' => '.xml' do |t|
-    filter = lambda do |code, lines|
+rule '.1' => '.xml' do |t|
+  filter = lambda do |code, lines|
+    if (0 == code) && lines.any? { |line| /^error|parser error/i.match(line) }
+      File.unlink(t.name) if File.exists?(t.name)
+      result = 1
       puts lines.join('')
-      if (0 == code) && lines.any? { |line| /^error/i.match(line) }
-        File.unlink(t.name) if File.exists?(t.name)
-        1
-      else
-        0
-      end
+
+    elsif 0 != code
+      result = code
+      puts lines.join('')
+
+    else
+      result = 0
+      puts lines.join('') if $verbose
     end
 
-    runq "xsltproc", t.source, "#{c(:XSLTPROC)} #{c(:XSLTPROC_FLAGS)} -o #{t.name} #{c(:DOCBOOK_MANPAGES_STYLESHEET)} #{t.sources.join(" ")}", :filter_output => filter
+    result
   end
 
-  $manpages.each do |manpage|
-    file manpage => manpage.ext('xml')
-    $available_languages[:manpages].each do |language|
-      localized_manpage = manpage.gsub(/.*\//, "doc/man/#{language}/")
-      file localized_manpage => localized_manpage.ext('xml')
-    end
+  stylesheet = "#{c(:DOCBOOK_ROOT)}/manpages/docbook.xsl"
+
+  if !FileTest.exists?(stylesheet)
+    puts "Error: the DocBook stylesheet '#{stylesheet}' does not exist."
+    exit 1
+  end
+
+  runq "xsltproc", t.source, "#{c(:XSLTPROC)} #{c(:XSLTPROC_FLAGS)} -o #{t.name} #{stylesheet} #{t.sources.join(" ")}", :filter_output => filter
+end
+
+$manpages.each do |manpage|
+  file manpage => manpage.ext('xml')
+  $available_languages[:manpages].each do |language|
+    localized_manpage = manpage.gsub(/.*\//, "doc/man/#{language}/")
+    file localized_manpage => localized_manpage.ext('xml')
   end
 end
 
 # Qt files
 rule '.h' => '.ui' do |t|
-  temp = Tempfile.new("mkvtoolnix-uic")
-  begin
-    temp.close
-
-    runq "uic", t.source, "#{c(:UIC)} -tr QPTR #{t.sources.join(" ")} > #{temp.path}"
-
-    # Convert calls to QPTR(…, 0) to QT(…)
-    output = IO.
-      readlines(temp.path).
-      map { |line| line.force_encoding("UTF-8").gsub(/QPTR\((.+?\"), 0\)/, 'QTR(\1)') }.
-      join("")
-
-    IO.write(t.name, output, encoding: "UTF-8", mode: "w")
-
-  ensure
-    temp.unlink
-  end
+  runq "uic", t.source, "#{c(:UIC)} --translate QTR #{t.sources.join(" ")} > #{t.name}"
 end
 
 rule '.cpp' => '.qrc' do |t|
@@ -376,14 +398,9 @@ file "po/mkvtoolnix.pot" => $all_sources + $all_headers + $gui_ui_h_files + %w{R
 
   keywords  = %w{--keyword=Y --keyword=NY:1,2}   # singular & plural forms returning std::string
   keywords += %w{--keyword=YF --keyword=NYF:1,2} # singular & plural forms returning std::string which aren't format strings
-  keywords += %w{--keyword=PY:1c,2}              # singular form with context returning std::string
-  keywords += %w{--keyword=PNY:1c,2,3}           # plural form with context returning std::string
   keywords += %w{--keyword=YT}                   # singular form returning translatable_string_c
   keywords += %w{--keyword=QTR}                  # singular form returning QString, used by uic
-  keywords += %w{--keyword=QPTR:2c,1}            # singular form with context returning QString, used by uic
   keywords += %w{--keyword=QY --keyword=QNY:1,2} # singular & plural forms returning QString
-  keywords += %w{--keyword=QPY:1c,2}             # singular form with context returning QString
-  keywords += %w{--keyword=QPNY:1c,2,3}          # plural form with context returning QString
   keywords += %w{--keyword=QYH}                  # singular form returning HTML-escaped QString
 
   flags     = %w{--flag=QY:1:no-c-format --flag=QNY:1:no-c-format}
@@ -497,18 +514,26 @@ EOT
 
   task :qt => FileList[ "#{$top_srcdir }/po/qt/*.ts" ].collect { |file| file.ext 'qm' }
 
-  $available_languages[:manpages].each do |language|
-    $manpages.each do |manpage|
-      name = manpage.gsub(/man\//, "man/#{language}/")
-      file name            => [ name.ext('xml'),     "doc/man/po4a/po/#{language}.po" ]
-      file name.ext('xml') => [ manpage.ext('.xml'), "doc/man/po4a/po/#{language}.po" ] do |t|
-        runq "po4a", "#{manpage.ext('.xml')} (#{language})", "#{c(:PO4A_TRANSLATE)} #{c(:PO4A_TRANSLATE_FLAGS)} -m #{manpage.ext('.xml')} -p doc/man/po4a/po/#{language}.po -l #{t.name}"
+  if c?(:PO4A_WORKS)
+    filter = lambda do |code, lines|
+      lines = lines.reject { |l| %r{seems outdated.*differ between|please consider running po4a-updatepo|^$}i.match(l) }
+      puts lines.join('') unless lines.empty?
+      code
+    end
+
+    $available_languages[:manpages].each do |language|
+      $manpages.each do |manpage|
+        name = manpage.gsub(/man\//, "man/#{language}/")
+        file name            => [ name.ext('xml'),     "doc/man/po4a/po/#{language}.po" ]
+        file name.ext('xml') => [ manpage.ext('.xml'), "doc/man/po4a/po/#{language}.po" ] do |t|
+          runq "po4a", "#{manpage.ext('.xml')} (#{language})", "#{c(:PO4A_TRANSLATE)} #{c(:PO4A_TRANSLATE_FLAGS)} -m #{manpage.ext('.xml')} -p doc/man/po4a/po/#{language}.po -l #{t.name}", :filter_output => filter
+        end
       end
     end
   end
 
   desc "Update all translation files"
-  task :update => [ "translations:update:programs", "translations:update:manpages" ]
+  task :update => [ "translations:update:programs", "translations:update:manpages", "translations:update:translations" ]
 
   namespace :update do
     desc "Update the program's translation files"
@@ -535,12 +560,19 @@ EOT
       end
     end
 
-    desc "Update the man pages' translation files"
-    task :manpages do
-      runq "po4a", "doc/man/po4a/po4a.cfg", "#{c(:PO4A)} #{c(:PO4A_FLAGS)} --msgmerge-opt=--no-wrap doc/man/po4a/po4a.cfg"
-      $all_man_po_files.each do |po_file|
-        normalize_po po_file
+    if c?(:PO4A_WORKS)
+      desc "Update the man pages' translation files"
+      task :manpages do
+        runq "po4a", "doc/man/po4a/po4a.cfg", "#{c(:PO4A)} #{c(:PO4A_FLAGS)} --msgmerge-opt=--no-wrap doc/man/po4a/po4a.cfg"
+        $all_man_po_files.each do |po_file|
+          normalize_po po_file
+        end
       end
+    end
+
+    desc "Update the Windows installer's translation files"
+    task :installer do |t|
+      Mtx::Installer.update_all_translation_files
     end
   end
 
@@ -584,6 +616,15 @@ EOT
     desc "Fetch and merge all translations from Transifex"
     task "pull" => transifex_pull_targets.values.flatten
 
+    desc "Push program translation source file to Transifex"
+    task "push-programs-source" => "po/mkvtoolnix.pot" do
+      runq "tx push", "po/mkvtoolnix.pot", "tx push -s -r mkvtoolnix.programs > /dev/null"
+    end
+
+    desc "Push man page translation source file to Transifex"
+    task "push-man-pages-source" => "doc/man/po4a/po/mkvtoolnix.pot" do
+      runq "tx push", "doc/man/po4a/po/mkvtoolnix.pot", "tx push -s -r mkvtoolnix.man-pages > /dev/null"
+    end
     desc "Push program translations to Transifex"
     task "push-programs" => transifex_push_targets["programs"]
 
@@ -713,8 +754,9 @@ end
 
 # Installation tasks
 desc "Install all applications and support files"
-targets  = [ "install:programs", "install:manpages", "install:translations:manpages", "install:translations:programs" ]
-targets += [ "install:shared" ] if c?(:USE_QT)
+targets  = [ "install:programs", "install:manpages", "install:translations:programs" ]
+targets += [ "install:translations:manpages" ] if c?(:PO4A_WORKS)
+targets += [ "install:shared" ]                if c?(:USE_QT)
 task :install => targets
 
 namespace :install do
@@ -730,8 +772,10 @@ namespace :install do
   task :shared do
     install_dir :desktopdir, :mimepackagesdir
     install_data :mimepackagesdir, FileList[ "#{$top_srcdir}/share/mime/*.xml" ]
-    install_data :desktopdir, "#{$top_srcdir}/share/desktop/mkvinfo.desktop"
-    install_data :desktopdir, "#{$top_srcdir}/share/desktop/mkvtoolnix-gui.desktop" if c?(:USE_QT)
+    if c?(:USE_QT)
+      install_data :desktopdir, "#{$top_srcdir}/share/desktop/org.bunkus.mkvinfo.desktop"
+      install_data :desktopdir, "#{$top_srcdir}/share/desktop/org.bunkus.mkvtoolnix-gui.desktop"
+    end
 
     wanted_apps     = %w{mkvmerge mkvtoolnix-gui mkvinfo mkvextract mkvpropedit}.collect { |e| "#{e}.png" }.to_hash_by
     wanted_dirs     = %w{16x16 24x24 32x32 48x48 64x64 96x96 128x128 256x256}.to_hash_by
@@ -741,6 +785,13 @@ namespace :install do
       dest_dir = "#{c(:icondir)}/#{dir.gsub(/.*icons\//, '')}/apps"
       install_dir dest_dir
       install_data "#{dest_dir}/", FileList[ "#{dir}/*" ].to_a.select { |file| wanted_apps[ file.gsub(/.*\//, '') ] }
+    end
+
+    if c?(:USE_QT)
+      sounds_dir ="#{c(:pkgdatadir)}/sounds"
+
+      install_dir  sounds_dir
+      install_data sounds_dir, FileList["#{$top_srcdir}/share/sounds/*"]
     end
   end
 
@@ -754,17 +805,19 @@ namespace :install do
   end
 
   namespace :translations do
-    task :programs do
+    task :programs => $translations[:programs] do
       install_dir $languages[:programs].collect { |language| "#{c(:localedir)}/#{language}/LC_MESSAGES" }
       $languages[:programs].each do |language|
         install_data "#{c(:localedir)}/#{language}/LC_MESSAGES/mkvtoolnix.mo", "po/#{language}.mo"
       end
     end
 
-    task :manpages do
-      install_dir $languages[:manpages].collect { |language| "#{c(:mandir)}/#{language}/man1" }
-      $languages[:manpages].each do |language|
-        $manpages.each { |manpage| install_data "#{c(:mandir)}/#{language}/man1/#{man_page_name_mapper[manpage]}", manpage.sub(/man\//, "man/#{language}/") }
+    if c?(:PO4A_WORKS)
+      task :manpages => $translations[:manpages] do
+        install_dir $languages[:manpages].collect { |language| "#{c(:mandir)}/#{language}/man1" }
+        $languages[:manpages].each do |language|
+          $manpages.each { |manpage| install_data "#{c(:mandir)}/#{language}/man1/#{man_page_name_mapper[manpage]}", manpage.sub(/man\//, "man/#{language}/") }
+        end
       end
     end
   end
@@ -788,12 +841,15 @@ task :clean do
     **/*.o
     **/*.pot
     **/*.qm
+    doc/man/*.1
     doc/man/*.html
+    doc/man/*/*.1
     doc/man/*/*.html
     doc/man/*/*.xml
     src/*/qt_resources.cpp
     src/info/ui/*.h
     src/mkvtoolnix-gui/forms/**/*.h
+    src/benchmark/benchmark
     tests/unit/all
     tests/unit/merge/merge
     tests/unit/propedit/propedit
@@ -812,7 +868,7 @@ end
 namespace :clean do
   desc "Remove all compiled and generated files ('tarball' clean)"
   task :dist => :clean do
-    run "rm -f config.h config.log config.cache build-config TAGS", :allow_failure => true
+    run "rm -f config.h config.log config.cache build-config TAGS src/info/static_plugins.cpp src/mkvtoolnix-gui/static_plugins.cpp", :allow_failure => true
   end
 
   desc "Remove all compiled and generated files ('git' clean)"
@@ -836,6 +892,11 @@ namespace :tests do
   task :products do
     run "cd tests && ./run.rb"
   end
+
+  desc "Run built-in tests on source code files"
+  task :source do
+    Mtx::SourceTests.test_include_guards
+  end
 end
 
 #
@@ -855,7 +916,7 @@ end
   { :name => 'mtxinput',    :dir => 'src/input'                                                                      },
   { :name => 'mtxoutput',   :dir => 'src/output'                                                                     },
   { :name => 'mtxmerge',    :dir => 'src/merge',    :except => [ 'mkvmerge.cpp' ],                                   },
-  { :name => 'mtxinfo',     :dir => 'src/info',     :except => %w{qt_ui.cpp  mkvinfo.cpp mkvinfo-gui.cpp},           },
+  { :name => 'mtxinfo',     :dir => 'src/info',     :except => %w{qt_ui.cpp  mkvinfo.cpp mkvinfo-gui.cpp static_plugins.cpp}, },
   { :name => 'mtxextract',  :dir => 'src/extract',  :except => [ 'mkvextract.cpp' ],                                 },
   { :name => 'mtxpropedit', :dir => 'src/propedit', :except => [ 'mkvpropedit.cpp' ],                                },
   { :name => 'ebml',        :dir => 'lib/libebml/src'                                                                },
@@ -877,9 +938,8 @@ $common_libs = [
   :ebml,
   :z,
   :pugixml,
-  :iconv,
   :intl,
-  :curl,
+  :iconv,
   :boost_regex,
   :boost_filesystem,
   :boost_system,
@@ -898,7 +958,7 @@ Application.new("src/mkvmerge").
   description("Build the mkvmerge executable").
   aliases(:mkvmerge).
   sources("src/merge/mkvmerge.cpp").
-  sources("src/merge/resources.o", :if => c?(:MINGW)).
+  sources("src/merge/resources.o", :if => $building_for[:windows]).
   libraries(:mtxmerge, :mtxinput, :mtxoutput, :mtxmerge, $common_libs, :avi, :rmff, :mpegparser, :flac, :vorbis, :ogg, $custom_libs).
   create
 
@@ -917,12 +977,13 @@ Application.new("src/mkvinfo").
   description("Build the mkvinfo executable").
   aliases(:mkvinfo).
   sources("src/info/mkvinfo.cpp").
-  sources("src/info/resources.o", :if => c?(:MINGW)).
+  sources("src/info/resources.o", :if => $building_for[:windows]).
   libraries(:mtxinfo, $common_libs).
   only_if(c?(:USE_QT)).
-  sources("src/info/sys_windows.o", :if => c?(:MINGW)).
+  sources("src/info/sys_windows.o", :if => $building_for[:windows]).
   sources("src/info/qt_ui.cpp", "src/info/qt_ui.moc", "src/info/rightclick_tree_widget.moc", $mkvinfo_ui_files).
   sources('src/info/qt_resources.cpp').
+  sources('src/info/static_plugins.cpp', :if => File.exist?('src/info/static_plugins.cpp')).
   libraries(:qt).
   end_if.
   libraries($custom_libs).
@@ -933,9 +994,10 @@ if $build_mkvinfo_gui
     description("Build the mkvinfo-gui executable").
     aliases("mkvinfo-gui").
     sources("src/info/mkvinfo-gui.cpp").
-    sources("src/info/resources.o", :if => c?(:MINGW)).
+    sources("src/info/resources.o", :if => $building_for[:windows]).
+    sources('src/info/static_plugins.cpp', :if => File.exist?('src/info/static_plugins.cpp')).
     libraries(:qt, $custom_libs).
-    libraries("-mwindows", :if => c?(:MINGW)).
+    libraries("-mwindows", :if => $building_for[:windows]).
     create
 end
 
@@ -947,7 +1009,7 @@ Application.new("src/mkvextract").
   description("Build the mkvextract executable").
   aliases(:mkvextract).
   sources("src/extract/mkvextract.cpp").
-  sources("src/extract/resources.o", :if => c?(:MINGW)).
+  sources("src/extract/resources.o", :if => $building_for[:windows]).
   libraries(:mtxextract, $common_libs, :avi, :rmff, :vorbis, :ogg, $custom_libs).
   create
 
@@ -959,7 +1021,7 @@ Application.new("src/mkvpropedit").
   description("Build the mkvpropedit executable").
   aliases(:mkvpropedit).
   sources("src/propedit/propedit.cpp").
-  sources("src/propedit/resources.o", :if => c?(:MINGW)).
+  sources("src/propedit/resources.o", :if => $building_for[:windows]).
   libraries(:mtxpropedit, $common_libs, $custom_libs).
   create
 
@@ -969,8 +1031,8 @@ Application.new("src/mkvpropedit").
 
 if $build_mkvtoolnix_gui
   ui_h_files      = $gui_ui_files.collect { |ui| ui.ext 'h' }
-  cpp_files       = FileList['src/mkvtoolnix-gui/**/*.cpp'].to_a
-  h_files         = FileList['src/mkvtoolnix-gui/**/*.h'].to_a - ui_h_files
+  cpp_files       = FileList['src/mkvtoolnix-gui/**/*.cpp'].to_a.for_target!
+  h_files         = FileList['src/mkvtoolnix-gui/**/*.h'].to_a.for_target! - ui_h_files
   cpp_content     = read_files cpp_files
   h_content       = read_files h_files
 
@@ -995,10 +1057,23 @@ if $build_mkvtoolnix_gui
     aliases("mkvtoolnix-gui").
     sources(qobject_h_files.collect { |h| h.ext 'moc' }).
     sources(cpp_files, $gui_ui_files, 'src/mkvtoolnix-gui/qt_resources.cpp').
-    sources("src/mkvtoolnix-gui/resources.o", :if => c?(:MINGW)).
+    sources("src/mkvtoolnix-gui/resources.o", :if => $building_for[:windows]).
     libraries($common_libs, :qt).
-    libraries("-mwindows", :if => c?(:MINGW)).
+    libraries("-mwindows", :powrprof, :if => $building_for[:windows]).
     libraries($custom_libs).
+    create
+end
+
+#
+# benchmark
+#
+
+if c?(:GOOGLE_BENCHMARK) && !$benchmark_sources.empty?
+  Application.new("src/benchmark/benchmark").
+    description("Build the benchmark executable").
+    aliases(:benchmark, :bench).
+    sources($benchmark_sources).
+    libraries($common_libs, :benchmark, :qt).
     create
 end
 
@@ -1066,6 +1141,16 @@ Application.new("src/tools/hevc_dump").
   description("Build the hevc_dump executable").
   aliases("tools:hevc_dump").
   sources("src/tools/hevc_dump.cpp").
+  libraries($common_libs).
+  create
+
+#
+# tools: hevcs_dump
+#
+Application.new("src/tools/hevcc_dump").
+  description("Build the hevcc_dump executable").
+  aliases("tools:hevcc_dump").
+  sources("src/tools/hevcc_dump.cpp").
   libraries($common_libs).
   create
 

@@ -3,8 +3,8 @@
 <!DOCTYPE refentry PUBLIC "-//OASIS//DTD DocBook XML V4.5//EN" "http://www.oasis-open.org/docbook/xml/4.5/docbookx.dtd"
 [
 <!ENTITY product "mkvinfo">
-<!ENTITY version "9.5.0">
-<!ENTITY date "2016-10-16">
+<!ENTITY version "18.0.0">
+<!ENTITY date "2017-11-18">
 
 <!ENTITY mkvmerge "<citerefentry><refentrytitle>mkvmerge</refentrytitle><manvolnum>1</manvolnum></citerefentry>">
 <!ENTITY mkvinfo "<citerefentry><refentrytitle>mkvinfo</refentrytitle><manvolnum>1</manvolnum></citerefentry>">
@@ -230,54 +230,12 @@
    </varlistentry>
 
    <varlistentry>
-    <term><option>--check-for-updates</option></term>
+    <term><option>@</option><parameter>options-file.json</parameter></term>
     <listitem>
      <para>
-       Checks online for new releases by downloading the URL <ulink
-       url="http://mkvtoolnix-releases.bunkus.org/latest-release.xml">http://mkvtoolnix-releases.bunkus.org/latest-release.xml</ulink>. Four
-       lines will be output in <literal>key=value</literal> style: the URL from where the information was retrieved (key
-       <literal>version_check_url</literal>), the currently running version (key <literal>running_version</literal>), the latest release's
-       version (key <literal>available_version</literal>) and the download URL (key <literal>download_url</literal>).
+      Reads additional command line arguments from the file <parameter>options-file</parameter>. For a full explanation on the supported
+      formats for such files see the section called "Option files" in the &mkvmerge; man page.
      </para>
-
-     <para>
-      Afterwards the program exists with an exit code of 0 if no newer release is available, with 1 if a newer release is available and with
-      2 if an error occured (e.g. if the update information could not be retrieved).
-     </para>
-
-     <para>
-      This option is only available if the program was built with support for libcurl.
-     </para>
-    </listitem>
-   </varlistentry>
-
-   <varlistentry>
-    <term><option>@</option><parameter>options-file</parameter></term>
-    <listitem>
-     <para>
-      Reads additional command line arguments from the file <parameter>options-file</parameter>.  Lines whose first non-whitespace
-      character is a hash mark ('<literal>#</literal>') are treated as comments and ignored. White spaces at the start and end of a line
-      will be stripped. Each line must contain exactly one option.
-     </para>
-
-     <para>
-      Several chars can be escaped, e.g. if you need to start a non-comment line with '#'. The rules are described in <link
-      linkend="mkvinfo.escaping">the section about escaping text</link>.
-     </para>
-
-     <para>
-      The command line '<command>mkvinfo -v -v input.mkv --redirect-output info.txt</command>' could be converted into the following
-      option file:
-     </para>
-
-     <programlisting># Be more verbose
--v
--v
-# Parse input.mkv
-input.mkv
-# and write the output to info.txt
---redirect-output
-info.txt</programlisting>
     </listitem>
    </varlistentry>
   </variablelist>

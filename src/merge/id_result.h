@@ -11,8 +11,7 @@
    Written by Moritz Bunkus <moritz@bunkus.org>.
 */
 
-#ifndef MTX_MERGE_ID_RESULT_H
-#define MTX_MERGE_ID_RESULT_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -27,7 +26,14 @@
 #define ID_RESULT_TAGS            "tags"
 #define ID_RESULT_GLOBAL_TAGS_ID  -1
 
-#define ID_JSON_FORMAT_VERSION    4
+// When bumping the schema version:
+// • increase `ID_JSON_FORMAT_VERSION` here
+// • copy `doc/json-schema/mkvmerge-identification-output-schema-v….json` with the next version number
+// • in the new copy adjust the following elements:
+//   1. `id`
+//   2. `properties` → `identification_format_version` → `minimum` and `maximum`
+// • adjust the link in `doc/man/mkvmerge.xml`
+#define ID_JSON_FORMAT_VERSION    10
 
 struct id_result_t {
   int64_t id;
@@ -63,5 +69,3 @@ struct id_result_t {
 };
 
 void id_result_container_unsupported(std::string const &filename, translatable_string_c const &info);
-
-#endif  // MTX_MERGE_ID_RESULT_H

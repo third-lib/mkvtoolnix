@@ -111,7 +111,7 @@ std::string
 to_string(double value,
           unsigned int precision) {
   int64_t scale = 1;
-  for (size_t i = 0; i < precision; ++i)
+  for (int i = 0; i < static_cast<int>(precision); ++i)
     scale *= 10;
 
   return to_string(static_cast<int64_t>(value * scale), scale, precision);
@@ -287,11 +287,14 @@ std::string
 to_hex(const unsigned char *buf,
        size_t size,
        bool compact) {
+  if (!buf || !size)
+    return {};
+
   static boost::format s_bf_to_hex("0x%|1$02x|");
   static boost::format s_bf_to_hex_compact("%|1$02x|");
 
   std::string hex;
-  for (size_t idx = 0; idx < size; ++idx)
+  for (int idx = 0; idx < static_cast<int>(size); ++idx)
     hex += (compact || hex.empty() ? std::string{""} : std::string{" "}) + ((compact ? s_bf_to_hex_compact : s_bf_to_hex) % static_cast<unsigned int>(buf[idx])).str();
 
   return hex;
@@ -321,4 +324,30 @@ format_file_size(int64_t size) {
               :                       (boost::format(Y("%1%.%2% GiB"))                  % (size / 1024 / 1024 / 1024) % ((size * 10 / 1024 / 1024 / 1024) % 10));
 
   return result.str();
+}
+
+std::string
+format_number(uint64_t number) {
+  std::string output;
+
+  if (number == 0)
+    return "0";
+
+  while (number != 0) {
+    if (((output.size() + 1) % 4) == 0)
+      output += '.';
+
+    output += ('0' + (number % 10));
+    number /= 10;
+  }
+
+  boost::reverse(output);
+
+  return output;
+}
+
+std::string
+format_number(int64_t n) {
+  auto sign = std::string{ n < 0 ? "-" : "" };
+  return sign + format_number(static_cast<uint64_t>(std::abs(n)));
 }

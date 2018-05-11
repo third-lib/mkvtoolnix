@@ -15,7 +15,7 @@ FileTypeFilter::get() {
   if (!s_filter.isEmpty())
     return s_filter;
 
-  auto &file_types = file_type_t::get_supported();
+  auto &file_types = mtx::file_type_t::get_supported();
 
   std::map<QString, bool> all_extensions_map;
   for (auto &file_type : file_types) {
@@ -41,7 +41,11 @@ FileTypeFilter::get() {
   for (auto &extension : all_extensions_map)
     all_extensions << QString("*.%1").arg(extension.first);
 
-  std::sort(s_filter.begin(), s_filter.end());
+  s_filter << QString("%1 (*.bdmv)").arg(QY("Blu-ray index files"));
+  all_extensions << Q("*.bdmv");
+
+  s_filter.sort();
+  all_extensions.sort();
 
   s_filter.push_front(Q("%1 (*)").arg(QY("All files")));
   s_filter.push_front(Q("%1 (%2)").arg(QY("All supported media files")).arg(all_extensions.join(" ")));

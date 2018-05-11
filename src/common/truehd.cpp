@@ -13,7 +13,7 @@
 
 #include "common/common_pch.h"
 
-#include "common/bit_cursor.h"
+#include "common/bit_reader.h"
 #include "common/debugging.h"
 #include "common/endian.h"
 #include "common/list_utils.h"
@@ -58,7 +58,7 @@ truehd_frame_t::parse_ac3_header(unsigned char const *data,
   m_type  = truehd_frame_t::sync;
   m_size  = m_ac3_header.m_bytes;
 
-  return size >= m_ac3_header.m_bytes ? verify_ac3_checksum(data, size) : false;
+  return size >= m_ac3_header.m_bytes ? mtx::ac3::verify_checksum(data, size) : false;
 }
 
 unsigned int
@@ -85,7 +85,7 @@ truehd_frame_t::parse_truehd_header(unsigned char const *data,
   static debugging_option_c s_debug{"truehd_atmos"};
 
   try {
-    bit_reader_c r{&data[8], size - 8};
+    mtx::bits::reader_c r{&data[8], size - 8};
 
     auto rate_bits      = r.get_bits(4);
     m_samples_per_frame = 40 << (rate_bits & 0x07);

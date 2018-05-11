@@ -10,8 +10,7 @@
    Written by Moritz Bunkus <moritz@bunkus.org>.
 */
 
-#ifndef MTX_XTR_BASE_H
-#define MTX_XTR_BASE_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -27,7 +26,7 @@ using namespace libmatroska;
 struct xtr_frame_t {
   memory_cptr &frame;
   KaxBlockAdditions *additions;
-  int64_t timecode, duration, bref, fref;
+  int64_t timestamp, duration, bref, fref;
   bool keyframe, discardable, references_valid;
   timestamp_c discard_duration;
 };
@@ -72,7 +71,7 @@ public:
   virtual void init_content_decoder(KaxTrackEntry &track);
   virtual memory_cptr decode_codec_private(KaxCodecPrivate *priv);
 
-  static xtr_base_c *create_extractor(const std::string &new_codec_id, int64_t new_tid, track_spec_t &tspec);
+  static std::shared_ptr<xtr_base_c> create_extractor(const std::string &new_codec_id, int64_t new_tid, track_spec_t &tspec);
 };
 
 class xtr_fullraw_c : public xtr_base_c {
@@ -82,5 +81,3 @@ public:
   virtual void create_file(xtr_base_c *master, KaxTrackEntry &track);
   virtual void handle_codec_state(memory_cptr &codec_state);
 };
-
-#endif

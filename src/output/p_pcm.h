@@ -11,8 +11,7 @@
    Written by Moritz Bunkus <moritz@bunkus.org>.
 */
 
-#ifndef MTX_P_PCM_H
-#define MTX_P_PCM_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -32,7 +31,7 @@ private:
   int m_samples_per_sec, m_channels, m_bits_per_sample, m_samples_per_packet, m_samples_per_packet_packaged;
   size_t m_packet_size, m_min_packet_size, m_samples_output, m_num_durations_provided, m_num_packets_with_different_sample_count;
   pcm_format_e m_format;
-  byte_buffer_c m_buffer;
+  mtx::bytes::buffer_c m_buffer;
   samples_to_timestamp_converter_c m_s2ts;
   std::function<void(unsigned char const *, unsigned char *, std::size_t)> m_byte_swapper;
 
@@ -55,5 +54,3 @@ protected:
   virtual int64_t samples_to_size(int64_t size) const;
   virtual void byte_swap_data(memory_c &data) const;
 };
-
-#endif // MTX_P_PCM_H

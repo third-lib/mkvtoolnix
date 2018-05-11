@@ -1,18 +1,25 @@
-#ifndef MTX_MKVTOOLNIX_GUI_APP_H
-#define MTX_MKVTOOLNIX_GUI_APP_H
+#pragma once
 
 #include "common/common_pch.h"
 
 #include <QApplication>
 #include <QStringList>
-#include <QTranslator>
 
 #include "mkvtoolnix-gui/gui_cli_parser.h"
 
 class QLocalServer;
-class QLockFile;
+class QThread;
 
 namespace mtx { namespace gui {
+
+namespace Util {
+class MediaPlayer;
+class NetworkAccessManager;
+}
+
+namespace Jobs {
+class ProgramRunner;
+}
 
 using Iso639Language                = std::pair<QString, QString>;
 using Iso639LanguageList            = std::vector<Iso639Language>;
@@ -20,8 +27,16 @@ using TopLevelDomainCountryCode     = std::pair<QString, QString>;
 using TopLevelDomainCountryCodeList = std::vector<TopLevelDomainCountryCode>;
 using CharacterSetList              = std::vector<QString>;
 
+class AppPrivate;
 class App : public QApplication {
   Q_OBJECT;
+
+protected:
+  Q_DECLARE_PRIVATE(App);
+
+  QScopedPointer<AppPrivate> const d_ptr;
+
+  explicit App(AppPrivate &d, QWidget *parent);
 
 protected:
   enum class CliCommand {
@@ -30,12 +45,6 @@ protected:
     EditChapters,
     EditHeaders,
   };
-
-protected:
-  std::unique_ptr<QTranslator> m_currentTranslator;
-  std::unique_ptr<GuiCliParser> m_cliParser;
-  std::unique_ptr<QLocalServer> m_instanceCommunicator;
-  std::unique_ptr<QLockFile> m_instanceLock;
 
 public:
   App(int &argc, char **argv);
@@ -54,6 +63,8 @@ public:
 
   void run();
 
+  Util::NetworkAccessManager &networkAccessManager();
+
 signals:
   void addingFilesToMergeRequested(QStringList const &fileNames);
   void editingChaptersRequested(QStringList const &fileNames);
@@ -66,9 +77,14 @@ public slots:
 
 protected:
   void setupInstanceCommunicator();
+  void setupNetworkAccessManager();
+  Util::MediaPlayer &setupMediaPlayer();
+  Jobs::ProgramRunner &setupProgramRunner();
 
 public:
   static App *instance();
+  static Util::MediaPlayer &mediaPlayer();
+  static Jobs::ProgramRunner &programRunner();
 
   static Iso639LanguageList const &iso639Languages();
   static Iso639LanguageList const &commonIso639Languages();
@@ -95,5 +111,3 @@ public:
 };
 
 }}
-
-#endif  // MTX_MKVTOOLNIX_GUI_APP_H

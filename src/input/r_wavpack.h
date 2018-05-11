@@ -11,8 +11,7 @@
    Written by Steve Lhomme <steve.lhomme@free.fr>.
 */
 
-#ifndef MTX_R_WAVPACK_H
-#define MTX_R_WAVPACK_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -31,19 +30,17 @@ public:
   wavpack_reader_c(const track_info_c &ti, const mm_io_cptr &in);
   virtual ~wavpack_reader_c();
 
-  virtual file_type_e get_format_type() const {
-    return FILE_TYPE_WAVPACK4;
+  virtual mtx::file_type_e get_format_type() const {
+    return mtx::file_type_e::wavpack4;
   }
 
   virtual void read_headers();
   virtual file_status_e read(generic_packetizer_c *ptzr, bool force = false);
   virtual void identify();
   virtual void create_packetizer(int64_t id);
-  virtual bool is_providing_timecodes() const {
+  virtual bool is_providing_timestamps() const {
     return false;
   }
 
   static int probe_file(mm_io_c *in, uint64_t size);
 };
-
-#endif // MTX_R_WAVPACK_H

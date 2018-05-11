@@ -11,12 +11,12 @@
 #include "common/common_pch.h"
 
 #include "common/command_line.h"
-#include "common/hevc.h"
+#include "common/hevc_es_parser.h"
 #include "common/mm_io_x.h"
 
 static void
 show_help() {
-  mxinfo("mpls_dump [options] input_file_name\n"
+  mxinfo("hevc_dump [options] input_file_name\n"
          "\n"
          "General options:\n"
          "\n"
@@ -43,7 +43,7 @@ parse_args(std::vector<std::string> &args) {
       show_version();
 
     else if (!file_name.empty())
-      mxerror(Y("More than one input file given\n"));
+      mxerror(Y("More than one source file was given.\n"));
 
     else
       file_name = arg;
@@ -102,8 +102,8 @@ main(int argc,
      char **argv) {
   mtx_common_init("hevc_dump", argv[0]);
 
-  auto args = command_line_utf8(argc, argv);
-  while (handle_common_cli_args(args, "-r"))
+  auto args = mtx::cli::args_in_utf8(argc, argv);
+  while (mtx::cli::handle_common_args(args, "-r"))
     ;
 
   auto file_name = parse_args(args);

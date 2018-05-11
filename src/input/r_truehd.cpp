@@ -30,7 +30,7 @@ truehd_reader_c::probe_file(mm_io_c *in,
                             uint64_t /* size */) {
   try {
     in->setFilePointer(0, seek_beginning);
-    skip_id3v2_tag(*in);
+    mtx::id3::skip_v2_tag(*in);
     return find_valid_headers(*in, TRUEHD_READ_SIZE, 2) ? 1 : 0;
 
   } catch (...) {
@@ -49,8 +49,8 @@ truehd_reader_c::truehd_reader_c(const track_info_c &ti,
 void
 truehd_reader_c::read_headers() {
   try {
-    int tag_size_start = skip_id3v2_tag(*m_in);
-    int tag_size_end   = id3_tag_present_at_end(*m_in);
+    int tag_size_start = mtx::id3::skip_v2_tag(*m_in);
+    int tag_size_end   = mtx::id3::tag_present_at_end(*m_in);
 
     if (0 > tag_size_start)
       tag_size_start = 0;
@@ -128,7 +128,7 @@ truehd_reader_c::create_packetizer(int64_t tid) {
     m_converter.set_packetizer(PTZR(m_truehd_ptzr));
 
   } else if ((1 == tid) && m_ac3_header.m_valid) {
-    m_ac3_ptzr = add_packetizer(new ac3_packetizer_c(this, m_ti, m_ac3_header.m_sample_rate, m_ac3_header.m_channels, m_ac3_header.m_bs_id, true));
+    m_ac3_ptzr = add_packetizer(new ac3_packetizer_c(this, m_ti, m_ac3_header.m_sample_rate, m_ac3_header.m_channels, m_ac3_header.m_bs_id));
     show_packetizer_info(m_ti.m_id, PTZR(m_ac3_ptzr));
     m_converter.set_ac3_packetizer(PTZR(m_ac3_ptzr));
 
@@ -165,6 +165,8 @@ truehd_reader_c::identify() {
   auto info = mtx::id::info_c{};
   info.add(mtx::id::audio_channels,           m_header->m_channels);
   info.add(mtx::id::audio_sampling_frequency, m_header->m_sampling_rate);
+  if (m_ac3_header.m_valid)
+    info.set(mtx::id::multiplexed_tracks, std::vector<uint64_t>{{0, 1}});
 
   id_result_track(0, ID_RESULT_TRACK_AUDIO, m_header->codec().get_name(), info.get());
 
@@ -174,8 +176,9 @@ truehd_reader_c::identify() {
   info = mtx::id::info_c{};
   info.add(mtx::id::audio_channels,           m_ac3_header.m_channels);
   info.add(mtx::id::audio_sampling_frequency, m_ac3_header.m_sample_rate);
+  info.set(mtx::id::multiplexed_tracks,       std::vector<uint64_t>{{0, 1}});
 
-  id_result_track(1, ID_RESULT_TRACK_AUDIO, codec_c::get_name(codec_c::type_e::A_AC3, "AC-3"), info.get());
+  id_result_track(1, ID_RESULT_TRACK_AUDIO, m_ac3_header.get_codec().get_name(), info.get());
 }
 
 bool
@@ -186,7 +189,7 @@ truehd_reader_c::find_valid_headers(mm_io_c &in,
     memory_cptr buf(memory_c::alloc(probe_range));
 
     in.setFilePointer(0, seek_beginning);
-    skip_id3v2_tag(in);
+    mtx::id3::skip_v2_tag(in);
 
     int num_read = in.read(buf->get_buffer(), probe_range);
 

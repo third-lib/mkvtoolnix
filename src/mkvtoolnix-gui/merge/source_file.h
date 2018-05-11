@@ -1,5 +1,4 @@
-#ifndef MTX_MKVTOOLNIX_GUI_MERGE_SOURCE_FILE_H
-#define MTX_MKVTOOLNIX_GUI_MERGE_SOURCE_FILE_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -20,14 +19,20 @@ using SourceFilePtr = std::shared_ptr<SourceFile>;
 
 class SourceFile {
 public:
+  struct Program {
+    QString m_serviceProvider, m_serviceName;
+  };
+
+public:
   QVariantMap m_properties;
+  QHash<unsigned int, Program> m_programMap;
   QString m_fileName;
   QList<TrackPtr> m_tracks, m_attachedFiles;
   QList<SourceFilePtr> m_additionalParts, m_appendedFiles;
   QList<QFileInfo> m_playlistFiles;
 
-  file_type_e m_type;
-  bool m_appended, m_additionalPart, m_isPlaylist;
+  mtx::file_type_e m_type;
+  bool m_appended, m_additionalPart, m_isPlaylist, m_dontScanForOtherPlaylists;
   SourceFile *m_appendedTo;
 
   uint64_t m_playlistDuration, m_playlistSize, m_playlistChapters;
@@ -49,10 +54,13 @@ public:
   virtual bool isAdditionalPart() const;
   virtual bool isPlaylist() const;
   virtual bool hasRegularTrack() const;
+  virtual bool hasVideoTrack() const;
 
   virtual void saveSettings(Util::ConfigFile &settings) const;
   virtual void loadSettings(MuxConfig::Loader &l);
   virtual void fixAssociations(MuxConfig::Loader &l);
+  virtual void setDefaults();
+  virtual void setupProgramMapFromProperties();
 
   virtual Track *findNthOrLastTrackOfType(Track::Type type, int nth) const;
 
@@ -60,5 +68,3 @@ public:
 };
 
 }}}
-
-#endif  // MTX_MKVTOOLNIX_GUI_SOURCE_FILE_H

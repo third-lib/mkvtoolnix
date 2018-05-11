@@ -1,5 +1,4 @@
-#ifndef MTX_MKVTOOLNIX_GUI_MAIN_WINDOW_TOOL_BASE_H
-#define MTX_MKVTOOLNIX_GUI_MAIN_WINDOW_TOOL_BASE_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -16,11 +15,10 @@ public:
 
   virtual void setupUi() = 0;
   virtual void setupActions() = 0;
+  virtual std::pair<QString, QString> nextPreviousWindowActionTexts() const { return {}; };
 
 public slots:
   virtual void toolShown() = 0;
 };
 
 }}
-
-#endif // MTX_MKVTOOLNIX_GUI_MAIN_WINDOW_TOOL_BASE_H

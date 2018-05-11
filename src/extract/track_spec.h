@@ -10,8 +10,7 @@
    Written by Moritz Bunkus <moritz@bunkus.org>.
 */
 
-#ifndef MTX_EXTRACT_TRACK_SPEC_H
-#define MTX_EXTRACT_TRACK_SPEC_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -19,7 +18,8 @@ struct track_spec_t {
   enum target_mode_e {
     tm_normal,
     tm_raw,
-    tm_full_raw
+    tm_full_raw,
+    tm_timestamps,
   };
 
   int64_t tid, tuid;
@@ -34,6 +34,6 @@ struct track_spec_t {
   bool done;
 
   track_spec_t();
-};
 
-#endif // MTX_EXTRACT_TRACK_SPEC_H
+  void dump(std::string const &prefix) const;
+};

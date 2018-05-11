@@ -34,7 +34,7 @@ fixAssociationsFor(char const *group,
 
 SourceFile::SourceFile(QString const &fileName)
   : m_fileName{QDir::toNativeSeparators(fileName)}
-  , m_type{FILE_TYPE_IS_UNKNOWN}
+  , m_type{mtx::file_type_e::is_unknown}
   , m_appended{}
   , m_additionalPart{}
   , m_isPlaylist{}
@@ -131,6 +131,12 @@ SourceFile::hasRegularTrack()
   return m_tracks.end() != brng::find_if(m_tracks, [](TrackPtr const &track) { return track->isRegular(); });
 }
 
+bool
+SourceFile::hasVideoTrack()
+  const {
+  return m_tracks.end() != brng::find_if(m_tracks, [](TrackPtr const &track) { return track->isVideo(); });
+}
+
 QString
 SourceFile::container()
   const {
@@ -140,7 +146,7 @@ SourceFile::container()
 bool
 SourceFile::isTextSubtitleContainer()
   const {
-  return mtx::included_in(m_type, FILE_TYPE_SRT, FILE_TYPE_SSA);
+  return mtx::included_in(m_type, mtx::file_type_e::srt, mtx::file_type_e::ssa);
 }
 
 void
@@ -155,7 +161,7 @@ SourceFile::saveSettings(Util::ConfigFile &settings)
 
   settings.setValue("objectID",        reinterpret_cast<qulonglong>(this));
   settings.setValue("fileName",        m_fileName);
-  settings.setValue("type",            m_type);
+  settings.setValue("type",            static_cast<unsigned int>(m_type));
   settings.setValue("appended",        m_appended);
   settings.setValue("additionalPart",  m_additionalPart);
   settings.setValue("appendedTo",      reinterpret_cast<qulonglong>(m_appendedTo));
@@ -198,7 +204,7 @@ SourceFile::loadSettings(MuxConfig::Loader &l) {
   for (auto const &playlistFile : playlistFiles)
     m_playlistFiles << QFileInfo{playlistFile};
 
-  if ((FILE_TYPE_IS_UNKNOWN > m_type) || (FILE_TYPE_MAX < m_type))
+  if ((mtx::file_type_e::is_unknown > m_type) || (mtx::file_type_e::max < m_type))
     throw InvalidSettingsX{};
 
   MuxConfig::loadProperties(l.settings, m_properties);
@@ -207,6 +213,8 @@ SourceFile::loadSettings(MuxConfig::Loader &l) {
   loadSettingsGroup<Track>     ("attachedFiles",   m_attachedFiles,   l);
   loadSettingsGroup<SourceFile>("additionalParts", m_additionalParts, l);
   loadSettingsGroup<SourceFile>("appendedFiles",   m_appendedFiles,   l);
+
+  setupProgramMapFromProperties();
 
   // Compatibility with older settings: there attached files were
   // stored together with the other tracks.
@@ -305,6 +313,29 @@ SourceFile::buildMkvmergeOptions(QStringList &options)
 
   for (auto const &appendedFile : m_appendedFiles)
     appendedFile->buildMkvmergeOptions(options);
+}
+
+void
+SourceFile::setDefaults() {
+  for (auto const &track : m_tracks)
+    track->setDefaults();
+
+  for (auto const &appendedFile : m_appendedFiles)
+    appendedFile->setDefaults();
+}
+
+void
+SourceFile::setupProgramMapFromProperties() {
+  m_programMap.clear();
+
+  if (!m_properties.contains(Q("programs")))
+    return;
+
+  for (auto const &program : m_properties[Q("programs")].toList()) {
+    auto programProps = program.toMap();
+    if (programProps.contains(Q("program_number")))
+      m_programMap.insert(programProps[Q("program_number")].toUInt(), { programProps[Q("service_provider")].toString(), programProps[Q("service_name")].toString() });
+  }
 }
 
 }}}

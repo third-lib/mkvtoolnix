@@ -1,5 +1,5 @@
 !define PRODUCT_NAME "MKVToolNix"
-!define PRODUCT_VERSION "9.5.0"
+!define PRODUCT_VERSION "18.0.0"
 !define PRODUCT_VERSION_BUILD ""
 !define PRODUCT_PUBLISHER "Moritz Bunkus"
 !define PRODUCT_WEB_SITE "https://www.bunkus.org/videotools/mkvtoolnix/"
@@ -16,6 +16,7 @@ SetCompressorDictSize 64
 
 !include "MUI2.nsh"
 !include "file_association.nsh"
+!include "nsDialogs.nsh"
 
 # MUI Settings
 !define MUI_ABORTWARNING
@@ -45,7 +46,16 @@ var ICONS_GROUP
 !define MUI_WELCOMEFINISHPAGE_BITMAP "welcome_finish_page.bmp"
 !define MUI_WELCOMEPAGE_TITLE_3LINES
 
+# Variables for custom dialogs
+Var Dialog
+Var Label1
+Var Link1
+Var Link2
+Var CheckBox1
+Var CheckBox1_State
+
 !insertmacro MUI_PAGE_WELCOME
+Page custom mediaFoundationFrameworkCheck mediaFoundationFrameworkCheckLeave
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_STARTMENU Application $ICONS_GROUP
 !insertmacro MUI_PAGE_INSTFILES
@@ -70,11 +80,13 @@ Page custom showExternalLinks
   !insertmacro LANG_STRING "un.${NAME}" "${VALUE}"
 !macroend
 
+# Put English first so that it'll be chosen on Windows versions whose
+# language isn't supported.
+!insertmacro LANG_LOAD "English"
 !insertmacro LANG_LOAD "Basque"
 !insertmacro LANG_LOAD "Catalan"
 !insertmacro LANG_LOAD "Czech"
 !insertmacro LANG_LOAD "Dutch"
-!insertmacro LANG_LOAD "English"
 !insertmacro LANG_LOAD "French"
 !insertmacro LANG_LOAD "German"
 !insertmacro LANG_LOAD "Italian"
@@ -84,6 +96,7 @@ Page custom showExternalLinks
 !insertmacro LANG_LOAD "Polish"
 !insertmacro LANG_LOAD "Portuguese"
 !insertmacro LANG_LOAD "PortugueseBR"
+!insertmacro LANG_LOAD "Romanian"
 !insertmacro LANG_LOAD "Russian"
 !insertmacro LANG_LOAD "Serbian"
 !insertmacro LANG_LOAD "SerbianLatin"
@@ -104,14 +117,14 @@ Page custom showExternalLinks
 
 
 !if ${MINGW_PROCESSOR_ARCH} == "amd64"
-  Name "${PRODUCT_NAME} ${PRODUCT_VERSION} (64bit)${PRODUCT_VERSION_BUILD}"
-  BrandingText "${PRODUCT_NAME} ${PRODUCT_VERSION} (64bit)${PRODUCT_VERSION_BUILD} by ${PRODUCT_PUBLISHER}"
-  OutFile "mkvtoolnix-64bit-${PRODUCT_VERSION}-setup.exe"
+  Name "${PRODUCT_NAME} ${PRODUCT_VERSION} (64-bit)${PRODUCT_VERSION_BUILD}"
+  BrandingText "${PRODUCT_NAME} ${PRODUCT_VERSION} (64-bit)${PRODUCT_VERSION_BUILD} by ${PRODUCT_PUBLISHER}"
+  OutFile "mkvtoolnix-64-bit-${PRODUCT_VERSION}-setup.exe"
   InstallDir "$PROGRAMFILES64\${PRODUCT_NAME}"
 !else
-  Name "${PRODUCT_NAME} ${PRODUCT_VERSION} (32bit)${PRODUCT_VERSION_BUILD}"
-  BrandingText "${PRODUCT_NAME} ${PRODUCT_VERSION} (32bit)${PRODUCT_VERSION_BUILD} by ${PRODUCT_PUBLISHER}"
-  OutFile "mkvtoolnix-32bit-${PRODUCT_VERSION}-setup.exe"
+  Name "${PRODUCT_NAME} ${PRODUCT_VERSION} (32-bit)${PRODUCT_VERSION_BUILD}"
+  BrandingText "${PRODUCT_NAME} ${PRODUCT_VERSION} (32-bit)${PRODUCT_VERSION_BUILD} by ${PRODUCT_PUBLISHER}"
+  OutFile "mkvtoolnix-32-bit-${PRODUCT_VERSION}-setup.exe"
   InstallDir "$PROGRAMFILES\${PRODUCT_NAME}"
 !endif
 
@@ -132,9 +145,6 @@ RequestExecutionLevel none
 
 Function .onInit
   !insertmacro MUI_LANGDLL_DISPLAY
-
-  InitPluginsDir
-  File /oname=$PLUGINSDIR\external_links.ini "external_links.ini"
 FunctionEnd
 
 Section "Program files" SEC01
@@ -160,6 +170,8 @@ Section "Program files" SEC01
   Delete "$INSTDIR\doc\nl\mmg.html"
   Delete "$INSTDIR\doc\uk\mmg.html"
   Delete "$INSTDIR\doc\zh_CN\mmg.html"
+  Delete "$INSTDIR\examples\example-timecodes-v1.txt"
+  Delete "$INSTDIR\examples\example-timecodes-v2.txt"
   Delete "$INSTDIR\locale\cs\LC_MESSAGES\qtbase.qm"
   Delete "$INSTDIR\locale\de\LC_MESSAGES\qtbase.qm"
   Delete "$INSTDIR\locale\fr\LC_MESSAGES\qtbase.qm"
@@ -198,9 +210,11 @@ Section "Program files" SEC01
   Delete "$INSTDIR\doc\mkvmerge-gui.*"
 
   Delete "$INSTDIR\doc\README.Windows.txt"
+  Delete "$INSTDIR\doc\ChangeLog.txt"
 
   Delete "$SMPROGRAMS\$ICONS_GROUP\mkvmerge GUI.lnk"
   Delete "$SMPROGRAMS\$ICONS_GROUP\MKVToolNix GUI preview.lnk"
+  Delete "$SMPROGRAMS\$ICONS_GROUP\Documentation\ChangeLog - What is new.lnk"
 
   DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\App Paths\AppMainExe.exe"
 
@@ -230,16 +244,13 @@ Section "Program files" SEC01
   SetOutPath "$INSTDIR\Doc"
   CreateDirectory "$SMPROGRAMS\$ICONS_GROUP\Documentation"
   CreateShortCut "$SMPROGRAMS\$ICONS_GROUP\Documentation\Command line references.lnk" "$INSTDIR\doc\command_line_references.html"
-  CreateShortCut "$SMPROGRAMS\$ICONS_GROUP\Documentation\ChangeLog - What is new.lnk" "$INSTDIR\doc\ChangeLog.txt"
+  CreateShortCut "$SMPROGRAMS\$ICONS_GROUP\Documentation\NEWS.txt - What is new, what has changed.lnk" "$INSTDIR\doc\NEWS.txt"
   CreateShortCut "$SMPROGRAMS\$ICONS_GROUP\Documentation\README.lnk" "$INSTDIR\doc\README.txt"
   !insertmacro MUI_STARTMENU_WRITE_END
 
   ${registerExtension} "$INSTDIR\mkvtoolnix-gui.exe" ".mtxcfg" "MKVToolNix GUI Settings"
 
   SetOutPath "$INSTDIR"
-  IfSilent +3 0
-  MessageBox MB_ICONQUESTION|MB_YESNO|MB_DEFBUTTON2 "$(STRING_SHORTCUT_ON_DESKTOP)" IDNO +2
-  CreateShortCut "$DESKTOP\MKVToolNix GUI.lnk" "$INSTDIR\mkvtoolnix-gui.exe" "" "$INSTDIR\mkvtoolnix-gui.exe"
 SectionEnd
 
 Section -AdditionalIcons
@@ -261,11 +272,81 @@ Section -Post
   WriteRegStr ${PRODUCT_UNINST_ROOT_KEY} "${PRODUCT_UNINST_KEY}" "Publisher" "${PRODUCT_PUBLISHER}"
 SectionEnd
 
+Function mediaFoundationFrameworkCheck
+  IfFileExists $SYSDIR\evr.dll 0 +2
+  Return
+
+  IfSilent 0 +2
+  Quit
+
+  nsDialogs::Create 1018
+  Pop $Dialog
+
+  ${If} $Dialog == error
+    Abort
+  ${EndIf}
+
+  ${NSD_CreateLabel} 0 0 100% 32u "$(STRING_MFF_NOT_FOUND)"
+  Pop $Label1
+
+  ${NSD_CreateLink} 0 32u 100% 16u "$(STRING_MFF_MORE_INFORMATION)"
+  Pop $Link1
+
+  ${NSD_CreateCheckBox} 0 48u 100% 16u "$(STRING_MFF_CONTINUE_ANYWAY)"
+  Pop $CheckBox1
+
+  ${NSD_OnClick} $Link1 onClickMediaFoundationMoreInformation
+
+  nsDialogs::Show
+FunctionEnd
+
+Function mediaFoundationFrameworkCheckLeave
+  ${NSD_GetState} $CheckBox1 $CheckBox1_State
+
+  ${If} $CheckBox1_State == ${BST_UNCHECKED}
+    Quit
+  ${EndIf}
+FunctionEnd
+
+Function onClickMediaFoundationMoreInformation
+  Pop $0
+  ExecShell "open" "https://github.com/mbunkus/mkvtoolnix/wiki/DLLs-not-found"
+FunctionEnd
+
 Function showExternalLinks
-  IfSilent +4 0
-  Push $R0
-  InstallOptions::dialog $PLUGINSDIR\external_links.ini
-  Pop $R0
+  IfSilent 0 +2
+  Return
+
+  nsDialogs::Create 1018
+  Pop $Dialog
+
+  ${If} $Dialog == error
+    Abort
+  ${EndIf}
+
+  ${NSD_CreateLabel} 0 0 100% 32u "$(STRING_EXT_LINKS_INTRO)"
+  Pop $Label1
+
+  ${NSD_CreateLink} 0 32u 100% 16u "gMKVExtractGUI"
+  Pop $Link1
+
+  ${NSD_CreateLink} 0 48u 100% 16u "MKVcleaver"
+  Pop $Link2
+
+  ${NSD_OnClick} $Link1 onClickExternalLinkgMKVExtractGUI
+  ${NSD_OnClick} $Link2 onClickExternalLinkMKVcleaver
+
+  nsDialogs::Show
+FunctionEnd
+
+Function onClickExternalLinkgMKVExtractGUI
+  Pop $0
+  ExecShell "open" "https://sourceforge.net/projects/gmkvextractgui/"
+FunctionEnd
+
+Function onClickExternalLinkMKVcleaver
+  Pop $0
+  ExecShell "open" "https://blogs.sapib.ca/apps/mkvcleaver/"
 FunctionEnd
 
 var unRemoveJobs

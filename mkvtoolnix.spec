@@ -4,34 +4,38 @@
 
 Name: mkvtoolnix
 URL: https://mkvtoolnix.download/
-Version: 9.5.0
+Version: 18.0.0
 Release: 1
 Summary: Tools to create, alter and inspect Matroska files
 Source: %{name}-%{version}.tar.xz
+Requires: hicolor-icon-theme
 
-BuildRequires: fdupes, file-devel, flac, flac-devel, libcurl-devel, libogg-devel, libstdc++-devel, libvorbis-devel, make, pkgconfig
+BuildRequires: desktop-file-utils, fdupes, file-devel, flac, flac-devel, glibc-devel, libogg-devel, libstdc++-devel, libvorbis-devel, make, pkgconfig, zlib-devel, boost-devel >= 1.46.0, po4a
 
-%if 0%{?centos} && 0%{?centos} < 7
-BuildRequires: devtoolset-1.1-gcc-c++ >= 4.6.3
+%if 0%{?centos}
+BuildRequires: devtoolset-6-gcc-c++, rubygem-drake
+%endif
+
+%if 0%{?suse_version}
+BuildRequires: gettext-tools libqt5-qtbase-devel, libqt5-qtmultimedia-devel, ruby2.1-rubygem-rake, libxslt-tools, docbook-xsl-stylesheets, googletest-devel
 %else
-BuildRequires: boost-devel >= 1.46.0, gcc-c++ >= 4.6.3, ruby >= 1.9
+BuildRequires: gettext-devel, qt5-qtbase-devel, qt5-qtmultimedia-devel, libxslt, docbook-style-xsl, gtest-devel
+%endif
+
+%if 0%{?suse_version}
+BuildRequires: gcc7-c++
+%endif
+
+%if 0%{?fedora}
+BuildRequires: gcc-c++ >= 4.9.0, rubypick, pugixml-devel, rubygem-drake, json-devel >= 2
 %endif
 
 %if 0%{?suse_version}
 Group: Productivity/Multimedia/Other
 License: GPL-2.0
-BuildRequires: gettext-tools libqt5-qtbase-devel
-%endif
-
-%if 0%{?fedora} || 0%{?rhel} || 0%{?centos}
+%else
 Group: Applications/Multimedia
 License: GPLv2
-BuildRequires: qt5-qtbase-devel, gettext-devel
-
-%if 0%{?fedora}
-BuildRequires: rubypick, pugixml-devel
-%endif
-
 %endif
 
 %description
@@ -47,28 +51,73 @@ Authors:
 %prep
 %setup
 
-export CFLAGS="$RPM_OPT_FLAGS"
-export CXXFLAGS="$RPM_OPT_FLAGS"
+export CFLAGS="%{optflags}"
+export CXXFLAGS="%{optflags}"
 
-%if 0%{?centos} && 0%{?centos} < 7
-export CC=/opt/centos/devtoolset-1.1/root/usr/bin/gcc
-export CXX=/opt/centos/devtoolset-1.1/root/usr/bin/g++
-export EXTRA_CONFIGURE_ARGS="--with-boost=/opt/boost"
+%if 0%{?centos}
+export CC=/opt/rh/devtoolset-6/root/bin/gcc
+export CXX=/opt/rh/devtoolset-6/root/bin/g++
 %endif
 
-%configure --enable-debug --enable-optimization $EXTRA_CONFIGURE_ARGS
+%if 0%{?suse_version}
+export CC=/usr/bin/gcc-7
+export CXX=/usr/bin/g++-7
+%endif
+
+%configure \
+  --enable-debug \
+  --disable-optimization
 
 %build
-./drake
+%if 0%{?suse_version}
+rake
+%else
+drake
+%endif
+
+%check
+%if 0%{?suse_version}
+rake tests:run_unit
+%else
+drake tests:run_unit
+%endif
 
 %install
-./drake DESTDIR=$RPM_BUILD_ROOT install
+%if 0%{?suse_version}
+rake DESTDIR=$RPM_BUILD_ROOT install
+strip ${RPM_BUILD_ROOT}/usr/bin/*
+%else
+drake DESTDIR=$RPM_BUILD_ROOT install
+%endif
+
+for f in mkvtoolnix-gui mkvinfo; do
+  desktop-file-validate %{buildroot}%{_datadir}/applications/org.bunkus.$f.desktop
+done
+
 %fdupes -s %buildroot/%_mandir
 %fdupes -s %buildroot/%_prefix
 
+%post
+update-desktop-database                     &> /dev/null || true
+touch --no-create %{_datadir}/icons/hicolor &> /dev/null || true
+touch --no-create %{_datadir}/mime/packages &> /dev/null || true
+
+%postun
+update-desktop-database &>/dev/null || true
+if [ $1 -eq 0 ]; then
+  touch --no-create %{_datadir}/icons/hicolor         &> /dev/null || true
+  gtk-update-icon-cache %{_datadir}/icons/hicolor     &> /dev/null || true
+  touch --no-create %{_datadir}/mime/packages         &> /dev/null || true
+  update-mime-database %{?fedora:-n} %{_datadir}/mime &> /dev/null || true
+fi
+
+%posttrans
+gtk-update-icon-cache %{_datadir}/icons/hicolor     &> /dev/null || true
+update-mime-database %{?fedora:-n} %{_datadir}/mime &> /dev/null || true
+
 %files
 %defattr (-,root,root)
-%doc AUTHORS COPYING README.md ChangeLog
+%doc AUTHORS COPYING README.md NEWS.md
 %{_bindir}/*
 %{_datadir}/applications/*.desktop
 %{_datadir}/icons/hicolor/*/*/*.png
@@ -87,6 +136,7 @@ export EXTRA_CONFIGURE_ARGS="--with-boost=/opt/boost"
 %lang(pl) %{_datadir}/locale/pl/*/*.mo
 %lang(pt) %{_datadir}/locale/pt/*/*.mo
 %lang(pt_BR) %{_datadir}/locale/pt_BR/*/*.mo
+%lang(ro) %{_datadir}/locale/ro/*/*.mo
 %lang(ru) %{_datadir}/locale/ru/*/*.mo
 %lang(sr_RS) %{_datadir}/locale/sr_RS/*/*.mo
 %lang(sr_RS@latin) %{_datadir}/locale/sr_RS@latin/*/*.mo
@@ -105,8 +155,51 @@ export EXTRA_CONFIGURE_ARGS="--with-boost=/opt/boost"
 %{_datadir}/man/pl
 %{_datadir}/man/uk
 %{_datadir}/man/zh_CN
+%{_datadir}/mkvtoolnix
 
 %changelog -n mkvtoolnix
+* Sat Nov 18 2017 Moritz Bunkus <moritz@bunkus.org> 18.0.0-1
+- New version
+
+* Sat Oct 14 2017 Moritz Bunkus <moritz@bunkus.org> 17.0.0-1
+- New version
+
+* Sat Sep 30 2017 Moritz Bunkus <moritz@bunkus.org> 16.0.0-1
+- New version
+
+* Sat Aug 19 2017 Moritz Bunkus <moritz@bunkus.org> 15.0.0-1
+- New version
+
+* Sun Jul 23 2017 Moritz Bunkus <moritz@bunkus.org> 14.0.0-1
+- New version
+
+* Sun Jun 25 2017 Moritz Bunkus <moritz@bunkus.org> 13.0.0-1
+- New version
+
+* Sat May 20 2017 Moritz Bunkus <moritz@bunkus.org> 12.0.0-1
+- New version
+
+* Sat Apr 22 2017 Moritz Bunkus <moritz@bunkus.org> 11.0.0-1
+- New version
+
+* Sat Mar 25 2017 Moritz Bunkus <moritz@bunkus.org> 10.0.0-1
+- New version
+
+* Sun Feb 19 2017 Moritz Bunkus <moritz@bunkus.org> 9.9.0-1
+- New version
+
+* Sun Jan 22 2017 Moritz Bunkus <moritz@bunkus.org> 9.8.0-1
+- New version
+
+* Tue Dec 27 2016 Moritz Bunkus <moritz@bunkus.org> 9.7.1-1
+- New version
+
+* Tue Dec 27 2016 Moritz Bunkus <moritz@bunkus.org> 9.7.0-1
+- New version
+
+* Tue Nov 29 2016 Moritz Bunkus <moritz@bunkus.org> 9.6.0-1
+- New version
+
 * Sun Oct 16 2016 Moritz Bunkus <moritz@bunkus.org> 9.5.0-1
 - New version
 

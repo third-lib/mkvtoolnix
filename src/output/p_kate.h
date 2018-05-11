@@ -12,8 +12,7 @@
    Adapted from code by Moritz Bunkus <moritz@bunkus.org>.
 */
 
-#ifndef MTX_P_KATE_H
-#define MTX_P_KATE_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -26,7 +25,7 @@ private:
 
   kate_identification_header_t m_kate_id;
 
-  int64_t m_previous_timecode;
+  int64_t m_previous_timestamp;
 
 public:
   kate_packetizer_c(generic_reader_c *reader, track_info_c &ti);
@@ -40,5 +39,3 @@ public:
   }
   virtual connection_result_e can_connect_to(generic_packetizer_c *src, std::string &error_message);
 };
-
-#endif  // MTX_P_KATE_H

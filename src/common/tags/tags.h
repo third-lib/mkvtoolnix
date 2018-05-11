@@ -11,8 +11,7 @@
    Written by Moritz Bunkus <moritz@bunkus.org>.
 */
 
-#ifndef MTX_COMMON_TAG_COMMON_H
-#define MTX_COMMON_TAG_COMMON_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -37,7 +36,6 @@ using namespace libmatroska;
 
 namespace mtx { namespace tags {
 
-void fix_mandatory_elements(EbmlElement *e);
 void remove_track_uid_targets(EbmlMaster *tag);
 void remove_elements_unsupported_by_webm(EbmlMaster &master);
 bool remove_track_statistics(KaxTags *tags, boost::optional<uint64_t> track_uid);
@@ -153,5 +151,3 @@ remove_simple_tags_for(KaxTags &tags,
 }
 
 }}
-
-#endif // MTX_COMMON_TAG_COMMON_H

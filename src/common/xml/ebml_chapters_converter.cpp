@@ -37,8 +37,8 @@ ebml_chapters_converter_c::setup_maps() {
   m_formatter_map["ChapterTimeStart"]  = format_timestamp;
   m_formatter_map["ChapterTimeEnd"]    = format_timestamp;
 
-  m_parser_map["ChapterTimeStart"]     = parse_timecode;
-  m_parser_map["ChapterTimeEnd"]       = parse_timecode;
+  m_parser_map["ChapterTimeStart"]     = parse_timestamp;
+  m_parser_map["ChapterTimeEnd"]       = parse_timestamp;
 
   m_limits["EditionUID"]               = limits_t{ true, false, 1, 0 };
   m_limits["EditionFlagHidden"]        = limits_t{ true, true,  0, 1 };
@@ -198,13 +198,13 @@ ebml_chapters_converter_c::probe_file(std::string const &file_name) {
   return false;
 }
 
-kax_chapters_cptr
+mtx::chapters::kax_cptr
 ebml_chapters_converter_c::parse_file(std::string const &file_name,
                                       bool throw_on_error) {
-  auto parse = [&]() -> std::shared_ptr<KaxChapters> {
+  auto parse = [&file_name]() -> auto {
     auto master = ebml_chapters_converter_c{}.to_ebml(file_name, "Chapters");
     sort_ebml_master(master.get());
-    fix_mandatory_chapter_elements(static_cast<KaxChapters *>(master.get()));
+    fix_mandatory_elements(static_cast<KaxChapters *>(master.get()));
     return std::dynamic_pointer_cast<KaxChapters>(master);
   };
 
@@ -224,7 +224,7 @@ ebml_chapters_converter_c::parse_file(std::string const &file_name,
     mxerror(boost::format(Y("The XML chapter file '%1%' contains an error: %2%\n")) % file_name % ex.what());
   }
 
-  return kax_chapters_cptr{};
+  return mtx::chapters::kax_cptr{};
 }
 
 }}

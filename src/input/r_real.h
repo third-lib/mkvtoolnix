@@ -11,8 +11,7 @@
    Written by Moritz Bunkus <moritz@bunkus.org>.
 */
 
-#ifndef MTX_R_REAL_H
-#define MTX_R_REAL_H
+#pragma once
 
 #include "common/common_pch.h"
 
@@ -50,8 +49,8 @@ struct real_demuxer_t {
 
   bool first_frame;
   int num_packets;
-  uint64_t last_timecode;
-  int64_t ref_timecode;         // can be negative
+  uint64_t last_timestamp;
+  int64_t ref_timestamp;         // can be negative
 
   std::vector<rv_segment_cptr> segments;
 
@@ -74,8 +73,8 @@ struct real_demuxer_t {
     ra5p(nullptr),
     first_frame(true),
     num_packets(0),
-    last_timecode(0),
-    ref_timecode(0) {
+    last_timestamp(0),
+    ref_timestamp(0) {
 
     memset(fourcc, 0, 5);
   };
@@ -93,8 +92,8 @@ public:
   real_reader_c(const track_info_c &ti, const mm_io_cptr &in);
   virtual ~real_reader_c();
 
-  virtual file_type_e get_format_type() const {
-    return FILE_TYPE_REAL;
+  virtual mtx::file_type_e get_format_type() const {
+    return mtx::file_type_e::real;
   }
 
   virtual void read_headers();
@@ -116,8 +115,8 @@ protected:
   virtual void set_dimensions(real_demuxer_cptr dmx, unsigned char *buffer, int size);
   virtual void get_information_from_data();
   virtual void deliver_aac_frames(real_demuxer_cptr dmx, memory_c &mem);
-  virtual void queue_audio_frames(real_demuxer_cptr dmx, memory_c &mem, uint64_t timecode, uint32_t flags);
-  virtual void queue_one_audio_frame(real_demuxer_cptr dmx, memory_c &mem, uint64_t timecode, uint32_t flags);
+  virtual void queue_audio_frames(real_demuxer_cptr dmx, memory_c &mem, uint64_t timestamp, uint32_t flags);
+  virtual void queue_one_audio_frame(real_demuxer_cptr dmx, memory_c &mem, uint64_t timestamp, uint32_t flags);
   virtual void deliver_audio_frames(real_demuxer_cptr dmx, uint64_t duration);
 
   virtual void create_audio_packetizer(real_demuxer_cptr dmx);
@@ -125,5 +124,3 @@ protected:
   virtual void create_dnet_audio_packetizer(real_demuxer_cptr dmx);
   virtual void create_video_packetizer(real_demuxer_cptr dmx);
 };
-
-#endif  // MTX_R_REAL_H

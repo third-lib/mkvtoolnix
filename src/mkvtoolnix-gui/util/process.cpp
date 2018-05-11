@@ -5,6 +5,7 @@
 #include <QTemporaryFile>
 
 #include "common/qt.h"
+#include "mkvtoolnix-gui/util/option_file.h"
 #include "mkvtoolnix-gui/util/process.h"
 #include "mkvtoolnix-gui/util/string.h"
 
@@ -27,6 +28,7 @@ void
 Process::run() {
   m_process.start(m_command, m_args);
   m_process.waitForFinished(-1);
+  dataAvailable();
 }
 
 QStringList
@@ -54,7 +56,7 @@ Process::onError() {
 
 void
 Process::dataAvailable() {
-  QByteArray output = m_process.readAllStandardOutput();
+  auto output = m_process.readAllStandardOutput();
   m_output += QString::fromUtf8(output);
 }
 
@@ -71,20 +73,9 @@ Process::execute(QString const &command,
   if (!useTempFile)
     return runner(command, args);
 
-  QTemporaryFile optFile;
+  auto optFile = OptionFile::createTemporary(Q("MKVToolNix-process"), args);
 
-  if (!optFile.open())
-    throw ProcessX{ to_utf8(QY("Error creating a temporary file (reason: %1).").arg(optFile.errorString())) };
-
-  static const unsigned char utf8_bom[3] = {0xef, 0xbb, 0xbf};
-  optFile.write(reinterpret_cast<char const *>(utf8_bom), 3);
-  for (auto &arg : Util::escape(args, EscapeMkvtoolnix))
-    optFile.write(QString{"%1\n"}.arg(arg).toUtf8());
-  optFile.close();
-
-  QStringList argsToUse;
-  argsToUse << QString{"@%1"}.arg(optFile.fileName());
-  return runner(command, argsToUse);
+  return runner(command, { QString{"@%1"}.arg(optFile->fileName()) });
 }
 
 // ----------------------------------------------------------------------

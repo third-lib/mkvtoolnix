@@ -11,14 +11,15 @@
    Written by Moritz Bunkus <moritz@bunkus.org>.
 */
 
-#ifndef MTX_COMMON_ID3_COMMON_H
-#define MTX_COMMON_ID3_COMMON_H
+#pragma once
 
 #include "common/common_pch.h"
 
-int skip_id3v2_tag(mm_io_c &io);
-int id3v1_tag_present_at_end(mm_io_c &io);
-int id3v2_tag_present_at_end(mm_io_c &io);
-int id3_tag_present_at_end(mm_io_c &io);
+namespace mtx { namespace id3 {
 
-#endif /* __ID3_COMMON_H */
+int skip_v2_tag(mm_io_c &io);
+int v1_tag_present_at_end(mm_io_c &io);
+int v2_tag_present_at_end(mm_io_c &io);
+int tag_present_at_end(mm_io_c &io);
+
+}}
